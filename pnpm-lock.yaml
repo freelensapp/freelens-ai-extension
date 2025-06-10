@@ -76,11 +76,11 @@ importers:
         specifier: ^19.1.0
         version: 19.1.0(react@19.1.0)
       sass:
-        specifier: ^1.87.0
-        version: 1.88.0
+        specifier: ^1.89.2
+        version: 1.89.2
       sass-loader:
         specifier: ^16.0.5
-        version: 16.0.5(sass@1.88.0)(webpack@5.99.8)
+        version: 16.0.5(sass@1.89.2)(webpack@5.99.8)
       style-loader:
         specifier: ^4.0.0
         version: 4.0.0(webpack@5.99.8)
@@ -92,7 +92,7 @@ importers:
         version: 5.8.3
       vite:
         specifier: ^6.3.5
-        version: 6.3.5(@types/node@22.15.18)(less@4.3.0)(sass@1.88.0)(stylus@0.62.0)(terser@5.39.1)(yaml@2.7.1)
+        version: 6.3.5(@types/node@22.15.18)(less@4.3.0)(sass@1.89.2)(stylus@0.62.0)(terser@5.39.1)(yaml@2.7.1)
       webpack:
         specifier: ^5.99.8
         version: 5.99.8(webpack-cli@6.0.1)
@@ -3230,8 +3230,8 @@ packages:
       webpack:
         optional: true
 
-  sass@1.88.0:
-    resolution: {integrity: sha512-sF6TWQqjFvr4JILXzG4ucGOLELkESHL+I5QJhh7CNaE+Yge0SI+ehCatsXhJ7ymU1hAFcIS3/PBpjdIbXoyVbg==}
+  sass@1.89.2:
+    resolution: {integrity: sha512-xCmtksBKd/jdJ9Bt9p7nPKiuqrlBMBuuGkQlkhZjjQk3Ty48lv93k5Dq6OPkKt4XwxDJ7tvlfrTa1MPA9bf+QA==}
     engines: {node: '>=14.0.0'}
     hasBin: true
 
@@ -7351,14 +7351,14 @@ snapshots:
 
   safer-buffer@2.1.2: {}
 
-  sass-loader@16.0.5(sass@1.88.0)(webpack@5.99.8):
+  sass-loader@16.0.5(sass@1.89.2)(webpack@5.99.8):
     dependencies:
       neo-async: 2.6.2
     optionalDependencies:
-      sass: 1.88.0
+      sass: 1.89.2
       webpack: 5.99.8(webpack-cli@6.0.1)
 
-  sass@1.88.0:
+  sass@1.89.2:
     dependencies:
       chokidar: 4.0.3
       immutable: 5.1.2
@@ -7736,7 +7736,7 @@ snapshots:
       postcss-modules-local-by-default: 4.2.0(postcss@8.5.3)
       postcss-modules-scope: 3.2.1(postcss@8.5.3)
       reserved-words: 0.1.2
-      sass: 1.88.0
+      sass: 1.89.2
       source-map-js: 1.2.1
       stylus: 0.62.0
       tsconfig-paths: 4.2.0
@@ -7860,7 +7860,7 @@ snapshots:
       unist-util-stringify-position: 2.0.3
       vfile-message: 2.0.4
 
-  vite@6.3.5(@types/node@22.15.18)(less@4.3.0)(sass@1.88.0)(stylus@0.62.0)(terser@5.39.1)(yaml@2.7.1):
+  vite@6.3.5(@types/node@22.15.18)(less@4.3.0)(sass@1.89.2)(stylus@0.62.0)(terser@5.39.1)(yaml@2.7.1):
     dependencies:
       esbuild: 0.25.4
       fdir: 6.4.4(picomatch@4.0.2)
@@ -7872,7 +7872,7 @@ snapshots:
       '@types/node': 22.15.18
       fsevents: 2.3.3
       less: 4.3.0
-      sass: 1.88.0
+      sass: 1.89.2
       stylus: 0.62.0
       terser: 5.39.1
       yaml: 2.7.1
