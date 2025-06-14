@@ -51,7 +51,7 @@
     "@langchain/ollama": "^0.2.0",
     "@langchain/openai": "^0.5.10",
     "@types/react-syntax-highlighter": "^15.5.13",
-    "langchain": "^0.3.25",
+    "langchain": "^0.3.28",
     "lucide-react": "^0.510.0",
     "mobx": "^6.13.7",
     "mobx-react": "^9.2.0",
