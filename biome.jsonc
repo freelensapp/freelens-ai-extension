@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignore": [".trunk/**", "**/dist/**", "**/package.json"]
+    "ignore": [".trunk/**", "**/out/**", "**/package.json"]
   },
   "formatter": {
     "attributePosition": "auto",

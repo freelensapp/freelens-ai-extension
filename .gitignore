@@ -7,6 +7,7 @@
 *.tgz
 
 !custom.d.ts
+!env.d.ts
 
 /dist/
 

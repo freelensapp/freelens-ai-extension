@@ -1,0 +1,8 @@
+.extension-ai-main-page {
+  display: flex;
+  flex-direction: column;
+  justify-content: center; // Centers horizontally
+  align-items: center;    // Centers vertically
+  height: 100%;          // Ensures it takes the full viewport height
+  width: 100%;
+}
