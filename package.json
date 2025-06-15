@@ -50,7 +50,7 @@
     "@langchain/langgraph": "^0.2.72",
     "@langchain/mcp-adapters": "^0.5.2",
     "@langchain/ollama": "^0.2.0",
-    "@langchain/openai": "^0.5.10",
+    "@langchain/openai": "^0.5.13",
     "@types/node": "^22.15.30",
     "@types/react": "^17.0.87",
     "@types/react-syntax-highlighter": "^15.5.13",
