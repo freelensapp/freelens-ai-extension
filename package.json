@@ -63,7 +63,7 @@
     "react-markdown": "^6.0.3",
     "react-select": "5.10.1",
     "react-syntax-highlighter": "^15.6.1",
-    "sass": "^1.89.1",
+    "sass": "^1.89.2",
     "typescript": "5.8.3",
     "vite": "^6.3.5",
     "vite-plugin-external": "^6.2.2",
