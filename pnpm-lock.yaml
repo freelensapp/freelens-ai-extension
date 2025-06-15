@@ -30,8 +30,8 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))
       '@langchain/openai':
-        specifier: ^0.5.10
-        version: 0.5.10(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))(ws@8.18.2)
+        specifier: ^0.5.13
+        version: 0.5.13(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))(ws@8.18.2)
       '@types/node':
         specifier: ^22.15.30
         version: 22.15.31
@@ -652,11 +652,11 @@ packages:
     peerDependencies:
       '@langchain/core': '>=0.2.21 <0.4.0'
 
-  '@langchain/openai@0.5.10':
-    resolution: {integrity: sha512-hBQIWjcVxGS7tgVvgBBmrZ5jSaJ8nu9g6V64/Tx6KGjkW7VdGmUvqCO+koiQCOZVL7PBJkHWAvDsbghPYXiZEA==}
+  '@langchain/openai@0.5.13':
+    resolution: {integrity: sha512-t5UsO7XYE+DBQlXQ21QK74Y+LH4It20wnENrmueNvxIWTn0nHDIGVmO6wo4rJxbmOOPRQ4l/oAxGRnYU8B8v6w==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@langchain/core': '>=0.3.48 <0.4.0'
+      '@langchain/core': '>=0.3.58 <0.4.0'
 
   '@modelcontextprotocol/sdk@1.12.1':
     resolution: {integrity: sha512-KG1CZhZfWg+u8pxeM/mByJDScJSrjjxLc8fwQqbsS8xCjBmQfMNEBTotYdNanKekepnfRI85GtgQlctLFpcYPw==}
@@ -3533,6 +3533,9 @@ packages:
     peerDependencies:
       zod: ^3.24.1
 
+  zod@3.25.32:
+    resolution: {integrity: sha512-OSm2xTIRfW8CV5/QKgngwmQW/8aPfGdaQFlrGoErlgg/Epm7cjb6K6VEyExfe65a3VybUOnu381edLb0dfJl0g==}
+
   zod@3.25.64:
     resolution: {integrity: sha512-hbP9FpSZf7pkS7hRVUrOjhwKJNyampPgtXKc3AN6DsWtoHsg2Sb4SQaS4Tcay380zSwd2VPo9G9180emBACp5g==}
 
@@ -4504,13 +4507,12 @@ snapshots:
       zod: 3.25.64
       zod-to-json-schema: 3.24.5(zod@3.25.64)
 
-  '@langchain/openai@0.5.10(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))(ws@8.18.2)':
+  '@langchain/openai@0.5.13(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))(ws@8.18.2)':
     dependencies:
       '@langchain/core': 0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64))
       js-tiktoken: 1.0.20
-      openai: 4.98.0(ws@8.18.2)(zod@3.25.64)
-      zod: 3.25.64
-      zod-to-json-schema: 3.24.5(zod@3.25.64)
+      openai: 4.98.0(ws@8.18.2)(zod@3.25.32)
+      zod: 3.25.32
     transitivePeerDependencies:
       - encoding
       - ws
@@ -6369,6 +6371,21 @@ snapshots:
     dependencies:
       mimic-fn: 2.1.0
 
+  openai@4.98.0(ws@8.18.2)(zod@3.25.32):
+    dependencies:
+      '@types/node': 18.19.100
+      '@types/node-fetch': 2.6.12
+      abort-controller: 3.0.0
+      agentkeepalive: 4.6.0
+      form-data-encoder: 1.7.2
+      formdata-node: 4.4.1
+      node-fetch: 2.7.0
+    optionalDependencies:
+      ws: 8.18.2
+      zod: 3.25.32
+    transitivePeerDependencies:
+      - encoding
+
   openai@4.98.0(ws@8.18.2)(zod@3.25.64):
     dependencies:
       '@types/node': 18.19.100
@@ -6383,6 +6400,7 @@ snapshots:
       zod: 3.25.64
     transitivePeerDependencies:
       - encoding
+    optional: true
 
   optionator@0.8.3:
     dependencies:
@@ -7440,5 +7458,7 @@ snapshots:
   zod-to-json-schema@3.24.5(zod@3.25.64):
     dependencies:
       zod: 3.25.64
+
+  zod@3.25.32: {}
 
   zod@3.25.64: {}
