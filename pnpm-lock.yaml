@@ -18,8 +18,8 @@ importers:
         specifier: ^0.3.55
         version: 0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64))
       '@langchain/google-genai':
-        specifier: ^0.2.10
-        version: 0.2.10(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))(zod@3.25.64)
+        specifier: ^0.2.12
+        version: 0.2.12(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))
       '@langchain/langgraph':
         specifier: ^0.2.72
         version: 0.2.72(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))(react@17.0.2)(zod-to-json-schema@3.24.5(zod@3.25.64))
@@ -607,11 +607,11 @@ packages:
     resolution: {integrity: sha512-SojY2ugpT6t9eYfFB9Ysvyhhyh+KJTGXs50hdHUE9tAEQWp3WAwoxe4djwJnOZ6fSpWYdpFt2UT2ksHVDy2vXA==}
     engines: {node: '>=18'}
 
-  '@langchain/google-genai@0.2.10':
-    resolution: {integrity: sha512-kIy0qhu7FAsShNTvuOx8uV+hf7mWk8OzJP5W9mjs1ovAIT1C9WqG1epkhexBfj4DAQfQ6E+m/oGtJ+CVsalspw==}
+  '@langchain/google-genai@0.2.12':
+    resolution: {integrity: sha512-dVfkNW3uJ2Ing4KAYPTfkdTDIA4FDrik/YK5A5bE8w7drP0J+7g0h2i8D5Mn7dDcyPuX74qd2VG9hWCyGLtZiw==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@langchain/core': '>=0.3.55 <0.4.0'
+      '@langchain/core': '>=0.3.58 <0.4.0'
 
   '@langchain/langgraph-checkpoint@0.0.17':
     resolution: {integrity: sha512-6b3CuVVYx+7x0uWLG+7YXz9j2iBa+tn2AXvkLxzEvaAsLE6Sij++8PPbS2BZzC+S/FPJdWsz6I5bsrqL0BYrCA==}
@@ -4449,14 +4449,11 @@ snapshots:
     transitivePeerDependencies:
       - openai
 
-  '@langchain/google-genai@0.2.10(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))(zod@3.25.64)':
+  '@langchain/google-genai@0.2.12(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))':
     dependencies:
       '@google/generative-ai': 0.24.1
       '@langchain/core': 0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64))
       uuid: 11.1.0
-      zod-to-json-schema: 3.24.5(zod@3.25.64)
-    transitivePeerDependencies:
-      - zod
 
   '@langchain/langgraph-checkpoint@0.0.17(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))':
     dependencies:
