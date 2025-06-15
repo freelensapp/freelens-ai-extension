@@ -51,6 +51,8 @@ lint:
         run: yamlfmt -version
       known_good_version: 0.16.0
   enabled:
+    - hadolint@2.12.1-beta
+    - oxipng@9.1.5
     - actionlint@1.7.7
     - biome@1.9.4
     - git-diff-check
