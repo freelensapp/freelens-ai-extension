@@ -48,8 +48,8 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0(vite@6.3.5(@types/node@22.15.31)(less@4.3.0)(sass@1.89.2)(stylus@0.62.0)(terser@5.39.1)(yaml@2.7.1))
       lucide-react:
-        specifier: ^0.510.0
-        version: 0.510.0(react@17.0.2)
+        specifier: ^0.515.0
+        version: 0.515.0(react@17.0.2)
       mobx:
         specifier: ^6.13.7
         version: 6.13.7
@@ -2261,8 +2261,8 @@ packages:
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
 
-  lucide-react@0.510.0:
-    resolution: {integrity: sha512-p8SQRAMVh7NhsAIETokSqDrc5CHnDLbV29mMnzaXx+Vc/hnqQzwI2r0FMWCcoTXnbw2KEjy48xwpGdEL+ck06Q==}
+  lucide-react@0.515.0:
+    resolution: {integrity: sha512-Sy7bY0MeicRm2pzrnoHm2h6C1iVoeHyBU2fjdQDsXGP51fhkhau1/ZV/dzrcxEmAKsxYb6bGaIsMnGHuQ5s0dw==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
@@ -6144,7 +6144,7 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
-  lucide-react@0.510.0(react@17.0.2):
+  lucide-react@0.515.0(react@17.0.2):
     dependencies:
       react: 17.0.2
 
