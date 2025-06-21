@@ -27,8 +27,8 @@ importers:
         specifier: ^0.5.2
         version: 0.5.2(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))
       '@langchain/ollama':
-        specifier: ^0.2.0
-        version: 0.2.0(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))
+        specifier: ^0.2.3
+        version: 0.2.3(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))
       '@langchain/openai':
         specifier: ^0.5.10
         version: 0.5.10(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))(ws@8.18.2)
@@ -646,11 +646,11 @@ packages:
     peerDependencies:
       '@langchain/core': ^0.3.44
 
-  '@langchain/ollama@0.2.0':
-    resolution: {integrity: sha512-jLlYFqt+nbhaJKLakk7lRTWHZJ7wHeJLM6yuv4jToQ8zPzpL//372+MjggDoW0mnw8ofysg1T2C6mEJspKJtiA==}
+  '@langchain/ollama@0.2.3':
+    resolution: {integrity: sha512-1Obe45jgQspqLMBVlayQbGdywFmri8DgmGRdzNu0li56cG5RReYlRCFVDZBRMMvF9JhsP5eXRyfyivtKfITHWQ==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@langchain/core': '>=0.2.21 <0.4.0'
+      '@langchain/core': '>=0.3.58 <0.4.0'
 
   '@langchain/openai@0.5.10':
     resolution: {integrity: sha512-hBQIWjcVxGS7tgVvgBBmrZ5jSaJ8nu9g6V64/Tx6KGjkW7VdGmUvqCO+koiQCOZVL7PBJkHWAvDsbghPYXiZEA==}
@@ -4496,13 +4496,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@langchain/ollama@0.2.0(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))':
+  '@langchain/ollama@0.2.3(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))':
     dependencies:
       '@langchain/core': 0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64))
       ollama: 0.5.15
       uuid: 10.0.0
-      zod: 3.25.64
-      zod-to-json-schema: 3.24.5(zod@3.25.64)
 
   '@langchain/openai@0.5.10(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2)(zod@3.25.64)))(ws@8.18.2)':
     dependencies:

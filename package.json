@@ -49,7 +49,7 @@
     "@langchain/google-genai": "^0.2.10",
     "@langchain/langgraph": "^0.2.72",
     "@langchain/mcp-adapters": "^0.5.2",
-    "@langchain/ollama": "^0.2.0",
+    "@langchain/ollama": "^0.2.3",
     "@langchain/openai": "^0.5.10",
     "@types/node": "^22.15.30",
     "@types/react": "^17.0.87",
