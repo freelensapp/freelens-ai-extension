@@ -35,7 +35,7 @@
     "bump-version": "corepack pnpm version --no-commit-hooks --no-git-tag-version",
     "clean": "corepack pnpm dlx rimraf@6.0.1 binaries dist static/build",
     "clean:node_modules": "corepack pnpm dlx rimraf@6.0.1 node_modules",
-    "knip": "corepack pnpm dlx knip@5.61.0 --dependencies",
+    "knip": "corepack pnpm dlx knip@5.61.3 --dependencies",
     "knip:development": "corepack pnpm knip",
     "knip:production": "corepack pnpm knip --production --strict",
     "lint": "corepack pnpm biome:check",
