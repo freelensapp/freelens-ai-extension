@@ -55,7 +55,7 @@
     "@types/node": "^22.15.30",
     "@types/react": "^17.0.87",
     "@types/react-syntax-highlighter": "^15.5.13",
-    "@vitejs/plugin-react": "^4.5.1",
+    "@vitejs/plugin-react": "^4.6.0",
     "electron-vite": "^3.1.0",
     "lucide-react": "^0.510.0",
     "mobx": "^6.13.7",
