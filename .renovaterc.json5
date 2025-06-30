@@ -28,7 +28,13 @@
     // it must be the oldest possible version to get binary compatibility with older OSes
     "ubuntu",
     // manual updates only
-    "@freelensapp/extensions"
+    "@freelensapp/extensions",
+    // must match version from Freelens
+    "mobx",
+    "mobx-react",
+    "react",
+    "react-dom",
+    "react-router-dom",
   ],
   "packageRules": [
     // peerDependencies are widen
@@ -44,9 +50,7 @@
       "matchDepNames": [
         "@types/node",
         "@types/react",
-        "electron",
         "npm",
-        "react",
       ],
       "matchUpdateTypes": [
         "major"

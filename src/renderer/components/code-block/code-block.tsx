@@ -1,10 +1,7 @@
-// @ts-ignore
-import React from "react";
-
 import { Copy, Play } from "lucide-react";
 import SyntaxHighlighter from "react-syntax-highlighter";
-import { useCodeBlockHook } from "./code-block-hook";
 import styleInline from "./code-block.scss?inline";
+import { useCodeBlockHook } from "./code-block-hook";
 
 type CodeBlockProps = {
   inline?: boolean;

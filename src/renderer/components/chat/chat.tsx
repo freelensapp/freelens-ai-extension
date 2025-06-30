@@ -1,18 +1,16 @@
-// @ts-ignore
-import React from "react";
-
 import { Loader2 } from "lucide-react";
 import { observer } from "mobx-react";
 import { PreferencesStore } from "../../../common/store";
-import { MessageObject } from "../../business/objects/message-object";
 import { getTextMessage } from "../../business/objects/message-object-provider";
 import { Message } from "../message";
 import { TextInput } from "../text-input";
-import { useChatHook } from "./chat-hook";
 import styleInline from "./chat.scss?inline";
+import { useChatHook } from "./chat-hook";
+
+import type { MessageObject } from "../../business/objects/message-object";
 
 export const Chat = observer(() => {
-  const preferencesStore = PreferencesStore.getInstance();
+  const preferencesStore = PreferencesStore.getInstance<PreferencesStore>();
   const chatHook = useChatHook(preferencesStore);
 
   return (
@@ -26,7 +24,13 @@ export const Chat = observer(() => {
 
           {/* Spinner that executes while the agent is running */}
           {preferencesStore.isLoading && (
-            <div style={{ display: "flex", justifyContent: "center", margin: "16px 0" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                margin: "16px 0",
+              }}
+            >
               <Loader2 size={32} className="chat-loading-spinner" />
             </div>
           )}

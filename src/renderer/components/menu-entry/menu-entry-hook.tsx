@@ -1,10 +1,8 @@
-// @ts-ignore
-import React from "react";
-
 import { Renderer } from "@freelensapp/extensions";
-import { PreferencesStore } from "../../../common/store";
 import { getExplainMessage } from "../../business/objects/message-object-provider";
 import { useChatHook } from "../chat";
+
+import type { PreferencesStore } from "../../../common/store";
 
 const {
   Navigation: { navigate },

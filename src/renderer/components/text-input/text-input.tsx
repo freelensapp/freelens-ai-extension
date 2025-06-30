@@ -1,13 +1,11 @@
-// @ts-ignore
-import React from "react";
-
 import { Renderer } from "@freelensapp/extensions";
 import { Eraser, SendHorizonal } from "lucide-react";
 import { observer } from "mobx-react";
 import { PreferencesStore } from "../../../common/store";
-import { AIModelsEnum } from "../../business/provider/ai-models";
-import { useTextInput } from "./text-input-hook";
 import styleInline from "./text-input.scss?inline";
+import { useTextInput } from "./text-input-hook";
+
+import type { AIModelsEnum } from "../../business/provider/ai-models";
 
 const {
   Component: { Select },
@@ -20,7 +18,7 @@ type TextInputProps = {
 };
 
 export const TextInput = observer(({ onSend }: TextInputProps) => {
-  const preferencesStore = PreferencesStore.getInstance();
+  const preferencesStore = PreferencesStore.getInstance<PreferencesStore>();
   const textInputHook = useTextInput({ onSend, preferencesStore });
   const textInputOptions = textInputHook.modelSelections as TextInputOption[];
 

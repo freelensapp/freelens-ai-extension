@@ -1,13 +1,14 @@
-import { Main } from "@freelensapp/extensions";
-import { Command } from "@langchain/langgraph"; // @ts-ignore
-import React from "react";
+import { Command } from "@langchain/langgraph";
 import { useEffect, useRef } from "react";
-import { PreferencesStore } from "../../../common/store";
-import { MessageObject } from "../../business/objects/message-object";
 import { getInterruptMessage, getTextMessage } from "../../business/objects/message-object-provider";
 import { MessageType } from "../../business/objects/message-type";
-import { AgentService, useAgentService } from "../../business/service/agent-service";
-import { AiAnalysisService, useAiAnalysisService } from "../../business/service/ai-analysis-service";
+import { type AgentService, useAgentService } from "../../business/service/agent-service";
+import { type AiAnalysisService, useAiAnalysisService } from "../../business/service/ai-analysis-service";
+
+import type { Main } from "@freelensapp/extensions";
+
+import type { PreferencesStore } from "../../../common/store";
+import type { MessageObject } from "../../business/objects/message-object";
 
 export interface ActionToApprove {
   action: string;
@@ -74,7 +75,7 @@ export const useChatHook = (preferencesStore: PreferencesStore) => {
   const analyzeEvent = async (lastMessage: MessageObject) => {
     try {
       const analysisResultStream = aiAnalysisService.analyze(lastMessage.text);
-      let aiResult = "";
+      const aiResult = "";
       sendMessage(getTextMessage(aiResult, false));
       for await (const chunk of analysisResultStream) {
         // console.log("Streaming to UI chunk: ", chunk);
@@ -93,7 +94,7 @@ export const useChatHook = (preferencesStore: PreferencesStore) => {
       const activeAgent = await preferencesStore.getActiveAgent();
       const agentService: AgentService = useAgentService(activeAgent);
       const agentResponseStream = agentService.run(agentInput, preferencesStore.conversationId);
-      let aiResult = "";
+      const aiResult = "";
       sendMessage(getTextMessage(aiResult, false));
       for await (const chunk of agentResponseStream) {
         // console.log("Streaming to UI chunk: ", chunk);

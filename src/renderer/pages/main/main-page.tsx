@@ -1,6 +1,3 @@
-// @ts-ignore
-import React from "react";
-
 import { Chat } from "../../components/chat";
 import styleInline from "./main-page.scss?inline";
 

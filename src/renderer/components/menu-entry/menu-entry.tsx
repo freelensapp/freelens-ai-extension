@@ -1,6 +1,3 @@
-// @ts-ignore
-import React from "react";
-
 import { Renderer } from "@freelensapp/extensions";
 import { PreferencesStore } from "../../../common/store";
 import { FreelensAiIcon } from "../freelens-ai-icon";
@@ -15,7 +12,7 @@ type KubeObjectMenuProps<TKubeObject extends KubeObject> = Renderer.Component.Ku
 
 // TODO KubeObjectMenuProps<Events>
 export const MenuEntry = ({ object }: KubeObjectMenuProps<any>) => {
-  const preferencesStore = PreferencesStore.getInstance();
+  const preferencesStore = PreferencesStore.getInstance<PreferencesStore>();
   const menuEntryHook = useMenuEntryHook(preferencesStore);
 
   return (

@@ -1,14 +1,12 @@
-// @ts-ignore
-import React from "react";
-
 import { Renderer } from "@freelensapp/extensions";
-import { PreferencesStore } from "../../../common/store";
-import { MessageObject } from "../../business/objects/message-object";
 import { getTextMessage } from "../../business/objects/message-object-provider";
 import { MessageType } from "../../business/objects/message-type";
 import { useChatHook } from "../chat";
 import { MarkdownViewer } from "../markdown-viewer";
 import styleInline from "./message.scss?inline";
+
+import type { PreferencesStore } from "../../../common/store";
+import type { MessageObject } from "../../business/objects/message-object";
 
 const {
   Component: { Button },

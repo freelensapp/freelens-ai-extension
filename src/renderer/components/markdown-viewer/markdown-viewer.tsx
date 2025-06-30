@@ -1,9 +1,6 @@
-// @ts-ignore
-import React from "react";
-
 import Markdown from "react-markdown";
-import { useMarkDownViewerHook } from "./markdown-viewer-hook";
 import styleInline from "./markdown-viewer.scss?inline";
+import { useMarkDownViewerHook } from "./markdown-viewer-hook";
 
 type MarkdownViewerProps = {
   content: string;

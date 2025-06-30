@@ -132,7 +132,11 @@ export const createDeployment = tool(
     name,
     namespace,
     data,
-  }: { name: string; namespace: string; data: Main.K8sApi.Deployment }): Promise<string> => {
+  }: {
+    name: string;
+    namespace: string;
+    data: Main.K8sApi.Deployment;
+  }): Promise<string> => {
     /**
      * Creates a deployment in the Kubernetes cluster
      */

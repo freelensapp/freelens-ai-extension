@@ -1,6 +1,3 @@
-// @ts-ignore
-import React from "react";
-
 import { Renderer } from "@freelensapp/extensions";
 import { observer } from "mobx-react";
 import { PreferencesStore } from "../../../common/store";
@@ -10,7 +7,7 @@ const {
 } = Renderer;
 
 export const PreferencesPage = observer(() => {
-  const preferencesStore = PreferencesStore.getInstance();
+  const preferencesStore = PreferencesStore.getInstance<PreferencesStore>();
 
   return (
     <>

@@ -3,10 +3,6 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-// transpiled .tsx code must have `React` symbol in the scope
-// @ts-ignore
-import React from "react";
-
 import { Renderer } from "@freelensapp/extensions";
 import { PreferencesStore } from "../common/store";
 import { FreelensAiIcon } from "./components/freelens-ai-icon";

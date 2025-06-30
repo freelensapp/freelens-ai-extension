@@ -1,8 +1,6 @@
-// @ts-ignore
-import React from "react";
-
-import { ReactNode } from "react";
 import { CodeBlock } from "../code-block";
+
+import type { ReactNode } from "react";
 
 export const useMarkDownViewerHook = () => {
   const getLanguage = (className?: string) => {
