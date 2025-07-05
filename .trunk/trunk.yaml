@@ -56,6 +56,8 @@ lint:
       files:
         - sass
   enabled:
+    - hadolint@2.12.1-beta
+    - oxipng@9.1.5
     - actionlint@1.7.7
     - biome@2.0.6! # datasource=npm depName=@biomejs/biome
     - git-diff-check
