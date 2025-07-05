@@ -21,8 +21,8 @@ importers:
         specifier: ^0.3.61
         version: 0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67))
       '@langchain/google-genai':
-        specifier: ^0.2.13
-        version: 0.2.13(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))
+        specifier: ^0.2.14
+        version: 0.2.14(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))
       '@langchain/langgraph':
         specifier: ^0.2.74
         version: 0.2.74(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(react@17.0.2)(zod-to-json-schema@3.24.5(zod@3.25.67))
@@ -650,8 +650,8 @@ packages:
     resolution: {integrity: sha512-4O7fw5SXNSE+uBnathLQrhm3t+7dZGagt/5kt37A+pXw0AkudxEBvveg73sSnpBd9SIz3/Vc7F4k8rCKXGbEDA==}
     engines: {node: '>=18'}
 
-  '@langchain/google-genai@0.2.13':
-    resolution: {integrity: sha512-ReZe4oNUhPNEijYo9CGA3/CJUwVPaaoYnyplZyYTbUNPAwwRH5aR1e6bppKFBb+ZZeTRCR25JFDIPnXJFfjaBg==}
+  '@langchain/google-genai@0.2.14':
+    resolution: {integrity: sha512-gKe/T2LNh8wSSMJOaFmYd8cwQnDSXKtVtC6a7CFoq5nWuh0bKzhItM/7bue1aMN8mlKfB2G1HCwxhaZoSpS/DA==}
     engines: {node: '>=18'}
     peerDependencies:
       '@langchain/core': '>=0.3.58 <0.4.0'
@@ -1508,6 +1508,7 @@ packages:
 
   cronstrue@2.61.0:
     resolution: {integrity: sha512-ootN5bvXbIQI9rW94+QsXN5eROtXWwew6NkdGxIRpS/UFWRggL0G5Al7a9GTBFEsuvVhJ2K3CntIIVt7L2ILhA==}
+    deprecated: Non-backwards compatible Breaking changes
     hasBin: true
 
   cross-spawn@7.0.6:
@@ -4448,7 +4449,7 @@ snapshots:
     transitivePeerDependencies:
       - openai
 
-  '@langchain/google-genai@0.2.13(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))':
+  '@langchain/google-genai@0.2.14(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))':
     dependencies:
       '@google/generative-ai': 0.24.1
       '@langchain/core': 0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67))
