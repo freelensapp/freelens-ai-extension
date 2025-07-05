@@ -10,13 +10,12 @@ const {
 type KubeObject = Renderer.K8sApi.KubeObject;
 type KubeObjectMenuProps<TKubeObject extends KubeObject> = Renderer.Component.KubeObjectMenuProps<TKubeObject>;
 
-// TODO KubeObjectMenuProps<Events>
-export const MenuEntry = ({ object }: KubeObjectMenuProps<any>) => {
+export const MenuEntry = ({ object }: KubeObjectMenuProps<Renderer.K8sApi.KubeEvent>) => {
   const preferencesStore = PreferencesStore.getInstance<PreferencesStore>();
   const menuEntryHook = useMenuEntryHook(preferencesStore);
 
   return (
-    <MenuItem onClick={() => menuEntryHook.openTab(object.message)}>
+    <MenuItem hidden={!object.message} onClick={() => menuEntryHook.openTab(object.message ?? "-")}>
       <FreelensAiIcon />
       <span className="title">Explain</span>
     </MenuItem>

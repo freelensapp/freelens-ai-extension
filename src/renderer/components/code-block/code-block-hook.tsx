@@ -1,12 +1,12 @@
 import { Renderer } from "@freelensapp/extensions";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 const {
   Component: { createTerminalTab, terminalStore },
 } = Renderer;
 
 type useCodeBlockHookProps = {
-  children: string;
+  children: ReactNode;
 };
 
 export const useCodeBlockHook = ({ children }: useCodeBlockHookProps) => {

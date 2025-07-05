@@ -1,6 +1,5 @@
 import { Common } from "@freelensapp/extensions";
 import { RemoveMessage } from "@langchain/core/messages";
-import { CompiledStateGraph } from "@langchain/langgraph";
 import { makeObservable, observable, toJS } from "mobx";
 import { useFreelensAgentSystem } from "../../renderer/business/agent/freelens-agent-system";
 import { useMcpAgent } from "../../renderer/business/agent/mcp-agent";
@@ -18,14 +17,15 @@ const generateConversationId = () => {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 };
 
+export type FreelensAgent = ReturnType<ReturnType<typeof useFreelensAgentSystem>["buildAgentSystem"]>;
+export type MPCAgent = Awaited<ReturnType<ReturnType<typeof useMcpAgent>["buildAgentSystem"]>>;
+
 export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesModel> {
   @observable accessor conversationId: string = generateConversationId();
   @observable accessor apiKey: string = "";
   @observable accessor selectedModel: AIModelsEnum = AIModelsEnum.GPT_3_5_TURBO;
-  // TODO replace any with the correct types
-  @observable accessor freelensAgent: CompiledStateGraph<object, object, any, any, any, any> | null = null;
-  // TODO replace any with the correct types
-  @observable accessor mcpAgent: CompiledStateGraph<object, object, any, any, any, any> | null = null;
+  @observable accessor freelensAgent: FreelensAgent | null = null;
+  @observable accessor mcpAgent: MPCAgent | null = null;
   @observable accessor mcpEnabled: boolean = false;
   @observable accessor mcpConfiguration: string = "";
   @observable accessor isLoading: boolean = false;
@@ -86,8 +86,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this._chatMessages = [];
   };
 
-  // TODO replace any with the correct types
-  private async cleanAgentMessageHistory(agent: CompiledStateGraph<object, object, any, any, any, any>) {
+  private async cleanAgentMessageHistory(agent: FreelensAgent | MPCAgent) {
     console.log("Cleaning agent message history for agent: ", agent);
     if (!agent) {
       console.warn("No agent provided to clean message history.");

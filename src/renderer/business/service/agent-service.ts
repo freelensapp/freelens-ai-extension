@@ -1,5 +1,7 @@
 import { isAIMessageChunk } from "@langchain/core/messages";
-import { Command, CompiledStateGraph, Interrupt } from "@langchain/langgraph";
+import { Command, Interrupt } from "@langchain/langgraph";
+
+import type { FreelensAgent, MPCAgent } from "../../../common/store";
 
 export interface AgentService {
   run(agentInput: object | Command, conversationId: string): AsyncGenerator<string | Interrupt, void, unknown>;
@@ -11,7 +13,7 @@ export interface AgentService {
  * @returns
  * @param agent
  */
-export const useAgentService = (agent: CompiledStateGraph<object, object, string, any, any, any>): AgentService => {
+export const useAgentService = (agent: FreelensAgent | MPCAgent): AgentService => {
   const run = async function* (agentInput: object | Command, conversationId: string) {
     console.log("Starting Agent Service run for message: ", agentInput);
 

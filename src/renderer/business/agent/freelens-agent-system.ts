@@ -34,13 +34,10 @@ export const useFreelensAgentSystem = () => {
     const response = await agentSupervisor.invoke({ messages: state.messages });
     console.log("Supervisor agent - supervisor response", response);
 
-    const responseAsAny = response as any;
-
-    // TOOD check why response is unknown
-    if (responseAsAny.goto === "__end__") {
-      responseAsAny.goto = conclusionsAgentName;
+    if (response.goto === "__end__") {
+      response.goto = conclusionsAgentName;
     }
-    return new Command({ goto: responseAsAny.goto });
+    return new Command({ goto: response.goto });
   };
 
   const agentAnalyzerNode = async (state: typeof GraphState.State) => {

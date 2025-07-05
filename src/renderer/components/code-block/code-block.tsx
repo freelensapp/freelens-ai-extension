@@ -3,11 +3,13 @@ import SyntaxHighlighter from "react-syntax-highlighter";
 import styleInline from "./code-block.scss?inline";
 import { useCodeBlockHook } from "./code-block-hook";
 
+import type { ReactNode } from "react";
+
 type CodeBlockProps = {
   inline?: boolean;
-  children: string;
+  children: ReactNode;
   language?: string;
-  props: any;
+  props: React.HTMLAttributes<HTMLElement>;
 };
 
 export const CodeBlock = ({ inline, children, language, props }: CodeBlockProps) => {

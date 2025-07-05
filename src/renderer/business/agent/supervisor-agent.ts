@@ -33,9 +33,7 @@ export const useAgentSupervisor = (modelName: AIModelsEnum, modelApiKey: string)
       workerResponsibilities: subAgentResponsibilities.join(", "),
       members: subAgents.join(", "),
     });
-    // TODO check why types fail
-    const modelAsAny = model as any;
-    return formattedPrompt.pipe(modelAsAny.withStructuredOutput(supervisorResponseSchema));
+    return formattedPrompt.pipe(model.withStructuredOutput(supervisorResponseSchema));
   };
 
   return { getAgent };
