@@ -1,3 +1,4 @@
 FROM ollama/ollama:0.7.1
-ARG MODELS="llama3.2:1b mistral:7b"
-RUN ollama serve & server=$! ; sleep 5 ; for m in $MODELS ; do ollama pull $m ; done ; kill $server
+
+RUN ollama serve & sleep 5 && ollama pull llama3.2:1b
+RUN ollama serve & sleep 5 && ollama pull mistral:7b

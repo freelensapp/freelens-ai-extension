@@ -1,0 +1,2 @@
+ignored:
+  - DL3059 # Multiple consecutive `RUN` instructions. Consider consolidation.

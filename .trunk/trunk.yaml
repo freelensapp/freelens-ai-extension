@@ -56,12 +56,12 @@ lint:
       files:
         - sass
   enabled:
-    - hadolint@2.12.1-beta
-    - oxipng@9.1.5
     - actionlint@1.7.7
     - biome@2.0.6! # datasource=npm depName=@biomejs/biome
     - git-diff-check
+    - hadolint@2.12.1-beta
     - markdownlint@0.45.0
+    - oxipng@9.1.5
     - prettier@3.6.2! # datasource=npm depName=prettier
     - svgo@4.0.0
     - yamlfmt@0.17.2
