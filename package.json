@@ -55,7 +55,7 @@
     "@langchain/mcp-adapters": "^0.5.2",
     "@langchain/ollama": "^0.2.3",
     "@langchain/openai": "^0.5.15",
-    "@types/node": "^22.15.33",
+    "@types/node": "~22.15.33",
     "@types/react": "^17.0.87",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^4.6.0",

@@ -36,7 +36,7 @@ importers:
         specifier: ^0.5.15
         version: 0.5.15(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(ws@8.18.3)
       '@types/node':
-        specifier: ^22.15.33
+        specifier: ~22.15.33
         version: 22.15.33
       '@types/react':
         specifier: ^17.0.87
