@@ -27,8 +27,8 @@ importers:
         specifier: ^0.2.74
         version: 0.2.74(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(react@17.0.2)(zod-to-json-schema@3.24.5(zod@3.25.67))
       '@langchain/mcp-adapters':
-        specifier: ^0.5.2
-        version: 0.5.2(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))
+        specifier: ^0.5.3
+        version: 0.5.3(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))
       '@langchain/ollama':
         specifier: ^0.2.3
         version: 0.2.3(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))
@@ -683,8 +683,8 @@ packages:
       zod-to-json-schema:
         optional: true
 
-  '@langchain/mcp-adapters@0.5.2':
-    resolution: {integrity: sha512-Jh+xjjgyk/gH+Sr17IbHOqoyA1vLIKhvSv93N1FsxuI4TfXjixjgR0WDuobvdqAyhFl7dyh74P8OSEd4Ci6ROg==}
+  '@langchain/mcp-adapters@0.5.3':
+    resolution: {integrity: sha512-x43xweTjCb0YdJ34B4pvZA6DUZPRpOuSE82Bk2XsgeNcIK6FxFlPhMQwGKpgTwnnYtYoMiidDg7CI7w3o6GfDw==}
     engines: {node: '>=18'}
     peerDependencies:
       '@langchain/core': ^0.3.44
@@ -1508,6 +1508,7 @@ packages:
 
   cronstrue@2.61.0:
     resolution: {integrity: sha512-ootN5bvXbIQI9rW94+QsXN5eROtXWwew6NkdGxIRpS/UFWRggL0G5Al7a9GTBFEsuvVhJ2K3CntIIVt7L2ILhA==}
+    deprecated: Non-backwards compatible Breaking changes
     hasBin: true
 
   cross-spawn@7.0.6:
@@ -4481,7 +4482,7 @@ snapshots:
     transitivePeerDependencies:
       - react
 
-  '@langchain/mcp-adapters@0.5.2(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))':
+  '@langchain/mcp-adapters@0.5.3(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))':
     dependencies:
       '@langchain/core': 0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67))
       '@modelcontextprotocol/sdk': 1.13.1
