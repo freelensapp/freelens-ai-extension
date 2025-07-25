@@ -30,8 +30,8 @@ importers:
         specifier: ^0.5.2
         version: 0.5.2(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))
       '@langchain/openai':
-        specifier: ^0.5.15
-        version: 0.5.15(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(ws@8.18.3)
+        specifier: ^0.6.3
+        version: 0.6.3(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(ws@8.18.3)
       '@types/node':
         specifier: ~22.15.33
         version: 22.15.33
@@ -689,8 +689,8 @@ packages:
     peerDependencies:
       '@langchain/core': ^0.3.44
 
-  '@langchain/openai@0.5.15':
-    resolution: {integrity: sha512-ANadEHyAj5sufQpz+SOPpKbyoMcTLhnh8/d+afbSPUqWsIMPpEFX3HoSY3nrBPG6l4NQQNG5P5oHb4SdC8+YIg==}
+  '@langchain/openai@0.6.3':
+    resolution: {integrity: sha512-dSNuXDTJitDzN8D2wFNqWVELDbBRhMpJiFeiWpHjfPuq7R6wSjzNNY/Uk6x+FLpvbOs/zKNWy5+0q0p3KrCjRQ==}
     engines: {node: '>=18'}
     peerDependencies:
       '@langchain/core': '>=0.3.58 <0.4.0'
@@ -4485,7 +4485,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@langchain/openai@0.5.15(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(ws@8.18.3)':
+  '@langchain/openai@0.6.3(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(ws@8.18.3)':
     dependencies:
       '@langchain/core': 0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67))
       js-tiktoken: 1.0.20
