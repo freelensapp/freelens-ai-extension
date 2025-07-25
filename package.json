@@ -54,7 +54,7 @@
     "@electron-toolkit/tsconfig": "^1.0.1",
     "@freelensapp/extensions": "^1.4.0",
     "@langchain/core": "^0.3.61",
-    "@langchain/google-genai": "^0.2.13",
+    "@langchain/google-genai": "^0.2.16",
     "@langchain/langgraph": "^0.2.74",
     "@langchain/mcp-adapters": "^0.5.2",
     "@langchain/openai": "^0.5.15",
