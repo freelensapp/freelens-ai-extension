@@ -40,14 +40,43 @@ export const TextInput = ({ onSend }: TextInputProps) => {
             onKeyDown={textInputHook.handleKeyDown}
           />
           <div className="text-input-buttons-container">
-            <button
-              className="chat-button chat-clear-button"
-              onClick={async () => applicationStatusStore.clearChat()}
-              disabled={applicationStatusStore.chatMessages?.length === 0}
-              title="Clear chat"
-            >
-              <Eraser size={20} />
-            </button>
+            <div id="chatButtonsContainer" style={{ display: "flex" }}>
+              {/* Button to clear the chat history */}
+              <button
+                className="chat-button chat-clear-button"
+                onClick={async () => applicationStatusStore.clearChat()}
+                disabled={applicationStatusStore.chatMessages?.length === 0}
+                title="Clear chat"
+              >
+                <Eraser size={20} />
+              </button>
+              {/* Button to toggle tools */}
+              <button
+                className={`chat-button chat-clear-button${showList ? " active" : ""}`}
+                onClick={() => setShowList((prev) => !prev)}
+                title={showList ? "Hide Tools" : "Show Tools"}
+                style={{
+                  borderRadius: "15px",
+                  width: 38,
+                  height: 38,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 15,
+                  boxShadow: showList ? "0 2px 8px rgba(0,167,160,0.15)" : "none",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "#00A7A0";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "rgba(0,167,160,0.15)";
+                }}
+              >
+                <span style={{ marginRight: 0 }}>🛠️</span>
+              </button>
+            </div>
             <div style={{ display: "flex", alignItems: "center" }}>
               <Select
                 id="update-channel-input"
@@ -65,15 +94,6 @@ export const TextInput = ({ onSend }: TextInputProps) => {
                 id="send-button"
               >
                 <SendHorizonal size={25} />
-              </button>
-              {/* Button to toggle tools view */}
-              <button
-                className="text-input-list-toggle-button"
-                onClick={() => setShowList((prev) => !prev)}
-                title={showList ? "Hide Tools" : "Show Tools"}
-                style={{ marginLeft: 8 }}
-              >
-                {showList ? "Hide Tools" : "Show Tools"}
               </button>
             </div>
           </div>
