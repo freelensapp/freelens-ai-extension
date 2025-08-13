@@ -1,7 +1,9 @@
 import { Renderer } from "@freelensapp/extensions";
 import { Eraser, SendHorizonal } from "lucide-react";
+import * as React from "react";
 import { AIModelsEnum } from "../../business/provider/ai-models";
 import { useApplicationStatusStore } from "../../context/application-context";
+import { AvailableTools } from "../available-tools/available-tools";
 import styleInline from "./text-input.scss?inline";
 import { useTextInput } from "./text-input-hook";
 
@@ -19,6 +21,9 @@ export const TextInput = ({ onSend }: TextInputProps) => {
   const applicationStatusStore = useApplicationStatusStore();
   const textInputHook = useTextInput({ onSend });
   const textInputOptions = textInputHook.modelSelections as TextInputOption[];
+
+  // State for showing/hiding the vertical list
+  const [showList, setShowList] = React.useState(false);
 
   return (
     <>
@@ -61,8 +66,19 @@ export const TextInput = ({ onSend }: TextInputProps) => {
               >
                 <SendHorizonal size={25} />
               </button>
+              {/* Button to toggle tools view */}
+              <button
+                className="text-input-list-toggle-button"
+                onClick={() => setShowList((prev) => !prev)}
+                title={showList ? "Hide Tools" : "Show Tools"}
+                style={{ marginLeft: 8 }}
+              >
+                {showList ? "Hide Tools" : "Show Tools"}
+              </button>
             </div>
           </div>
+          {/* List of tools */}
+          {showList && <AvailableTools />}
         </div>
       </div>
     </>

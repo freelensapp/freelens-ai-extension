@@ -9,10 +9,10 @@ import { GraphState } from "./state/graph-state";
 
 export type MPCAgent = Awaited<ReturnType<ReturnType<typeof useMcpAgent>["buildAgentSystem"]>>;
 
-export const useMcpAgent = () => {
+export const useMcpAgent = (mcpConfiguration: string) => {
   const { log } = useLog("useMcpAgent");
 
-  const parseMcpConfiguration = (mcpConfiguration: string) => {
+  const parseMcpConfiguration = () => {
     try {
       if ("" === mcpConfiguration) {
         console.warn("No MCP configuration provided or invalid type. Returning empty configuration.");
@@ -30,8 +30,8 @@ export const useMcpAgent = () => {
     }
   };
 
-  const loadMcpTools = async (mcpConfiguration: string) => {
-    const mcpServers = parseMcpConfiguration(mcpConfiguration);
+  const loadMcpTools = async () => {
+    const mcpServers = parseMcpConfiguration();
 
     const client = new MultiServerMCPClient({
       throwOnLoadError: true,
@@ -48,8 +48,8 @@ export const useMcpAgent = () => {
     return mcpTools;
   };
 
-  const buildAgentSystem = async (mcpConfiguration: string) => {
-    const mcpTools = await loadMcpTools(mcpConfiguration);
+  const buildAgentSystem = async () => {
+    const mcpTools = await loadMcpTools();
     const toolNode = new ToolNode(mcpTools);
 
     const shouldContinue = (state: typeof GraphState.State) => {
@@ -110,5 +110,5 @@ export const useMcpAgent = () => {
       .compile({ checkpointer: new MemorySaver() });
   };
 
-  return { buildAgentSystem };
+  return { buildAgentSystem, loadMcpTools };
 };

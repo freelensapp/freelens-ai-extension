@@ -34,6 +34,7 @@ export interface AppContextType {
   clearChat: () => void;
   getActiveAgent: () => Promise<any>;
   changeInterruptStatus: (id: string, status: boolean) => void;
+  getAvailableTools: () => Promise<any[]>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -53,7 +54,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
 
   const prevMcpConfiguration = useRef(preferencesStore.mcpConfiguration);
 
-  const mcpAgentSystem = useMcpAgent();
+  const mcpAgentSystem = useMcpAgent(preferencesStore.mcpConfiguration);
   const freeLensAgentSystem = useFreeLensAgentSystem();
 
   // Init variables
@@ -217,7 +218,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
 
     if (mcpAgent === null || forceInitialization) {
       log.debug("initializing MCP agent with configuration", preferencesStore.mcpConfiguration);
-      setMcpAgent(await mcpAgentSystem.buildAgentSystem(preferencesStore.mcpConfiguration));
+      setMcpAgent(await mcpAgentSystem.buildAgentSystem());
       log.debug("MCP agent initialized!");
     } else {
       log.debug("The MCP Agent was already initialized: ", mcpAgent);
@@ -238,7 +239,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         log.debug("The MCP Agent is not compatible with Gemini and will not be used");
       } else {
         if (mcpAgent === null) {
-          const _mcpAgent = await mcpAgentSystem.buildAgentSystem(preferencesStore.mcpConfiguration);
+          const _mcpAgent = await mcpAgentSystem.buildAgentSystem();
           setMcpAgent(_mcpAgent);
           return _mcpAgent;
         }
@@ -257,6 +258,13 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
 
   const setSelectedModel = (selectedModel: AIModelsEnum) => {
     preferencesStore.selectedModel = selectedModel;
+  };
+
+  const getAvailableTools = async () => {
+    if (preferencesStore.mcpEnabled) {
+      return await mcpAgentSystem.loadMcpTools();
+    }
+    return freeLensAgentSystem.availableTools;
   };
 
   const setExplainEvent = (messageObject: MessageObject) => {
@@ -294,6 +302,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         clearChat,
         getActiveAgent,
         changeInterruptStatus,
+        getAvailableTools,
       }}
     >
       {children}
