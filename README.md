@@ -14,10 +14,15 @@ AI capabilities directly into your workflow.
 With Freelens AI, you can harness the power of artificial intelligence to
 automate complex tasks and enhance productivity.
 
+## Video Demo
+
+[Video Demo](https://github.com/user-attachments/assets/3463a056-ff83-4705-aa9a-cae3a5f63feb)
+
 ---
 
 **Quick Links:**
 
+- [Install](#install)
 - [How to obtain a Google API Key](./docs/GOOGLE_API_KEY.md)
 - [Build & Run Guide](./docs/BUILD.md)
 
@@ -34,6 +39,13 @@ automate complex tasks and enhance productivity.
     - [MCP Agent](#mcp-agent)
 
 ---
+## Install
+Open freelens > file > extensions and add the folowing string to the textbox: **@freelensapp/ai-extension**
+
+or:
+
+Use a following URL in the browser:
+[freelens://app/extensions/install/%40freelensapp%2Fai-extension](freelens://app/extensions/install/%40freelensapp%2Fai-extension)
 
 ## Available Models
 freelens-ai-extension currently supports integration with the following AI models:

@@ -38,10 +38,15 @@ pnpm i
 ### Build the project
 
 To build the project, run the following command in your terminal:
-
 ```sh
 pnpm build
 ```
+
+Or additionally, to build il dev mode:
+```sh
+pnpm build:dev
+```
+
 ---
 
 Now you can choose between the following options:

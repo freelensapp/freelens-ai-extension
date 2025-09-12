@@ -535,3 +535,87 @@ export const getServices = tool(
     }),
   },
 );
+
+export const allToolFunctions = [
+  getNamespaces,
+  getWarningEventsByNamespace,
+  createPod,
+  createDeployment,
+  deletePod,
+  deleteDeployment,
+  createService,
+  deleteService,
+  getPods,
+  getDeployments,
+  getServices,
+];
+
+// Data structure describing each tool function: name, description, arguments, and return type
+export const toolFunctionDescriptions = [
+  {
+    name: "getNamespaces",
+    description: "Get all namespaces of the Kubernetes cluster",
+    arguments: "No arguments. The function does not require any input.",
+    returnType: "Returns a list of all namespace names as strings.",
+  },
+  {
+    name: "getWarningEventsByNamespace",
+    description: "Get all events in status WARNING for a specific Kubernetes namespace",
+    arguments: "Requires the namespace name as a string.",
+    returnType: "Returns a JSON string containing all warning events for the given namespace.",
+  },
+  {
+    name: "createPod",
+    description: "Creates a pod in the Kubernetes cluster",
+    arguments: "Requires the pod name (string), namespace (string), and the pod manifest data (object).",
+    returnType: "Returns a message string indicating success or error after attempting to create the pod.",
+  },
+  {
+    name: "createDeployment",
+    description: "Creates a deployment in the Kubernetes cluster",
+    arguments: "Requires the deployment name (string), namespace (string), and the deployment manifest data (object).",
+    returnType: "Returns a message string indicating success or error after attempting to create the deployment.",
+  },
+  {
+    name: "deletePod",
+    description: "Deletes a pod in the Kubernetes cluster",
+    arguments: "Requires the pod name (string) and namespace (string).",
+    returnType: "Returns a message string indicating success or error after attempting to delete the pod.",
+  },
+  {
+    name: "deleteDeployment",
+    description: "Deletes a deployment in the Kubernetes cluster",
+    arguments: "Requires the deployment name (string) and namespace (string).",
+    returnType: "Returns a message string indicating success or error after attempting to delete the deployment.",
+  },
+  {
+    name: "createService",
+    description: "Creates a service in the Kubernetes cluster",
+    arguments: "Requires the service manifest data (object).",
+    returnType: "Returns a message string indicating success or error after attempting to create the service.",
+  },
+  {
+    name: "deleteService",
+    description: "Deletes a service in the Kubernetes cluster",
+    arguments: "Requires the service name (string) and namespace (string).",
+    returnType: "Returns a message string indicating success or error after attempting to delete the service.",
+  },
+  {
+    name: "getPods",
+    description: "Get all pods in a specific Kubernetes namespace",
+    arguments: "Requires the namespace name as a string.",
+    returnType: "Returns a JSON string containing all pods in the given namespace.",
+  },
+  {
+    name: "getDeployments",
+    description: "Get all deployments in a specific Kubernetes namespace",
+    arguments: "Requires the namespace name as a string.",
+    returnType: "Returns a JSON string containing all deployments in the given namespace.",
+  },
+  {
+    name: "getServices",
+    description: "Get all services in a specific Kubernetes namespace",
+    arguments: "Requires the namespace name as a string.",
+    returnType: "Returns a JSON string containing all services in the given namespace.",
+  },
+];

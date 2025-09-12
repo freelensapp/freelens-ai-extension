@@ -14,6 +14,7 @@ export const useModelProvider = () => {
       case AIModelsEnum.O3_MINI:
       case AIModelsEnum.GPT_4_1:
       case AIModelsEnum.GPT_4_O:
+      case AIModelsEnum.GPT_5:
         const openAiApiKey = process.env.OPENAI_API_KEY || preferencesStore.openAIKey;
         return new ChatOpenAI({ model: preferencesStore.selectedModel, apiKey: openAiApiKey });
       // case AIModelsEnum.DEEP_SEEK_R1:

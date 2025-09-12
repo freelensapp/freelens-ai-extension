@@ -9,6 +9,7 @@ import { useAgentKubernetesOperator } from "./kubernetes-operator-agent";
 import { teardownNode } from "./nodes/teardown";
 import { GraphState } from "./state/graph-state";
 import { useAgentSupervisor } from "./supervisor-agent";
+import { toolFunctionDescriptions } from "./tools/tools";
 
 export type FreeLensAgent = ReturnType<ReturnType<typeof useFreeLensAgentSystem>["buildAgentSystem"]>;
 
@@ -25,6 +26,7 @@ export const useFreeLensAgentSystem = () => {
     "kubernetesOperator: Operates on the cluster in write mode (for example apply changes) and then exits",
     "generalPurposeAgent: Handles general queries including but not limited to: Kubernetes conceptual explanations, best practices, architecture patterns, and non-Kubernetes technical questions. This agent doesn't interact with the live cluster but provides comprehensive knowledge-based responses.",
   ];
+  const availableTools = toolFunctionDescriptions;
 
   const supervisorAgentNode = async (state: typeof GraphState.State) => {
     log.debug("Supervisor agent - calling agent supervisor with input: ", state);
@@ -121,5 +123,5 @@ export const useFreeLensAgentSystem = () => {
       .compile({ checkpointer: new MemorySaver() });
   };
 
-  return { buildAgentSystem };
+  return { buildAgentSystem, availableTools };
 };
