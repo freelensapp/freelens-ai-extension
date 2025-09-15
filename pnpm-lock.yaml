@@ -27,8 +27,8 @@ importers:
         specifier: ^0.2.74
         version: 0.2.74(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(react@17.0.2)(zod-to-json-schema@3.24.5(zod@3.25.67))
       '@langchain/mcp-adapters':
-        specifier: ^0.5.2
-        version: 0.5.2(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))
+        specifier: ^0.6.0
+        version: 0.6.0(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))
       '@langchain/openai':
         specifier: ^0.5.15
         version: 0.5.15(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(ws@8.18.3)
@@ -683,11 +683,11 @@ packages:
       zod-to-json-schema:
         optional: true
 
-  '@langchain/mcp-adapters@0.5.2':
-    resolution: {integrity: sha512-Jh+xjjgyk/gH+Sr17IbHOqoyA1vLIKhvSv93N1FsxuI4TfXjixjgR0WDuobvdqAyhFl7dyh74P8OSEd4Ci6ROg==}
+  '@langchain/mcp-adapters@0.6.0':
+    resolution: {integrity: sha512-NHQNH9NciLhxlCnL/4HDebiYT3UQvpBfF5KPlIi/uSXn8te/bYjPV64gUyAloNNo+fjj4qDvKP1/nHj0r7fKFw==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@langchain/core': ^0.3.44
+      '@langchain/core': ^0.3.66
 
   '@langchain/openai@0.5.15':
     resolution: {integrity: sha512-ANadEHyAj5sufQpz+SOPpKbyoMcTLhnh8/d+afbSPUqWsIMPpEFX3HoSY3nrBPG6l4NQQNG5P5oHb4SdC8+YIg==}
@@ -4474,7 +4474,7 @@ snapshots:
     transitivePeerDependencies:
       - react
 
-  '@langchain/mcp-adapters@0.5.2(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))':
+  '@langchain/mcp-adapters@0.6.0(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))':
     dependencies:
       '@langchain/core': 0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67))
       '@modelcontextprotocol/sdk': 1.13.1
