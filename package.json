@@ -68,7 +68,7 @@
     "mobx": "6.13.7",
     "mobx-react": "7.6.0",
     "react": "17.0.2",
-    "react-markdown": "^6.0.3",
+    "react-markdown": "^10.1.0",
     "react-select": "5.10.1",
     "react-syntax-highlighter": "^15.6.1",
     "sass": "^1.89.2",
