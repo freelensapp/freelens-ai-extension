@@ -2,12 +2,12 @@
 # To learn more about the format of this file, see https://docs.trunk.io/reference/trunk-yaml
 version: 0.1
 cli:
-  version: 1.24.0
+  version: 1.25.0
 # Trunk provides extensibility via plugins. (https://docs.trunk.io/plugins)
 plugins:
   sources:
     - id: trunk
-      ref: v1.7.1
+      ref: v1.7.2
       uri: https://github.com/trunk-io/plugins
 # Many linters and tools depend on runtimes - configure them here. (https://docs.trunk.io/runtimes)
 runtimes:
@@ -59,7 +59,7 @@ lint:
     - actionlint@1.7.7
     - biome@2.0.6! # datasource=npm depName=@biomejs/biome
     - git-diff-check
-    - hadolint@2.12.1-beta
+    - hadolint@2.13.1
     - markdownlint@0.45.0
     - oxipng@9.1.5
     - prettier@3.6.2! # datasource=npm depName=prettier
