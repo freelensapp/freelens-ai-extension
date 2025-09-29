@@ -57,7 +57,7 @@
     "@langchain/google-genai": "^0.2.13",
     "@langchain/langgraph": "^0.2.74",
     "@langchain/mcp-adapters": "^0.5.2",
-    "@langchain/openai": "^0.5.15",
+    "@langchain/openai": "^0.6.14",
     "@types/node": "~22.15.33",
     "@types/react": "^17.0.87",
     "@types/react-syntax-highlighter": "^15.5.13",
