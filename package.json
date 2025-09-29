@@ -53,7 +53,7 @@
     "@babel/plugin-proposal-decorators": "^7.28.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
     "@freelensapp/extensions": "^1.4.0",
-    "@langchain/core": "^0.3.61",
+    "@langchain/core": "^0.3.78",
     "@langchain/google-genai": "^0.2.13",
     "@langchain/langgraph": "^0.2.74",
     "@langchain/mcp-adapters": "^0.5.2",
