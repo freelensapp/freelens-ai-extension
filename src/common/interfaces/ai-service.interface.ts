@@ -43,6 +43,34 @@ export interface IAIService {
 }
 
 /**
+ * Configuration options for Ollama service.
+ */
+export interface OllamaServiceConfig {
+  /**
+   * The hostname where Ollama is running.
+   * @default "http://127.0.0.1"
+   */
+  host: string;
+
+  /**
+   * The port number for the Ollama API.
+   * @default 9898
+   */
+  port: number;
+
+  /**
+   * Optional timeout for requests in milliseconds.
+   * @default 60000 (60 seconds)
+   */
+  timeout?: number;
+
+  /**
+   * Optional custom fetch function for requests.
+   */
+  fetch?: typeof fetch;
+}
+
+/**
  * Result of a health check operation.
  */
 export interface HealthCheckResult {
