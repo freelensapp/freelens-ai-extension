@@ -5,6 +5,7 @@
     "composite": true,
     "esModuleInterop": true,
     "jsx": "react-jsx",
-    "types": ["vite/client", "electron-vite/node"]
+    "types": ["vite/client", "electron-vite/node"],
+    "isolatedModules": false,
   }
 }
