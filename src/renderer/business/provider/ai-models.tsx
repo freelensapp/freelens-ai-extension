@@ -1,3 +1,5 @@
+import { OLLAMA_GRANITE4_3B as GRANITE4_3B } from "../../../common/constants/ollama-models";
+
 export interface AIModelInfo {
   description: string;
   provider: string;
@@ -13,6 +15,9 @@ export enum AIModelsEnum {
   // OLLAMA_LLAMA32_1B = "llama3.2:1b",
   // OLLAMA_MISTRAL_7B = "mistral:7b",
   GEMINI_2_FLASH = "gemini-2.0-flash",
+  // 4gb vram is more than enough, 2gb is enough for inference
+  // for no gpu users we can use quantized models, but haven't tested them yet
+  OLLAMA_GRANITE4_3B = GRANITE4_3B,
 }
 
 export const toAIModelEnum = (value: AIModelsEnum) => {
@@ -22,7 +27,7 @@ export const toAIModelEnum = (value: AIModelsEnum) => {
 export enum AIProviders {
   OPEN_AI = "open-ai",
   // DEEP_SEEK = "deep-seek",
-  // OLLAMA = "ollama",
+  OLLAMA = "ollama",
   GOOGLE = "google",
 }
 
@@ -36,4 +41,5 @@ export const AIModelInfos: Record<string, AIModelInfo> = {
   // [AIModelsEnum.OLLAMA_LLAMA32_1B]: { description: "ollama-llama3.2 1b", provider: AIProviders.OLLAMA },
   // [AIModelsEnum.OLLAMA_MISTRAL_7B]: { description: "ollama mistral:7b", provider: AIProviders.OLLAMA },
   [AIModelsEnum.GEMINI_2_FLASH]: { description: "gemini 2.0 flash", provider: AIProviders.GOOGLE },
+  [AIModelsEnum.OLLAMA_GRANITE4_3B]: { description: "ollama-granite4:3b", provider: AIProviders.OLLAMA },
 };
