@@ -88,5 +88,10 @@
     "openai",
     "openlens"
   ],
+  "pnpm": {
+    "overrides": {
+      "@modelcontextprotocol/sdk": "1.13.1"
+    }
+  },
   "packageManager": "pnpm@10.12.4"
 }
