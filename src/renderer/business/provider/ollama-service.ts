@@ -355,5 +355,6 @@ export const createOpenAiCompatibleOllamaService = (
       baseURL,
     },
     temperature: 0,
+    apiKey: "freelens-ollama",
   });
 };
