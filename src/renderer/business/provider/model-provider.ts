@@ -67,6 +67,7 @@ export const useModelProvider = () => {
           streamUsage: false,
         });
       case AIModelsEnum.OLLAMA_GRANITE4_3B:
+      case AIModelsEnum.OLLAMA_GRANITE4_7B:
         const ollamaHost = process.env.FREELENS_OLLAMA_HOST || preferencesStore.ollamaHost;
         const ollamaPort = process.env.FREELENS_OLLAMA_PORT || preferencesStore.ollamaPort;
 

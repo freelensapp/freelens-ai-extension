@@ -1,4 +1,7 @@
-import { OLLAMA_GRANITE4_3B as GRANITE4_3B } from "../../../common/constants/ollama-models";
+import {
+  OLLAMA_GRANITE4_3B as GRANITE4_3B,
+  OLLAMA_GRANITE4_7B as GRANITE4_7B,
+} from "../../../common/constants/ollama-models";
 
 export interface AIModelInfo {
   description: string;
@@ -18,6 +21,10 @@ export enum AIModelsEnum {
   // 4gb vram is more than enough, 2gb is enough for inference
   // for no gpu users we can use quantized models, but haven't tested them yet
   OLLAMA_GRANITE4_3B = GRANITE4_3B,
+  // 8gb vram is more than enough, 4gb is enough for inference
+  // for no gpu users we can use quantized models, but haven't tested them yet
+  // with ram it will be bit slower but should work fine
+  OLLAMA_GRANITE4_7B = GRANITE4_7B,
 }
 
 export const toAIModelEnum = (value: AIModelsEnum) => {
@@ -42,4 +49,5 @@ export const AIModelInfos: Record<string, AIModelInfo> = {
   // [AIModelsEnum.OLLAMA_MISTRAL_7B]: { description: "ollama mistral:7b", provider: AIProviders.OLLAMA },
   [AIModelsEnum.GEMINI_2_FLASH]: { description: "gemini 2.0 flash", provider: AIProviders.GOOGLE },
   [AIModelsEnum.OLLAMA_GRANITE4_3B]: { description: "ollama-granite4:3b", provider: AIProviders.OLLAMA },
+  [AIModelsEnum.OLLAMA_GRANITE4_7B]: { description: "ollama-granite4:7b", provider: AIProviders.OLLAMA },
 };
