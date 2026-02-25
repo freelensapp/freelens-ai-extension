@@ -67,6 +67,7 @@
     "lucide-react": "^0.510.0",
     "mobx": "6.13.7",
     "mobx-react": "7.6.0",
+    "ollama": "^0.6.3",
     "react": "17.0.2",
     "react-markdown": "^6.0.3",
     "react-select": "5.10.2",
@@ -87,5 +88,10 @@
     "openai",
     "openlens"
   ],
+  "pnpm": {
+    "overrides": {
+      "@modelcontextprotocol/sdk": "1.13.1"
+    }
+  },
   "packageManager": "pnpm@10.12.4"
 }
