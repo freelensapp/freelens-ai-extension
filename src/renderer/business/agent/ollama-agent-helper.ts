@@ -70,40 +70,89 @@ function describeToolsForPrompt(tools: StructuredToolInterface[]): string {
 /**
  * Parses model output to extract a tool call.
  * Handles malformed JSON from small models gracefully.
+ *
+ * IMPORTANT: This function prioritizes FINAL_ANSWER detection and validates
+ * tool names against the available tools to prevent hallucinated tool calls.
  */
-function parseToolCall(text: string, validToolNames: string[]): { tool: string; args: Record<string, any> } | null {
+export function parseToolCall(
+  text: string,
+  validToolNames: string[],
+): { tool: string; args: Record<string, any> } | null {
   // Strip markdown code fences if present
   let cleaned = text
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```\s*$/i, "")
     .trim();
 
-  // 1. Direct JSON parse
+  // CRITICAL: Check for FINAL_ANSWER first, anywhere in the response.
+  // This handles the case where models output multiple tool calls including FINAL_ANSWER.
+  const finalAnswerMatch = cleaned.match(
+    /\{\s*"tool"\s*:\s*"FINAL_ANSWER"\s*,\s*"args"\s*:\s*\{\s*"answer"\s*:\s*"([^"]*)"\s*\}\s*\}/,
+  );
+  if (finalAnswerMatch) {
+    return { tool: "FINAL_ANSWER", args: { answer: finalAnswerMatch[1] } };
+  }
+
+  // Also check for FINAL_ANSWER with multiline/escaped content
+  const finalAnswerAltMatch = cleaned.match(/\{\s*"tool"\s*:\s*"FINAL_ANSWER"\s*,\s*"args"\s*:\s*(\{[\s\S]*?\})\s*\}/);
+  if (finalAnswerAltMatch) {
+    try {
+      const args = JSON.parse(finalAnswerAltMatch[1]);
+      return { tool: "FINAL_ANSWER", args };
+    } catch {
+      const answerInnerMatch = finalAnswerAltMatch[1].match(/"answer"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (answerInnerMatch) {
+        return { tool: "FINAL_ANSWER", args: { answer: answerInnerMatch[1] } };
+      }
+    }
+  }
+
+  // 1. Direct JSON parse - only if entire response is valid JSON
   try {
     const parsed = JSON.parse(cleaned);
     if (parsed.tool) {
-      return { tool: parsed.tool, args: parsed.args || {} };
+      // Validate tool name against available tools
+      if (parsed.tool === "FINAL_ANSWER" || validToolNames.includes(parsed.tool)) {
+        return { tool: parsed.tool, args: parsed.args || {} };
+      }
+      // Tool not in valid list - continue to find a valid one
+      log.warn(`Tool "${parsed.tool}" not in valid list: ${validToolNames.join(", ")}`);
     }
   } catch {
     // Continue to extraction
   }
 
-  // 2. Extract JSON object from surrounding text
-  const jsonMatch = cleaned.match(/\{[\s\S]*?"tool"\s*:\s*"([^"]*)"[\s\S]*?\}/);
+  // 2. Extract FIRST valid JSON from each line (handles multiple tool calls per response)
+  const lines = cleaned.split("\n");
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    if (trimmedLine.startsWith("{") && trimmedLine.includes('"tool"')) {
+      try {
+        const parsed = JSON.parse(trimmedLine);
+        if (parsed.tool) {
+          // Validate against available tools
+          if (parsed.tool === "FINAL_ANSWER" || validToolNames.includes(parsed.tool)) {
+            return { tool: parsed.tool, args: parsed.args || {} };
+          }
+        }
+      } catch {
+        // Continue to next line
+      }
+    }
+  }
+
+  // 3. Try regex extraction for malformed JSON
+  const jsonMatch = cleaned.match(/^\s*\{[\s\S]*?"tool"\s*:\s*"([^"]*)"[\s\S]*?\}/m);
   if (jsonMatch) {
     try {
-      // Try to parse just the matched JSON block
-      const fullMatch = jsonMatch[0];
-      const parsed = JSON.parse(fullMatch);
-      if (parsed.tool) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.tool && (parsed.tool === "FINAL_ANSWER" || validToolNames.includes(parsed.tool))) {
         return { tool: parsed.tool, args: parsed.args || {} };
       }
     } catch {
-      // Extract tool name from regex
       const toolName = jsonMatch[1];
-      if (toolName) {
-        // Try to extract args
-        const argsMatch = cleaned.match(/"args"\s*:\s*(\{[^}]*\})/);
+      if (toolName && (toolName === "FINAL_ANSWER" || validToolNames.includes(toolName))) {
+        const argsMatch = jsonMatch[0].match(/"args"\s*:\s*(\{[^}]*\})/);
         let args = {};
         if (argsMatch) {
           try {
@@ -117,22 +166,18 @@ function parseToolCall(text: string, validToolNames: string[]): { tool: string; 
     }
   }
 
-  // 3. keyword-based: look for tool names mentioned in the text
+  // 4. keyword-based: look for valid tool names mentioned in the text
   const lowerText = cleaned.toLowerCase();
 
-  // Check for FINAL_ANSWER indicators
-  if (
-    lowerText.includes("final_answer") ||
-    lowerText.includes("final answer") ||
-    (!validToolNames.some((t) => lowerText.includes(t.toLowerCase())) && cleaned.length > 20)
-  ) {
+  // Check for FINAL_ANSWER indicators in natural language
+  if (lowerText.includes("final_answer") || lowerText.includes("final answer")) {
     return { tool: "FINAL_ANSWER", args: { answer: cleaned } };
   }
 
   for (const name of validToolNames) {
     if (lowerText.includes(name.toLowerCase())) {
-      // Try to extract namespace or other simple args
-      const nsMatch = cleaned.match(/namespace["\s:]*["']?([a-zA-Z0-9_-]+)["']?/i);
+      // Try to extract namespace with improved regex (requires quotes or colon)
+      const nsMatch = cleaned.match(/namespace\s*[":]\s*["']?([a-zA-Z0-9_-]+)["']?/i);
       const args: Record<string, any> = {};
       if (nsMatch) {
         args.namespace = nsMatch[1];
@@ -141,8 +186,14 @@ function parseToolCall(text: string, validToolNames: string[]): { tool: string; 
     }
   }
 
-  // 4. If text looks like a direct answer, treat it as final
-  if (cleaned.length > 10) {
+  // 5. If text is substantial and doesn't mention any tools, treat as final answer
+  const hasToolMention = cleaned.includes('"tool"');
+  if (!hasToolMention && cleaned.length > 20) {
+    return { tool: "FINAL_ANSWER", args: { answer: cleaned } };
+  }
+
+  // 6. Fallback for short text that looks like a direct answer
+  if (cleaned.length > 10 && !validToolNames.some((t) => lowerText.includes(t.toLowerCase()))) {
     return { tool: "FINAL_ANSWER", args: { answer: cleaned } };
   }
 
