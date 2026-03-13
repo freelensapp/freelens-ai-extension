@@ -13,6 +13,9 @@ export enum AIModelsEnum {
   // OLLAMA_LLAMA32_1B = "llama3.2:1b",
   // OLLAMA_MISTRAL_7B = "mistral:7b",
   GEMINI_2_FLASH = "gemini-2.0-flash",
+  CLAUDE_HAIKU_3_5 = "claude-haiku-4-5-20251001",
+  CLAUDE_SONNET_4_5 = "claude-sonnet-4-6",
+  CLAUDE_OPUS_4_5 = "claude-opus-4-6",
 }
 
 export const toAIModelEnum = (value: AIModelsEnum) => {
@@ -24,6 +27,7 @@ export enum AIProviders {
   // DEEP_SEEK = "deep-seek",
   // OLLAMA = "ollama",
   GOOGLE = "google",
+  ANTHROPIC = "anthropic",
 }
 
 export const AIModelInfos: Record<string, AIModelInfo> = {
@@ -36,4 +40,7 @@ export const AIModelInfos: Record<string, AIModelInfo> = {
   // [AIModelsEnum.OLLAMA_LLAMA32_1B]: { description: "ollama-llama3.2 1b", provider: AIProviders.OLLAMA },
   // [AIModelsEnum.OLLAMA_MISTRAL_7B]: { description: "ollama mistral:7b", provider: AIProviders.OLLAMA },
   [AIModelsEnum.GEMINI_2_FLASH]: { description: "gemini 2.0 flash", provider: AIProviders.GOOGLE },
+  [AIModelsEnum.CLAUDE_HAIKU_3_5]: { description: "Claude Haiku 4.5", provider: AIProviders.ANTHROPIC },
+  [AIModelsEnum.CLAUDE_SONNET_4_5]: { description: "Claude Sonnet 4.6", provider: AIProviders.ANTHROPIC },
+  [AIModelsEnum.CLAUDE_OPUS_4_5]: { description: "Claude Opus 4.6", provider: AIProviders.ANTHROPIC },
 };

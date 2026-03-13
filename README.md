@@ -24,6 +24,7 @@ automate complex tasks and enhance productivity.
 
 - [Install](#install)
 - [How to obtain a Google API Key](./docs/GOOGLE_API_KEY.md)
+- [How to obtain an Anthropic API Key](./docs/ANTHROPIC_SETUP.md)
 - [Build & Run Guide](./docs/BUILD.md)
 
 ---
@@ -56,6 +57,9 @@ freelens-ai-extension currently supports integration with the following AI model
 - ***gpt-4.1***
 - ***gpt-4o***
 - ***gemini 2.0 flash***
+- ***Claude Haiku 4.5***
+- ***Claude Sonnet 4.6***
+- ***Claude Opus 4.6***
 
 Each model offers different capabilities and performance characteristics.
 Choose the one that best suits your needs and workflow requirements.

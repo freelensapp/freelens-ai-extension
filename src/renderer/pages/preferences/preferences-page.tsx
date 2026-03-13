@@ -23,6 +23,12 @@ export const PreferencesPage = observer(() => {
         value={preferencesStore.googleAIKey}
         onChange={(value: string) => (preferencesStore.googleAIKey = value)}
       />
+      <div style={{ marginTop: 8, fontWeight: "bold" }}>Anthropic Key</div>
+      <Input
+        placeholder="Put here your Anthropic API key"
+        value={preferencesStore.anthropicKey}
+        onChange={(value: string) => (preferencesStore.anthropicKey = value)}
+      />
       {/*<HorizontalLine />*/}
       {/*<div>*/}
       {/*  <SubTitle title="Ollama settings" />*/}

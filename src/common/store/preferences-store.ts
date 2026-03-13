@@ -5,6 +5,7 @@ import { AIModelsEnum } from "../../renderer/business/provider/ai-models";
 
 export interface PreferencesModel {
   openAIKey: string;
+  anthropicKey: string;
   googleAIKey: string;
   selectedModel: AIModelsEnum;
   mcpEnabled: boolean;
@@ -17,6 +18,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   // Persistent
   @observable accessor openAIKey: string = "";
   @observable accessor googleAIKey: string = "";
+  @observable accessor anthropicKey: string = "";
   @observable accessor selectedModel: AIModelsEnum = AIModelsEnum.GPT_3_5_TURBO;
   @observable accessor mcpEnabled: boolean = false;
   @observable accessor mcpConfiguration: string = "";
@@ -32,6 +34,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       defaults: {
         openAIKey: "",
         googleAIKey: "",
+        anthropicKey: "",
         selectedModel: AIModelsEnum.GPT_3_5_TURBO,
         mcpEnabled: false,
         mcpConfiguration: JSON.stringify(
@@ -60,6 +63,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   fromStore = (preferencesModel: PreferencesModel): void => {
     this.openAIKey = preferencesModel.openAIKey;
     this.googleAIKey = preferencesModel.googleAIKey;
+    this.anthropicKey = preferencesModel.anthropicKey;
     this.selectedModel = preferencesModel.selectedModel;
     this.mcpEnabled = preferencesModel.mcpEnabled;
     this.mcpConfiguration = preferencesModel.mcpConfiguration;
@@ -71,6 +75,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     const value: PreferencesModel = {
       openAIKey: this.openAIKey,
       googleAIKey: this.googleAIKey,
+      anthropicKey: this.anthropicKey,
       selectedModel: this.selectedModel,
       mcpEnabled: this.mcpEnabled,
       mcpConfiguration: this.mcpConfiguration,

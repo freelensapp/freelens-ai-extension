@@ -1,3 +1,4 @@
+import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 // import { ChatOllama } from "@langchain/ollama";
 import { ChatOpenAI } from "@langchain/openai";
@@ -31,6 +32,15 @@ export const useModelProvider = () => {
       //     headers: headers,
       //     baseUrl: `${ollamaHost}:${ollamaPort}`,
       //   });
+      case AIModelsEnum.CLAUDE_HAIKU_3_5:
+      case AIModelsEnum.CLAUDE_SONNET_4_5:
+      case AIModelsEnum.CLAUDE_OPUS_4_5:
+        const anthropicApiKey = process.env.ANTHROPIC_API_KEY || preferencesStore.anthropicKey;
+        return new ChatAnthropic({
+          model: preferencesStore.selectedModel,
+          temperature: 0,
+          apiKey: anthropicApiKey,
+        });
       case AIModelsEnum.GEMINI_2_FLASH:
         const googleApiKey = process.env.GOOGLE_API_KEY || preferencesStore.googleAIKey;
         return new ChatGoogleGenerativeAI({
