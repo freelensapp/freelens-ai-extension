@@ -4,6 +4,12 @@ import { ChatOpenAI } from "@langchain/openai";
 import { PreferencesStore } from "../../../common/store";
 import { AIModelsEnum } from "./ai-models";
 
+const openAiBaseUrl = "http://127.0.0.1:37373/v1";
+
+const openAiConfiguration = {
+  baseURL: openAiBaseUrl,
+};
+
 export const useModelProvider = () => {
   // @ts-ignore
   const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
@@ -16,7 +22,11 @@ export const useModelProvider = () => {
       case AIModelsEnum.GPT_4_O:
       case AIModelsEnum.GPT_5:
         const openAiApiKey = process.env.OPENAI_API_KEY || preferencesStore.openAIKey;
-        return new ChatOpenAI({ model: preferencesStore.selectedModel, apiKey: openAiApiKey });
+        return new ChatOpenAI({
+          model: preferencesStore.selectedModel,
+          apiKey: openAiApiKey,
+          configuration: openAiConfiguration,
+        });
       // case AIModelsEnum.DEEP_SEEK_R1:
       //   return null;
       // case AIModelsEnum.OLLAMA_LLAMA32_1B:
