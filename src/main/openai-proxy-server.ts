@@ -10,7 +10,8 @@ let proxyServerStarted = false;
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-  "access-control-allow-headers": "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,accept,user-agent",
+  "access-control-allow-headers":
+    "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,accept,user-agent",
 } as const;
 
 const hopByHopHeaders = new Set([
