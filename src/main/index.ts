@@ -5,7 +5,10 @@ import { startOpenAiProxyServer } from "./openai-proxy-server";
 export default class LensExtensionAiMain extends Main.LensExtension {
   async onActivate() {
     // @ts-ignore
-    PreferencesStore.getInstanceOrCreate<PreferencesStore>().loadExtension(this);
-    await startOpenAiProxyServer();
+    const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+
+    preferencesStore.loadExtension(this);
+    preferencesStore.openAiProxyPort = null;
+    preferencesStore.openAiProxyPort = await startOpenAiProxyServer();
   }
 }

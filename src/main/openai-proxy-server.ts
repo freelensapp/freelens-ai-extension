@@ -1,11 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Readable } from "node:stream";
+import type { AddressInfo } from "node:net";
 
 const OPENAI_PROXY_HOST = "127.0.0.1";
-const OPENAI_PROXY_PORT = 37373;
 const OPENAI_UPSTREAM_ORIGIN = "https://api.openai.com";
 
 let proxyServerStarted = false;
+let proxyServerPort: number | null = null;
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -92,8 +93,8 @@ const proxyRequest = async (request: IncomingMessage, response: ServerResponse) 
 };
 
 export const startOpenAiProxyServer = async () => {
-  if (proxyServerStarted) {
-    return;
+  if (proxyServerStarted && proxyServerPort !== null) {
+    return proxyServerPort;
   }
 
   const server = createServer(async (request, response) => {
@@ -120,10 +121,20 @@ export const startOpenAiProxyServer = async () => {
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(OPENAI_PROXY_PORT, OPENAI_PROXY_HOST, () => {
+    server.listen(0, OPENAI_PROXY_HOST, () => {
+      const address = server.address();
+
+      if (!address || typeof address === "string") {
+        reject(new Error("Failed to resolve the OpenAI proxy server port."));
+        return;
+      }
+
+      proxyServerPort = (address as AddressInfo).port;
       proxyServerStarted = true;
       server.off("error", reject);
       resolve();
     });
   });
+
+  return proxyServerPort;
 };
