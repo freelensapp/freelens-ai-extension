@@ -1,7 +1,9 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
 import { MessageObject } from "../../renderer/business/objects/message-object";
-import { AIModelsEnum } from "../../renderer/business/provider/ai-models";
+import { AIModelsEnum, toAIModelEnum } from "../../renderer/business/provider/ai-models";
+
+const DEFAULT_SELECTED_MODEL = AIModelsEnum.GPT_5_4;
 
 export interface PreferencesModel {
   openAIKey: string;
@@ -19,7 +21,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   @observable accessor openAIKey: string = "";
   @observable accessor googleAIKey: string = "";
   @observable accessor openAiProxyPort: number | null = null;
-  @observable accessor selectedModel: AIModelsEnum = AIModelsEnum.GPT_3_5_TURBO;
+  @observable accessor selectedModel: AIModelsEnum = DEFAULT_SELECTED_MODEL;
   @observable accessor mcpEnabled: boolean = false;
   @observable accessor mcpConfiguration: string = "";
   @observable accessor ollamaHost: string = "";
@@ -35,7 +37,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         openAIKey: "",
         googleAIKey: "",
         openAiProxyPort: null,
-        selectedModel: AIModelsEnum.GPT_3_5_TURBO,
+        selectedModel: DEFAULT_SELECTED_MODEL,
         mcpEnabled: false,
         mcpConfiguration: JSON.stringify(
           {
@@ -64,7 +66,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this.openAIKey = preferencesModel.openAIKey;
     this.googleAIKey = preferencesModel.googleAIKey;
     this.openAiProxyPort = preferencesModel.openAiProxyPort ?? null;
-    this.selectedModel = preferencesModel.selectedModel;
+    this.selectedModel = toAIModelEnum(preferencesModel.selectedModel) ?? DEFAULT_SELECTED_MODEL;
     this.mcpEnabled = preferencesModel.mcpEnabled;
     this.mcpConfiguration = preferencesModel.mcpConfiguration;
     this.ollamaHost = preferencesModel.ollamaHost;
