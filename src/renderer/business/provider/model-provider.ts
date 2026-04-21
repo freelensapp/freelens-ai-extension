@@ -20,11 +20,11 @@ export const useModelProvider = () => {
 
   const getModel = () => {
     switch (preferencesStore.selectedModel) {
-      case AIModelsEnum.GPT_3_5_TURBO:
       case AIModelsEnum.O3_MINI:
       case AIModelsEnum.GPT_4_1:
       case AIModelsEnum.GPT_4_O:
       case AIModelsEnum.GPT_5:
+      case AIModelsEnum.GPT_5_4:
         const openAiApiKey = process.env.OPENAI_API_KEY || preferencesStore.openAIKey;
 
         return new ChatOpenAI({
