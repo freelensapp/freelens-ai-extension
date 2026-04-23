@@ -4,9 +4,7 @@ export interface AIModelInfo {
 }
 
 export enum AIModelsEnum {
-  O3_MINI = "o3-mini",
   GPT_4_1 = "gpt-4.1",
-  GPT_4_O = "gpt-4o",
   GPT_5 = "gpt-5",
   GPT_5_4 = "gpt-5.4",
   // DEEP_SEEK_R1 = "deep-seek-r1",
@@ -27,9 +25,7 @@ export enum AIProviders {
 }
 
 export const AIModelInfos: Record<string, AIModelInfo> = {
-  [AIModelsEnum.O3_MINI]: { description: "o3 mini", provider: AIProviders.OPEN_AI },
   [AIModelsEnum.GPT_4_1]: { description: "gpt 4.1", provider: AIProviders.OPEN_AI },
-  [AIModelsEnum.GPT_4_O]: { description: "gpt 4o", provider: AIProviders.OPEN_AI },
   [AIModelsEnum.GPT_5]: { description: "gpt 5", provider: AIProviders.OPEN_AI },
   [AIModelsEnum.GPT_5_4]: { description: "gpt 5.4", provider: AIProviders.OPEN_AI },
   // [AIModelsEnum.DEEP_SEEK_R1]: { description: "deep seek r1", provider: AIProviders.DEEP_SEEK },
