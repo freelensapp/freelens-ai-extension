@@ -52,9 +52,7 @@ freelens-ai-extension currently supports integration with the following AI model
 
 - ***gpt-5***
 - ***gpt-5.4***
-- ***o3-mini***
 - ***gpt-4.1***
-- ***gpt-4o***
 - ***gemini 2.0 flash***
 
 Each model offers different capabilities and performance characteristics.
