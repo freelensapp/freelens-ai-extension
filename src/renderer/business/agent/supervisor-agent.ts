@@ -32,7 +32,15 @@ export const useAgentSupervisor = () => {
       workerResponsibilities: subAgentResponsibilities.join(", "),
       members: subAgents.join(", "),
     });
-    return formattedPrompt.pipe(model.withStructuredOutput(supervisorResponseSchema));
+    // Force function calling instead of json_schema/json_mode for the supervisor structured output.
+    // Some models (e.g. gpt-5.4) occasionally emit the JSON object twice in a row when using
+    // response_format=json_schema with streaming, which breaks StructuredOutputParser with
+    // "Unexpected non-whitespace character after JSON". Function calling avoids that class of
+    // bugs because the structured payload is returned in a dedicated tool_call argument instead
+    // of being concatenated into the assistant text stream.
+    return formattedPrompt.pipe(
+      model.withStructuredOutput(supervisorResponseSchema, { method: "functionCalling" }),
+    );
   };
 
   return { getAgent };
