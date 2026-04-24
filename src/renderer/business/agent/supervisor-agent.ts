@@ -38,9 +38,7 @@ export const useAgentSupervisor = () => {
     // "Unexpected non-whitespace character after JSON". Function calling avoids that class of
     // bugs because the structured payload is returned in a dedicated tool_call argument instead
     // of being concatenated into the assistant text stream.
-    return formattedPrompt.pipe(
-      model.withStructuredOutput(supervisorResponseSchema, { method: "functionCalling" }),
-    );
+    return formattedPrompt.pipe(model.withStructuredOutput(supervisorResponseSchema, { method: "functionCalling" }));
   };
 
   return { getAgent };
