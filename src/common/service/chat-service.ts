@@ -36,7 +36,6 @@ const useChatService = () => {
         } else if (applicationStatusStore.isConversationInterrupted) {
           log.debug("Conversation is interrupted, resuming...");
           runAgent(new Command({ resume: message.text })).finally(() => {
-            applicationStatusStore.setConversationInterrupted(false);
             applicationStatusStore.setLoading(false);
           });
         } else {
@@ -88,6 +87,7 @@ const useChatService = () => {
       const activeAgent = await applicationStatusStore.getActiveAgent();
       const agentService: AgentService = useAgentService(activeAgent);
       const agentResponseStream = agentService.run(agentInput, applicationStatusStore.conversationId);
+      let endedWithInterrupt = false;
       for await (const chunk of agentResponseStream) {
         // log.debug("Streaming to UI chunk: ", chunk);
         if (typeof chunk === "string") {
@@ -98,9 +98,10 @@ const useChatService = () => {
         if (typeof chunk === "object" && isApprovalInterrupt(chunk.value)) {
           log.debug("Approval interrupt received: ", chunk);
           _sendMessage(getInterruptMessage(chunk, false));
-          applicationStatusStore.setConversationInterrupted(true);
+          endedWithInterrupt = true;
         }
       }
+      applicationStatusStore.setConversationInterrupted(endedWithInterrupt);
     } catch (error) {
       log.error("Error while running Freelens Agent: ", error);
 
