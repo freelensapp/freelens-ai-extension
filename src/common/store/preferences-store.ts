@@ -3,7 +3,7 @@ import { makeObservable, observable, toJS } from "mobx";
 import { MessageObject } from "../../renderer/business/objects/message-object";
 import { AIModelsEnum, toAIModelEnum } from "../../renderer/business/provider/ai-models";
 
-const DEFAULT_SELECTED_MODEL = AIModelsEnum.GPT_5_4;
+const DEFAULT_SELECTED_MODEL = AIModelsEnum.GPT_5_5;
 
 export interface PreferencesModel {
   openAIKey: string;

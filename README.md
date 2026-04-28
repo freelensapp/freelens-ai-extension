@@ -50,8 +50,9 @@ Use a following URL in the browser:
 ## Available Models
 freelens-ai-extension currently supports integration with the following AI models:
 
-- ***gpt-5***
+- ***gpt-5.5***
 - ***gpt-5.4***
+- ***gpt-5***
 - ***gpt-4.1***
 - ***gemini 2.0 flash***
 
