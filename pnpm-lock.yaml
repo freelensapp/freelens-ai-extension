@@ -24,8 +24,8 @@ importers:
         specifier: ^0.2.13
         version: 0.2.13(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))
       '@langchain/langgraph':
-        specifier: ^0.2.74
-        version: 0.2.74(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(react@17.0.2)(zod-to-json-schema@3.24.5(zod@3.25.67))
+        specifier: ^0.4.9
+        version: 0.4.9(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(zod-to-json-schema@3.24.5(zod@3.25.67))
       '@langchain/mcp-adapters':
         specifier: ^0.5.2
         version: 0.5.2(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))
@@ -656,28 +656,31 @@ packages:
     peerDependencies:
       '@langchain/core': '>=0.3.58 <0.4.0'
 
-  '@langchain/langgraph-checkpoint@0.0.18':
-    resolution: {integrity: sha512-IS7zJj36VgY+4pf8ZjsVuUWef7oTwt1y9ylvwu0aLuOn1d0fg05Om9DLm3v2GZ2Df6bhLV1kfWAM0IAl9O5rQQ==}
+  '@langchain/langgraph-checkpoint@0.1.1':
+    resolution: {integrity: sha512-h2bP0RUikQZu0Um1ZUPErQLXyhzroJqKRbRcxYRTAh49oNlsfeq4A3K4YEDRbGGuyPZI/Jiqwhks1wZwY73AZw==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@langchain/core': '>=0.2.31 <0.4.0'
+      '@langchain/core': '>=0.2.31 <0.4.0 || ^1.0.0-alpha'
 
-  '@langchain/langgraph-sdk@0.0.84':
-    resolution: {integrity: sha512-l0PFQyJ+6m6aclORNPPWlcRwgKcXVXsPaJCbCUYFABR3yf4cOpsjhUNR0cJ7+2cS400oieHjGRdGGyO/hbSjhg==}
+  '@langchain/langgraph-sdk@0.1.10':
+    resolution: {integrity: sha512-9srSCb2bSvcvehMgjA2sMMwX0o1VUgPN6ghwm5Fwc9JGAKsQa6n1S4eCwy1h4abuYxwajH5n3spBw+4I2WYbgw==}
     peerDependencies:
-      '@langchain/core': '>=0.2.31 <0.4.0'
+      '@langchain/core': '>=0.2.31 <0.4.0 || ^1.0.0-alpha'
       react: ^18 || ^19
+      react-dom: ^18 || ^19
     peerDependenciesMeta:
       '@langchain/core':
         optional: true
       react:
         optional: true
+      react-dom:
+        optional: true
 
-  '@langchain/langgraph@0.2.74':
-    resolution: {integrity: sha512-oHpEi5sTZTPaeZX1UnzfM2OAJ21QGQrwReTV6+QnX7h8nDCBzhtipAw1cK616S+X8zpcVOjgOtJuaJhXa4mN8w==}
+  '@langchain/langgraph@0.4.9':
+    resolution: {integrity: sha512-+rcdTGi4Ium4X/VtIX3Zw4RhxEkYWpwUyz806V6rffjHOAMamg6/WZDxpJbrP33RV/wJG1GH12Z29oX3Pqq3Aw==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@langchain/core': '>=0.2.36 <0.3.0 || >=0.3.40 < 0.4.0'
+      '@langchain/core': '>=0.3.58 < 0.4.0'
       zod-to-json-schema: ^3.x
     peerDependenciesMeta:
       zod-to-json-schema:
@@ -702,7 +705,7 @@ packages:
   '@mui/base@5.0.0-beta.13':
     resolution: {integrity: sha512-uC0l97pBspfDAp+iz2cJq8YZ8Sd9i73V77+WzUiOAckIVEyCm5dyVDZCCO2/phmzckVEeZCGcytybkjMQuhPQw==}
     engines: {node: '>=12.0.0'}
-    deprecated: This package has been replaced by @base-ui-components/react
+    deprecated: This package has been replaced by @base-ui/react
     peerDependencies:
       '@types/react': ^17.0.0 || ^18.0.0
       react: ^17.0.0 || ^18.0.0
@@ -1890,7 +1893,7 @@ packages:
 
   glob@7.2.3:
     resolution: {integrity: sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q==}
-    deprecated: Glob versions prior to v9 are no longer supported
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 
   global-agent@3.0.0:
     resolution: {integrity: sha512-PT6XReJ+D07JvGoxQMkT6qji/jVNfX/h364XHZOWeRzy64sSFr+xJ5OX7LI3b4MPQzdL4H8Y8M0xzPpsVMwA8Q==}
@@ -3150,6 +3153,7 @@ packages:
   tar@7.4.3:
     resolution: {integrity: sha512-5S7Va8hKfV7W5U6g3aYxXmlPoZVAwUMy9AOKyF2fVuZa2UD3qZjg578OrLRt8PcNN1PleVaL/5/yYATNL0ICUw==}
     engines: {node: '>=18'}
+    deprecated: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 
   tcp-port-used@1.0.2:
     resolution: {integrity: sha512-l7ar8lLUD3XS1V2lfoJlCBaeoaWo/2xfYt81hM7VlvR4RrMVFqfmzfhLVk40hAb368uitje5gPtBRL1m/DGvLA==}
@@ -4447,12 +4451,12 @@ snapshots:
       '@langchain/core': 0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67))
       uuid: 11.1.0
 
-  '@langchain/langgraph-checkpoint@0.0.18(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))':
+  '@langchain/langgraph-checkpoint@0.1.1(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))':
     dependencies:
       '@langchain/core': 0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67))
       uuid: 10.0.0
 
-  '@langchain/langgraph-sdk@0.0.84(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(react@17.0.2)':
+  '@langchain/langgraph-sdk@0.1.10(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(react-dom@17.0.2(react@17.0.2))(react@17.0.2)':
     dependencies:
       '@types/json-schema': 7.0.15
       p-queue: 6.6.2
@@ -4461,18 +4465,20 @@ snapshots:
     optionalDependencies:
       '@langchain/core': 0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67))
       react: 17.0.2
+      react-dom: 17.0.2(react@17.0.2)
 
-  '@langchain/langgraph@0.2.74(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(react@17.0.2)(zod-to-json-schema@3.24.5(zod@3.25.67))':
+  '@langchain/langgraph@0.4.9(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(zod-to-json-schema@3.24.5(zod@3.25.67))':
     dependencies:
       '@langchain/core': 0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67))
-      '@langchain/langgraph-checkpoint': 0.0.18(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))
-      '@langchain/langgraph-sdk': 0.0.84(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(react@17.0.2)
+      '@langchain/langgraph-checkpoint': 0.1.1(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))
+      '@langchain/langgraph-sdk': 0.1.10(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       uuid: 10.0.0
       zod: 3.25.67
     optionalDependencies:
       zod-to-json-schema: 3.24.5(zod@3.25.67)
     transitivePeerDependencies:
       - react
+      - react-dom
 
   '@langchain/mcp-adapters@0.5.2(@langchain/core@0.3.61(openai@5.7.0(ws@8.18.3)(zod@3.25.67)))':
     dependencies:
