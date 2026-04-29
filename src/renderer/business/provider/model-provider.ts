@@ -23,6 +23,7 @@ export const useModelProvider = () => {
       case AIModelsEnum.GPT_4_1:
       case AIModelsEnum.GPT_5:
       case AIModelsEnum.GPT_5_4:
+      case AIModelsEnum.GPT_5_5:
         const openAiApiKey = process.env.OPENAI_API_KEY || preferencesStore.openAIKey;
 
         return new ChatOpenAI({
