@@ -4,14 +4,12 @@ import { ChatOpenAI } from "@langchain/openai";
 import { PreferencesStore } from "../../../common/store";
 import { AIModelsEnum } from "./ai-models";
 
-const getOpenAiConfiguration = (openAiProxyPort: number | null) => {
-  if (openAiProxyPort === null) {
-    throw new Error("OpenAI proxy is not ready yet. Retry in a moment.");
+const getAiProxyBaseUrl = (aiProxyPort: number | null) => {
+  if (aiProxyPort === null) {
+    throw new Error("AI proxy is not ready yet. Retry in a moment.");
   }
 
-  return {
-    baseURL: `http://127.0.0.1:${openAiProxyPort}/v1`,
-  };
+  return `http://127.0.0.1:${aiProxyPort}`;
 };
 
 export const useModelProvider = () => {
@@ -29,7 +27,9 @@ export const useModelProvider = () => {
         return new ChatOpenAI({
           model: preferencesStore.selectedModel,
           apiKey: openAiApiKey,
-          configuration: getOpenAiConfiguration(preferencesStore.openAiProxyPort),
+          configuration: {
+            baseURL: `${getAiProxyBaseUrl(preferencesStore.aiProxyPort)}/openai/v1`,
+          },
         });
       // case AIModelsEnum.DEEP_SEEK_R1:
       //   return null;
@@ -51,6 +51,7 @@ export const useModelProvider = () => {
           model: preferencesStore.selectedModel,
           temperature: 0,
           apiKey: googleApiKey,
+          baseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort) + "/google",
           streamUsage: false,
         });
       default:
