@@ -45,7 +45,7 @@ export const useModelProvider = () => {
       //     headers: headers,
       //     baseUrl: `${ollamaHost}:${ollamaPort}`,
       //   });
-      case AIModelsEnum.GEMINI_2_FLASH:
+      case AIModelsEnum.GEMINI_2_5_FLASH:
         const googleApiKey = process.env.GOOGLE_API_KEY || preferencesStore.googleAIKey;
         return new ChatGoogleGenerativeAI({
           model: preferencesStore.selectedModel,

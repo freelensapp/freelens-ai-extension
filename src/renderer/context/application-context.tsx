@@ -74,7 +74,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   }, [preferencesStore.mcpConfiguration, preferencesStore.mcpEnabled, preferencesStore.selectedModel]);
 
   function _isMcpServerCompatible() {
-    return AIModelsEnum.GEMINI_2_FLASH !== preferencesStore.selectedModel;
+    return AIModelsEnum.GEMINI_2_5_FLASH !== preferencesStore.selectedModel;
   }
 
   useEffect(() => {
