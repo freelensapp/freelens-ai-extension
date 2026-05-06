@@ -50,7 +50,6 @@ export const PreferencesPage = observer(() => {
           checked={preferencesStore.mcpEnabled}
           onChange={(checked: boolean) => (preferencesStore.mcpEnabled = checked)}
         />
-        Please note that MCP servers currently do not work with Gemini 2.5 Flash
         <div>
           <div style={{ marginBottom: 8, fontWeight: "bold" }}>MCP JSON Configuration</div>
           <textarea

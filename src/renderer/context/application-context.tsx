@@ -73,10 +73,6 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     prevMcpConfiguration.current = preferencesStore.mcpConfiguration;
   }, [preferencesStore.mcpConfiguration, preferencesStore.mcpEnabled, preferencesStore.selectedModel]);
 
-  function _isMcpServerCompatible() {
-    return AIModelsEnum.GEMINI_2_5_FLASH !== preferencesStore.selectedModel;
-  }
-
   useEffect(() => {
     log.debug("MCP Agent: ", mcpAgent);
   }, [mcpAgent]);
@@ -207,15 +203,6 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       }
     }
 
-    if (!_isMcpServerCompatible()) {
-      if (mcpAgent) {
-        log.debug("The MCP Agent is not compatible with Gemini but it is already initialized");
-      } else {
-        log.debug("The MCP Agent is not compatible with Gemini and will not be initialized");
-        return;
-      }
-    }
-
     if (mcpAgent === null || forceInitialization) {
       log.debug("initializing MCP agent with configuration", preferencesStore.mcpConfiguration);
       setMcpAgent(await mcpAgentSystem.buildAgentSystem());
@@ -235,16 +222,13 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
 
   const getActiveAgent = async () => {
     if (preferencesStore.mcpEnabled) {
-      if (!_isMcpServerCompatible()) {
-        log.debug("The MCP Agent is not compatible with Gemini and will not be used");
-      } else {
-        if (mcpAgent === null) {
-          const _mcpAgent = await mcpAgentSystem.buildAgentSystem();
-          setMcpAgent(_mcpAgent);
-          return _mcpAgent;
-        }
-        return mcpAgent;
+      if (mcpAgent === null) {
+        const _mcpAgent = await mcpAgentSystem.buildAgentSystem();
+        setMcpAgent(_mcpAgent);
+        return _mcpAgent;
       }
+
+      return mcpAgent;
     }
 
     if (freeLensAgent === null) {
