@@ -1,6 +1,6 @@
 import { Main } from "@freelensapp/extensions";
 import { PreferencesStore } from "../common/store";
-import { startOpenAiProxyServer } from "./openai-proxy-server";
+import { startAiProxyServer } from "./ai-proxy-server";
 
 export default class LensExtensionAiMain extends Main.LensExtension {
   async onActivate() {
@@ -8,7 +8,7 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
     preferencesStore.loadExtension(this);
-    preferencesStore.openAiProxyPort = null;
-    preferencesStore.openAiProxyPort = await startOpenAiProxyServer();
+    preferencesStore.aiProxyPort = null;
+    preferencesStore.aiProxyPort = await startAiProxyServer();
   }
 }
