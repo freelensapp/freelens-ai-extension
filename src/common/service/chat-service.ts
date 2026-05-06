@@ -126,9 +126,7 @@ const useChatService = () => {
     } catch (error) {
       log.error("Error while running Freelens Agent: ", error);
 
-      _sendMessage(
-        getTextMessage(`Error while running Freelens Agent: ${getReadableErrorMessage(error)}`, false),
-      );
+      _sendMessage(getTextMessage(`Error while running Freelens Agent: ${getReadableErrorMessage(error)}`, false));
     }
   };
 

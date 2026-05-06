@@ -72,8 +72,7 @@ export const useAiAnalysisService = (applicationStatusStore: AppContextType): Ai
 
         return;
       } catch (error) {
-        const canRetry =
-          !hasYieldedContent && isGeminiTransientError(error) && attempt <= MAX_GEMINI_STREAM_RETRIES;
+        const canRetry = !hasYieldedContent && isGeminiTransientError(error) && attempt <= MAX_GEMINI_STREAM_RETRIES;
 
         if (!canRetry) {
           throw error;
