@@ -8,7 +8,7 @@ const DEFAULT_SELECTED_MODEL = AIModelsEnum.GPT_5_5;
 export interface PreferencesModel {
   openAIKey: string;
   googleAIKey: string;
-  openAiProxyPort: number | null;
+  aiProxyPort: number | null;
   selectedModel: AIModelsEnum;
   mcpEnabled: boolean;
   mcpConfiguration: string;
@@ -20,7 +20,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   // Persistent
   @observable accessor openAIKey: string = "";
   @observable accessor googleAIKey: string = "";
-  @observable accessor openAiProxyPort: number | null = null;
+  @observable accessor aiProxyPort: number | null = null;
   @observable accessor selectedModel: AIModelsEnum = DEFAULT_SELECTED_MODEL;
   @observable accessor mcpEnabled: boolean = false;
   @observable accessor mcpConfiguration: string = "";
@@ -36,7 +36,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       defaults: {
         openAIKey: "",
         googleAIKey: "",
-        openAiProxyPort: null,
+        aiProxyPort: null,
         selectedModel: DEFAULT_SELECTED_MODEL,
         mcpEnabled: false,
         mcpConfiguration: JSON.stringify(
@@ -65,7 +65,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   fromStore = (preferencesModel: PreferencesModel): void => {
     this.openAIKey = preferencesModel.openAIKey;
     this.googleAIKey = preferencesModel.googleAIKey;
-    this.openAiProxyPort = preferencesModel.openAiProxyPort ?? null;
+    this.aiProxyPort = preferencesModel.aiProxyPort ?? null;
     this.selectedModel = toAIModelEnum(preferencesModel.selectedModel) ?? DEFAULT_SELECTED_MODEL;
     this.mcpEnabled = preferencesModel.mcpEnabled;
     this.mcpConfiguration = preferencesModel.mcpConfiguration;
@@ -77,7 +77,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     const value: PreferencesModel = {
       openAIKey: this.openAIKey,
       googleAIKey: this.googleAIKey,
-      openAiProxyPort: this.openAiProxyPort,
+      aiProxyPort: this.aiProxyPort,
       selectedModel: this.selectedModel,
       mcpEnabled: this.mcpEnabled,
       mcpConfiguration: this.mcpConfiguration,

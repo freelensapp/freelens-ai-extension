@@ -11,7 +11,7 @@ export enum AIModelsEnum {
   // DEEP_SEEK_R1 = "deep-seek-r1",
   // OLLAMA_LLAMA32_1B = "llama3.2:1b",
   // OLLAMA_MISTRAL_7B = "mistral:7b",
-  GEMINI_2_FLASH = "gemini-2.0-flash",
+  GEMINI_2_5_FLASH = "gemini-2.5-flash",
 }
 
 export const toAIModelEnum = (value: AIModelsEnum) => {
@@ -33,5 +33,5 @@ export const AIModelInfos: Record<string, AIModelInfo> = {
   // [AIModelsEnum.DEEP_SEEK_R1]: { description: "deep seek r1", provider: AIProviders.DEEP_SEEK },
   // [AIModelsEnum.OLLAMA_LLAMA32_1B]: { description: "ollama-llama3.2 1b", provider: AIProviders.OLLAMA },
   // [AIModelsEnum.OLLAMA_MISTRAL_7B]: { description: "ollama mistral:7b", provider: AIProviders.OLLAMA },
-  [AIModelsEnum.GEMINI_2_FLASH]: { description: "gemini 2.0 flash", provider: AIProviders.GOOGLE },
+  [AIModelsEnum.GEMINI_2_5_FLASH]: { description: "gemini 2.5 flash", provider: AIProviders.GOOGLE },
 };
