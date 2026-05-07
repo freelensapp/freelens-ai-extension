@@ -29,26 +29,30 @@ jobs:
 
     steps:
       - name: Checkout plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check if package version matches
         run: test "${GITHUB_REF_NAME}" = "v$(jq -r .version package.json)"
 
       - name: Setup node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
           registry-url: https://registry.npmjs.org
 
+      - name: Upgrade npm
+        run: npm install -g npm@11
+
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        run: corepack enable
 
       - name: Get pnpm cache directory
         shell: bash
         run: echo "pnpm_cache_dir=$(pnpm store path)" >> ${GITHUB_ENV}
 
       - name: Use pnpm cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.pnpm_cache_dir }}
           key: ${{ matrix.os }}-${{ matrix.arch }}-node-${{ hashFiles('**/pnpm-lock.yaml') }}
