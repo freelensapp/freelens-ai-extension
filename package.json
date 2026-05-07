@@ -4,7 +4,7 @@
   "description": "AI capabilities for Freelens",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/freelensapp/freelens-ai.git",
+    "url": "git+https://github.com/freelensapp/freelens-ai-extension.git",
     "directory": "."
   },
   "main": "out/main/index.js",
