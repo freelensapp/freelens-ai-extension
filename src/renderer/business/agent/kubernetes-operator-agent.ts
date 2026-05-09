@@ -2,8 +2,10 @@ import { AIMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
 import { MessagesAnnotation, StateGraph } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
+import { PreferencesStore } from "../../../common/store";
 import { useModelProvider } from "../provider/model-provider";
 import { KUBERNETES_OPERATOR_PROMPT_TEMPLATE } from "../provider/prompt-template-provider";
+import { createOllamaReactAgent, isOllamaModel } from "./ollama-agent-helper";
 import {
   createDeployment,
   createPod,
@@ -18,6 +20,7 @@ import {
 
 export const useAgentKubernetesOperator = () => {
   const model = useModelProvider().getModel();
+  const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
   const getAgent = () => {
     if (!model) {
@@ -35,6 +38,13 @@ export const useAgentKubernetesOperator = () => {
       getDeployments,
       getServices,
     ];
+
+    // For Ollama models, use prompt-based tool calling
+    if (isOllamaModel(preferencesStore.selectedModel)) {
+      return createOllamaReactAgent(model, tools, KUBERNETES_OPERATOR_PROMPT_TEMPLATE, 8);
+    }
+
+    // For cloud models, use native tool calling
     const toolNode = new ToolNode(tools);
     const boundModel = model.bindTools(tools, { parallel_tool_calls: false });
 

@@ -58,5 +58,13 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
     }
   };
 
-  return { message, textareaRef, modelSelections, setMessage, handleKeyDown, handleSend, onChangeModel };
+  return {
+    message,
+    textareaRef,
+    modelSelections,
+    setMessage,
+    handleKeyDown,
+    handleSend,
+    onChangeModel,
+  };
 };

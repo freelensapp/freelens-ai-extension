@@ -37,7 +37,15 @@ export const Chat = () => {
           animation: applicationStatusStore.mcpEnabled ? "mcpPulse 1.2s infinite alternate" : "none",
         }}
       >
-        <span style={{ fontSize: 22, marginRight: 8, opacity: applicationStatusStore.mcpEnabled ? 1 : 0.5 }}>🧠</span>
+        <span
+          style={{
+            fontSize: 22,
+            marginRight: 8,
+            opacity: applicationStatusStore.mcpEnabled ? 1 : 0.5,
+          }}
+        >
+          🧠
+        </span>
         MCP Mode {applicationStatusStore.mcpEnabled ? "Enabled" : "Disabled"}
       </div>
       <div className="chat-container">

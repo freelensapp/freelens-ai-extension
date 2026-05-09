@@ -54,5 +54,13 @@ export const useCodeBlockHook = ({ children }: useCodeBlockHookProps) => {
     return themeInfo.name.toLowerCase() === "dark" ? atomOneDark : atomOneLight;
   };
 
-  return { copied, text, hasMultipleLines, handleCopy, executeCommand, isExecutable, getTheme };
+  return {
+    copied,
+    text,
+    hasMultipleLines,
+    handleCopy,
+    executeCommand,
+    isExecutable,
+    getTheme,
+  };
 };

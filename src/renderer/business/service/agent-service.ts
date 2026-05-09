@@ -50,7 +50,10 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
       let hasYieldedContent = false;
 
       try {
-        const streamResponse = await agent.stream(agentInput, { streamMode: "messages", configurable: config });
+        const streamResponse = await agent.stream(agentInput, {
+          streamMode: "messages",
+          configurable: config,
+        });
 
         // streams LLM token by token to the UI
         for await (const [message, _metadata] of streamResponse) {

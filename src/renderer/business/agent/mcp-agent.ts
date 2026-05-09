@@ -79,7 +79,10 @@ export const useMcpAgent = (mcpConfiguration: string) => {
             }
           });
           log.debug("ToolMessages output: ", toolMessages);
-          return new Command({ goto: "agent", update: { messages: toolMessages } });
+          return new Command({
+            goto: "agent",
+            update: { messages: toolMessages },
+          });
         }
         return new Command({ goto: "tools" });
       }
@@ -102,7 +105,9 @@ export const useMcpAgent = (mcpConfiguration: string) => {
       .addNode("agent", callModel)
       .addNode("tools", toolNode)
       .addNode("teardownNode", teardownNode)
-      .addNode("shouldContinue", shouldContinue, { ends: ["agent", "tools", "teardownNode"] })
+      .addNode("shouldContinue", shouldContinue, {
+        ends: ["agent", "tools", "teardownNode"],
+      })
       .addEdge("__start__", "agent")
       .addEdge("tools", "agent")
       .addEdge("agent", "shouldContinue")

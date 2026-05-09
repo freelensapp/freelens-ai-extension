@@ -34,7 +34,9 @@ export const useFreeLensAgentSystem = () => {
     if (!agentSupervisor) {
       return;
     }
-    const response: any = await agentSupervisor.invoke({ messages: state.messages });
+    const response: any = await agentSupervisor.invoke({
+      messages: state.messages,
+    });
     log.debug("Supervisor agent - supervisor response", response);
 
     // TOOD check why response is unknown
@@ -104,7 +106,9 @@ export const useFreeLensAgentSystem = () => {
     return new StateGraph(GraphState)
       .addNode(
         "supervisorAgent",
-        RunnableLambda.from(supervisorAgentNode).withConfig({ tags: ["nostream"] }) as RunnableLike,
+        RunnableLambda.from(supervisorAgentNode).withConfig({
+          tags: ["nostream"],
+        }) as RunnableLike,
         {
           ends: [...subAgents, conclusionsAgentName],
         },
