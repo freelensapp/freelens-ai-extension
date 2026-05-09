@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 Freelens Authors
+ * Copyright (c) "2025-2026" Freelens Authors
  *
  * Licensed under the MIT License
  *
