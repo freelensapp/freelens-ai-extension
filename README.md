@@ -50,12 +50,11 @@ Use a following URL in the browser:
 ## Available Models
 freelens-ai-extension currently supports integration with the following AI models:
 
+- ***gpt-5.5***
+- ***gpt-5.4***
 - ***gpt-5***
-- ***gpt-3.5-turbo***
-- ***o3-mini***
 - ***gpt-4.1***
-- ***gpt-4o***
-- ***gemini 2.0 flash***
+- ***gemini 2.5 flash***
 
 Each model offers different capabilities and performance characteristics.
 Choose the one that best suits your needs and workflow requirements.
@@ -87,12 +86,6 @@ documentation](docs/BASE_AGENT.md).
 
 We support MCP Agent through a dedicated configuration. Go deeper by reading
 our [MCP Agent documentation](docs/MCP_AGENT.md).
-
----
-
-### GPT 5 Setup
-
-[GPT 5 Setup documentation](docs/GPT_5_SETUP.md).
 
 ---
 

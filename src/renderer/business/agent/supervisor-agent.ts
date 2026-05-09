@@ -78,37 +78,43 @@ export const useAgentSupervisor = () => {
     if (!model) {
       return;
     }
+
     const destinations = ["__end__", ...subAgents] as const;
 
     const isOllama = isOllamaModel(preferencesStore.selectedModel);
 
     if (!isOllama) {
-      // Cloud models (OpenAI, Gemini) — use reliable withStructuredOutput
       const supervisorResponseSchema = z.object({
         reflection: z.string().describe("The supervisor's reflection about the next step to take."),
         goto: z
           .enum(destinations)
           .describe(
-            "The next agent to call, or __end__ if the user's query has been resolved. Must be one of the specified values.",
+            "The next agent to call, or __end__ if the user's query has been resolved.",
           ),
       });
+
       const prompt = ChatPromptTemplate.fromMessages([
         ["system", SUPERVISOR_PROMPT_TEMPLATE],
         new MessagesPlaceholder("messages"),
         [
           "human",
-          "Given the conversation above, who should act next?" + " Or should we __end__? Select one of: {options}",
+          "Given the conversation above, who should act next? Or should we __end__? Select one of: {options}",
         ],
       ]);
+
       const formattedPrompt = await prompt.partial({
         options: destinations.join(", "),
         workerResponsibilities: subAgentResponsibilities.join(", "),
         members: subAgents.join(", "),
       });
-      return formattedPrompt.pipe(model.withStructuredOutput(supervisorResponseSchema));
+
+      return formattedPrompt.pipe(
+        model.withStructuredOutput(supervisorResponseSchema, {
+          method: "functionCalling",
+        }),
+      );
     }
 
-    // Ollama models — use direct messages (no ChatPromptTemplate to avoid { } parsing issues)
     const optionsStr = destinations.join(", ");
     const responsibilitiesStr = subAgentResponsibilities.join(", ");
     const membersStr = subAgents.join(", ");
@@ -118,24 +124,28 @@ export const useAgentSupervisor = () => {
         "{workerResponsibilities}",
         responsibilitiesStr,
       ) +
-      "\n\nIMPORTANT: You MUST respond with ONLY a valid JSON object, nothing else. No markdown, no code blocks, no explanation outside the JSON.\n" +
+      "\n\nIMPORTANT: You MUST respond with ONLY a valid JSON object, nothing else.\n" +
       "The JSON must have exactly two fields:\n" +
-      '- "reflection": a short string explaining your reasoning\n' +
-      `- "goto": one of these exact values: ${optionsStr}\n\n` +
-      "Example response:\n" +
-      '{"reflection": "The user wants to list pods, routing to kubernetes operator.", "goto": "kubernetesOperator"}\n';
+      '- "reflection": string\n' +
+      `- "goto": one of: ${optionsStr}\n\n`;
 
     const humanContent =
-      'Given the conversation above, who should act next? Respond with ONLY a JSON object containing "reflection" and "goto". ' +
-      `The "goto" field must be exactly one of: ${optionsStr}`;
+      'Given the conversation above, who should act next? Respond with ONLY JSON. ' +
+      `The "goto" must be one of: ${optionsStr}`;
 
     return {
       invoke: async (input: { messages: any[] }) => {
-        // Build message array directly — no template parsing
-        const allMessages = [new SystemMessage(systemContent), ...input.messages, new HumanMessage(humanContent)];
+        const allMessages = [
+          new SystemMessage(systemContent),
+          ...input.messages,
+          new HumanMessage(humanContent),
+        ];
 
         const response = await model.invoke(allMessages);
-        const rawText = typeof response.content === "string" ? response.content : JSON.stringify(response.content);
+        const rawText =
+          typeof response.content === "string"
+            ? response.content
+            : JSON.stringify(response.content);
 
         log.debug(`Ollama supervisor raw output: ${rawText.substring(0, 300)}`);
 
@@ -144,10 +154,9 @@ export const useAgentSupervisor = () => {
           return parsed;
         }
 
-        // Ultimate fallback: route to generalPurposeAgent so the user gets a response
-        log.warn("Falling back to generalPurposeAgent due to unparseable supervisor output");
+        log.warn("Falling back due to unparseable supervisor output");
         return {
-          reflection: "Unable to parse routing decision, falling back to general purpose agent.",
+          reflection: "Fallback due to parsing failure.",
           goto: "generalPurposeAgent",
         };
       },

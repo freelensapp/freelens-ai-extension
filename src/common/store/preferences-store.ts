@@ -1,11 +1,14 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
 import { MessageObject } from "../../renderer/business/objects/message-object";
-import { AIModelsEnum } from "../../renderer/business/provider/ai-models";
+import { AIModelsEnum, toAIModelEnum } from "../../renderer/business/provider/ai-models";
+
+const DEFAULT_SELECTED_MODEL = AIModelsEnum.GPT_5_5;
 
 export interface PreferencesModel {
   openAIKey: string;
   googleAIKey: string;
+  aiProxyPort: number | null;
   selectedModel: AIModelsEnum;
   mcpEnabled: boolean;
   mcpConfiguration: string;
@@ -17,7 +20,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   // Persistent
   @observable accessor openAIKey: string = "";
   @observable accessor googleAIKey: string = "";
-  @observable accessor selectedModel: AIModelsEnum = AIModelsEnum.GPT_3_5_TURBO;
+  @observable accessor aiProxyPort: number | null = null;
+  @observable accessor selectedModel: AIModelsEnum = DEFAULT_SELECTED_MODEL;
   @observable accessor mcpEnabled: boolean = false;
   @observable accessor mcpConfiguration: string = "";
   @observable accessor ollamaHost: string = "";
@@ -32,7 +36,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       defaults: {
         openAIKey: "",
         googleAIKey: "",
-        selectedModel: AIModelsEnum.GPT_3_5_TURBO,
+        aiProxyPort: null,
+        selectedModel: DEFAULT_SELECTED_MODEL,
         mcpEnabled: false,
         mcpConfiguration: JSON.stringify(
           {
@@ -60,7 +65,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   fromStore = (preferencesModel: PreferencesModel): void => {
     this.openAIKey = preferencesModel.openAIKey;
     this.googleAIKey = preferencesModel.googleAIKey;
-    this.selectedModel = preferencesModel.selectedModel;
+    this.aiProxyPort = preferencesModel.aiProxyPort ?? null;
+    this.selectedModel = toAIModelEnum(preferencesModel.selectedModel) ?? DEFAULT_SELECTED_MODEL;
     this.mcpEnabled = preferencesModel.mcpEnabled;
     this.mcpConfiguration = preferencesModel.mcpConfiguration;
     this.ollamaHost = preferencesModel.ollamaHost;
@@ -71,6 +77,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     const value: PreferencesModel = {
       openAIKey: this.openAIKey,
       googleAIKey: this.googleAIKey,
+      aiProxyPort: this.aiProxyPort,
       selectedModel: this.selectedModel,
       mcpEnabled: this.mcpEnabled,
       mcpConfiguration: this.mcpConfiguration,

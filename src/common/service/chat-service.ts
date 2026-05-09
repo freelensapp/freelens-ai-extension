@@ -20,6 +20,27 @@ const useChatService = () => {
   const applicationStatusStore = useApplicationStatusStore();
   const aiAnalysisService: AiAnalysisService = useAiAnalysisService(applicationStatusStore);
 
+  const getReadableErrorMessage = (error: unknown) => {
+    if (!(error instanceof Error)) {
+      return String(error);
+    }
+
+    const message = error.message.toLowerCase();
+    const isGeminiTemporaryOverload =
+      message.includes("failed to parse stream") ||
+      message.includes("503") ||
+      message.includes("unavailable") ||
+      message.includes("high demand") ||
+      message.includes("429") ||
+      message.includes("too many requests");
+
+    if (isGeminiTemporaryOverload) {
+      return "Gemini is temporarily overloaded (high demand). Please retry in a few seconds.";
+    }
+
+    return error.message;
+  };
+
   const _sendMessage = (message: MessageObject) => {
     applicationStatusStore.addMessage(message);
   };
@@ -36,7 +57,6 @@ const useChatService = () => {
         } else if (applicationStatusStore.isConversationInterrupted) {
           log.debug("Conversation is interrupted, resuming...");
           runAgent(new Command({ resume: message.text })).finally(() => {
-            applicationStatusStore.setConversationInterrupted(false);
             applicationStatusStore.setLoading(false);
           });
         } else {
@@ -68,7 +88,7 @@ const useChatService = () => {
       }
     } catch (error) {
       log.error("Error in AI analysis: ", error);
-      _sendMessage(getTextMessage(`Error in AI analysis: ${error instanceof Error ? error.message : error}`, false));
+      _sendMessage(getTextMessage(`Error in AI analysis: ${getReadableErrorMessage(error)}`, false));
     }
   };
 
@@ -88,6 +108,7 @@ const useChatService = () => {
       const activeAgent = await applicationStatusStore.getActiveAgent();
       const agentService: AgentService = useAgentService(activeAgent);
       const agentResponseStream = agentService.run(agentInput, applicationStatusStore.conversationId);
+      let endedWithInterrupt = false;
       for await (const chunk of agentResponseStream) {
         // log.debug("Streaming to UI chunk: ", chunk);
         if (typeof chunk === "string") {
@@ -98,15 +119,14 @@ const useChatService = () => {
         if (typeof chunk === "object" && isApprovalInterrupt(chunk.value)) {
           log.debug("Approval interrupt received: ", chunk);
           _sendMessage(getInterruptMessage(chunk, false));
-          applicationStatusStore.setConversationInterrupted(true);
+          endedWithInterrupt = true;
         }
       }
+      applicationStatusStore.setConversationInterrupted(endedWithInterrupt);
     } catch (error) {
       log.error("Error while running Freelens Agent: ", error);
 
-      _sendMessage(
-        getTextMessage(`Error while running Freelens Agent: ${error instanceof Error ? error.message : error}`, false),
-      );
+      _sendMessage(getTextMessage(`Error while running Freelens Agent: ${getReadableErrorMessage(error)}`, false));
     }
   };
 

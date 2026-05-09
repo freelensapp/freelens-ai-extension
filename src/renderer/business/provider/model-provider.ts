@@ -27,6 +27,14 @@ export interface StreamingResponse {
  * Provider for accessing AI models with a unified interface.
  * Supports OpenAI, Google AI, and local Ollama models.
  */
+const getAiProxyBaseUrl = (aiProxyPort: number | null) => {
+  if (aiProxyPort === null) {
+    throw new Error("AI proxy is not ready yet. Retry in a moment.");
+  }
+
+  return `http://127.0.0.1:${aiProxyPort}`;
+};
+
 export const useModelProvider = () => {
   const { log } = createLogger("useModelProvider");
   const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
@@ -37,13 +45,19 @@ export const useModelProvider = () => {
    */
   const getModel = () => {
     switch (preferencesStore.selectedModel) {
-      case AIModelsEnum.GPT_3_5_TURBO:
-      case AIModelsEnum.O3_MINI:
       case AIModelsEnum.GPT_4_1:
-      case AIModelsEnum.GPT_4_O:
       case AIModelsEnum.GPT_5:
+      case AIModelsEnum.GPT_5_4:
+      case AIModelsEnum.GPT_5_5:
         const openAiApiKey = process.env.OPENAI_API_KEY || preferencesStore.openAIKey;
-        return new ChatOpenAI({ model: preferencesStore.selectedModel, apiKey: openAiApiKey });
+
+        return new ChatOpenAI({
+          model: preferencesStore.selectedModel,
+          apiKey: openAiApiKey,
+          configuration: {
+            baseURL: `${getAiProxyBaseUrl(preferencesStore.aiProxyPort)}/openai/v1`,
+          },
+        });
       // case AIModelsEnum.DEEP_SEEK_R1:
       //   return null;
       // case AIModelsEnum.OLLAMA_LLAMA32_1B:
@@ -58,12 +72,13 @@ export const useModelProvider = () => {
       //     headers: headers,
       //     baseUrl: `${ollamaHost}:${ollamaPort}`,
       //   });
-      case AIModelsEnum.GEMINI_2_FLASH:
+      case AIModelsEnum.GEMINI_2_5_FLASH:
         const googleApiKey = process.env.GOOGLE_API_KEY || preferencesStore.googleAIKey;
         return new ChatGoogleGenerativeAI({
           model: preferencesStore.selectedModel,
           temperature: 0,
           apiKey: googleApiKey,
+          baseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort) + "/google",
           streamUsage: false,
         });
       case AIModelsEnum.OLLAMA_GRANITE4_3B:
