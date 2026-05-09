@@ -24,7 +24,7 @@ projects (if it is you 1st time with GCP you probably don't have any).
 
 From here you can create a new project by clicking on the top right button:
 
-![gcpnewproject](images/gcpnewproject.png) 
+![gcpnewproject](images/gcpnewproject.png)
 ![gcpnewproject2](images/gcpnewproject2.png)
 
 Once you are done, go back to Google AI Studio and create the API Key for your

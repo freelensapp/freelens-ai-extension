@@ -1,4 +1,4 @@
-# Setting Up an MCP Agent for Freelens-AI 📡 
+# Setting Up an MCP Agent for Freelens-AI 📡
 
 This guide will walk you through setting up an MCP (Model Control Protocol) agent to work with Freelens-AI, enabling you to control and interact with AI agents running on your infrastructure.
 
@@ -13,26 +13,26 @@ This guide will walk you through setting up an MCP (Model Control Protocol) agen
 Freelens-AI allows you to configure MCP agents directly from its Preferences page.
 
 1. Open Freelens-AI Preferences<br/>
-Launch Freelens-AI and go to the Preferences page then locate the MCP Configuration
-section.
+   Launch Freelens-AI and go to the Preferences page then locate the MCP Configuration
+   section.
 
 2. Enable MCP Support<br/>
-Toggle the Enable MCP Agent option.<br />
-This enables Freelens-AI to communicate with MCP agents running on your machine or cluster.
+   Toggle the Enable MCP Agent option.<br />
+   This enables Freelens-AI to communicate with MCP agents running on your machine or cluster.
 
 3. Add an MCP Server Configuration<br/>
-Inside the dedicated JSON textarea, add your MCP server configuration.<br />
-Below is the pre-built configuration for the MCP server for Kubernetes, included in Freelens-AI.
+   Inside the dedicated JSON textarea, add your MCP server configuration.<br />
+   Below is the pre-built configuration for the MCP server for Kubernetes, included in Freelens-AI.
 
 ```json
-{ 
-    "mcpServers": { 
-        "kubernetes": { 
-            "command": "npx", 
-            "args": ["mcp-server-kubernetes"] 
-        } 
-    } 
-} 
+{
+  "mcpServers": {
+    "kubernetes": {
+      "command": "npx",
+      "args": ["mcp-server-kubernetes"]
+    }
+  }
+}
 ```
 
 ✅ This uses npx to launch the mcp-server-kubernetes module. You can replace

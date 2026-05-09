@@ -88,18 +88,13 @@ export const useAgentSupervisor = () => {
         reflection: z.string().describe("The supervisor's reflection about the next step to take."),
         goto: z
           .enum(destinations)
-          .describe(
-            "The next agent to call, or __end__ if the user's query has been resolved.",
-          ),
+          .describe("The next agent to call, or __end__ if the user's query has been resolved."),
       });
 
       const prompt = ChatPromptTemplate.fromMessages([
         ["system", SUPERVISOR_PROMPT_TEMPLATE],
         new MessagesPlaceholder("messages"),
-        [
-          "human",
-          "Given the conversation above, who should act next? Or should we __end__? Select one of: {options}",
-        ],
+        ["human", "Given the conversation above, who should act next? Or should we __end__? Select one of: {options}"],
       ]);
 
       const formattedPrompt = await prompt.partial({
@@ -130,22 +125,15 @@ export const useAgentSupervisor = () => {
       `- "goto": one of: ${optionsStr}\n\n`;
 
     const humanContent =
-      'Given the conversation above, who should act next? Respond with ONLY JSON. ' +
+      "Given the conversation above, who should act next? Respond with ONLY JSON. " +
       `The "goto" must be one of: ${optionsStr}`;
 
     return {
       invoke: async (input: { messages: any[] }) => {
-        const allMessages = [
-          new SystemMessage(systemContent),
-          ...input.messages,
-          new HumanMessage(humanContent),
-        ];
+        const allMessages = [new SystemMessage(systemContent), ...input.messages, new HumanMessage(humanContent)];
 
         const response = await model.invoke(allMessages);
-        const rawText =
-          typeof response.content === "string"
-            ? response.content
-            : JSON.stringify(response.content);
+        const rawText = typeof response.content === "string" ? response.content : JSON.stringify(response.content);
 
         log.debug(`Ollama supervisor raw output: ${rawText.substring(0, 300)}`);
 

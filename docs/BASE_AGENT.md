@@ -16,7 +16,7 @@ with human-in-the-loop validation for safety and control.
 Kubernetes Explainer Answers general questions about Kubernetes concepts,
 objects, and best practices.
 
-## Tools Available to the K8S Operator 🛠️ 
+## Tools Available to the K8S Operator 🛠️
 
 The Kubernetes Operator agent can perform the following actions:
 

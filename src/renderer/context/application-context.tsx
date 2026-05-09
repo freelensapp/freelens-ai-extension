@@ -179,7 +179,9 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     }
 
     for (const msg of messages) {
-      await agent.updateState(config, { messages: new RemoveMessage({ id: msg.id }) });
+      await agent.updateState(config, {
+        messages: new RemoveMessage({ id: msg.id }),
+      });
     }
   };
 

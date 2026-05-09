@@ -39,7 +39,9 @@ automate complex tasks and enhance productivity.
     - [MCP Agent](#mcp-agent)
 
 ---
+
 ## Install
+
 Open freelens > file > extensions and add the folowing string to the textbox: **@freelensapp/ai-extension**
 
 or:
@@ -48,20 +50,23 @@ Use a following URL in the browser:
 [freelens://app/extensions/install/%40freelensapp%2Fai-extension](freelens://app/extensions/install/%40freelensapp%2Fai-extension)
 
 ## Available Models
+
 freelens-ai-extension currently supports integration with the following AI models:
 
-- ***gpt-5.5***
-- ***gpt-5.4***
-- ***gpt-5***
-- ***gpt-4.1***
-- ***gemini 2.5 flash***
+- **_gpt-5.5_**
+- **_gpt-5.4_**
+- **_gpt-5_**
+- **_gpt-4.1_**
+- **_gemini 2.5 flash_**
 
 Each model offers different capabilities and performance characteristics.
 Choose the one that best suits your needs and workflow requirements.
 
 ### Connecting a model
+
 You can connect your model by setting its API Key in the preferences page or by using you environment variables;
 for example you can set:
+
 - GOOGLE_API_KEY = ...
 - OPENAI_API_KEY = ...
 
@@ -91,9 +96,9 @@ our [MCP Agent documentation](docs/MCP_AGENT.md).
 
 #### Additional Resources
 
-- [***Contribute***](CONTRIBUTING.md)
-- [***Build freelens-ai-extension extension***](./docs/BUILD.md)
-- [***Set up extension on freelens***](./docs/SET_UP_EXTENSION.md)
+- [**_Contribute_**](CONTRIBUTING.md)
+- [**_Build freelens-ai-extension extension_**](./docs/BUILD.md)
+- [**_Set up extension on freelens_**](./docs/SET_UP_EXTENSION.md)
 
 If you find this project useful, please consider giving it a ⭐️ on
-[***GitHub***](https://github.com/freelensapp/freelens-ai)!
+[**_GitHub_**](https://github.com/freelensapp/freelens-ai)!

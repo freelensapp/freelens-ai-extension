@@ -34,7 +34,7 @@ The provided `freelens-ollama-compose.yml` file builds the image and runs the
 container:
 
 1. It reads the dockerfile `FreelensOllamaImage` and builds the image
-2. It uses the produced image to start a container 
+2. It uses the produced image to start a container
 3. It configures the container by adding some environment variables and other
    configurations
 

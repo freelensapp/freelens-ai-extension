@@ -19,8 +19,8 @@ This guide will help you build the project to create the tgz file or run the ser
 
 Before you begin, make sure you have the following installed:
 
-- [***Node.js***](https://nodejs.org/en)
-- [***pnpm***](https://pnpm.io/it/installation)
+- [**_Node.js_**](https://nodejs.org/en)
+- [**_pnpm_**](https://pnpm.io/it/installation)
 
 ---
 
@@ -38,11 +38,13 @@ pnpm i
 ### Build the project
 
 To build the project, run the following command in your terminal:
+
 ```sh
 pnpm build
 ```
 
 Or additionally, to build il dev mode:
+
 ```sh
 pnpm build:dev
 ```
@@ -51,8 +53,8 @@ pnpm build:dev
 
 Now you can choose between the following options:
 
-- [***Run the server***](#run-the-server)
-- [***Create the tgz file***](#create-the-tgz-file)
+- [**_Run the server_**](#run-the-server)
+- [**_Create the tgz file_**](#create-the-tgz-file)
 
 ---
 
@@ -63,6 +65,7 @@ To run the server, run the following command in your terminal:
 ```sh
 pnpm start
 ```
+
 ---
 
 ### Create the tgz file
@@ -79,9 +82,9 @@ After creating the tgz file, you can proceed with the extension setup guide to i
 
 #### Additional Resources
 
-- [***README***](../README.md)
-- [***Contribute***](CONTRIBUTING.md)
-- [***Set up extension on freelens***](./SET_UP_EXTENSION.md)
+- [**_README_**](../README.md)
+- [**_Contribute_**](CONTRIBUTING.md)
+- [**_Set up extension on freelens_**](./SET_UP_EXTENSION.md)
 
 If you find this project useful, please consider giving it a ⭐️ on
-[***GitHub***](https://github.com/freelensapp/freelens-ai)!
+[**_GitHub_**](https://github.com/freelensapp/freelens-ai)!
