@@ -1,5 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
-import { Eraser, SendHorizonal } from "lucide-react";
+import { Eraser, SendHorizonal, ShieldOff } from "lucide-react";
 import * as React from "react";
 import { AIModelsEnum } from "../../business/provider/ai-models";
 import { useApplicationStatusStore } from "../../context/application-context";
@@ -75,6 +75,34 @@ export const TextInput = ({ onSend }: TextInputProps) => {
                 }}
               >
                 <span style={{ marginRight: 0 }}>🛠️</span>
+              </button>
+              {/* Button to toggle Bypass Approvals mode */}
+              <button
+                className={`chat-button chat-clear-button${applicationStatusStore.bypassApprovals ? " active" : ""}`}
+                onClick={() => applicationStatusStore.setBypassApprovals(!applicationStatusStore.bypassApprovals)}
+                title={
+                  applicationStatusStore.bypassApprovals
+                    ? "Disable Bypass Approvals Mode (tool calls will require confirmation)"
+                    : "Enable Bypass Approvals Mode (tool calls will be auto-approved)"
+                }
+                id="bypass-approvals-button"
+                style={{
+                  borderRadius: "15px",
+                  width: 38,
+                  height: 38,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 15,
+                  background: applicationStatusStore.bypassApprovals ? "#E0A800" : undefined,
+                  color: applicationStatusStore.bypassApprovals ? "#fff" : undefined,
+                  borderColor: applicationStatusStore.bypassApprovals ? "#E0A800" : undefined,
+                  boxShadow: applicationStatusStore.bypassApprovals ? "0 2px 8px rgba(224,168,0,0.25)" : "none",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                }}
+              >
+                <ShieldOff size={18} />
               </button>
             </div>
             <div style={{ display: "flex", alignItems: "center" }}>
