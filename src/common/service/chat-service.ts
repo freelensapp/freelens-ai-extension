@@ -109,6 +109,7 @@ const useChatService = () => {
       const agentService: AgentService = useAgentService(activeAgent);
       const agentResponseStream = agentService.run(agentInput, applicationStatusStore.conversationId);
       let endedWithInterrupt = false;
+      let autoApproveAndResume = false;
       for await (const chunk of agentResponseStream) {
         // log.debug("Streaming to UI chunk: ", chunk);
         if (typeof chunk === "string") {
@@ -118,11 +119,22 @@ const useChatService = () => {
         // check if the chunk is an approval interrupt
         if (typeof chunk === "object" && isApprovalInterrupt(chunk.value)) {
           log.debug("Approval interrupt received: ", chunk);
-          _sendMessage(getInterruptMessage(chunk, false));
-          endedWithInterrupt = true;
+          if (applicationStatusStore.bypassApprovals) {
+            log.debug("Bypass approvals mode enabled: auto-approving tool use");
+            const interruptMessage = getInterruptMessage(chunk, false);
+            interruptMessage.approved = true;
+            _sendMessage(interruptMessage);
+            autoApproveAndResume = true;
+          } else {
+            _sendMessage(getInterruptMessage(chunk, false));
+            endedWithInterrupt = true;
+          }
         }
       }
       applicationStatusStore.setConversationInterrupted(endedWithInterrupt);
+      if (autoApproveAndResume) {
+        await runAgent(new Command({ resume: "yes" }));
+      }
     } catch (error) {
       log.error("Error while running Freelens Agent: ", error);
 

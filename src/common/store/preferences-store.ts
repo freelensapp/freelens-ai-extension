@@ -29,6 +29,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
 
   // Not persistent
   @observable accessor explainEvent: MessageObject = {} as MessageObject;
+  // Not persistent: when enabled, the agent auto-approves tool-use requests
+  @observable accessor bypassApprovals: boolean = false;
 
   constructor() {
     super({

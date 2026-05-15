@@ -16,6 +16,7 @@ export interface AppContextType {
   selectedModel: AIModelsEnum;
   mcpEnabled: boolean;
   mcpConfiguration: string;
+  bypassApprovals: boolean;
   explainEvent: MessageObject;
   ollamaHost: string;
   ollamaPort: string;
@@ -27,6 +28,7 @@ export interface AppContextType {
   mcpAgent: MPCAgent | null;
   setSelectedModel: (selectedModel: AIModelsEnum) => void;
   setExplainEvent: (messageObject: MessageObject) => void;
+  setBypassApprovals: (bypassApprovals: boolean) => void;
   setLoading: (isLoading: boolean) => void;
   setConversationInterrupted: (isConversationInterrupted: boolean) => void;
   addMessage: (message: MessageObject) => void;
@@ -255,6 +257,10 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     preferencesStore.explainEvent = messageObject;
   };
 
+  const setBypassApprovals = (bypassApprovals: boolean) => {
+    preferencesStore.bypassApprovals = bypassApprovals;
+  };
+
   const changeInterruptStatus = (id: string, status: boolean) => {
     _setChatMessages((prevMessages) =>
       prevMessages!.map((msg) => (msg.messageId === id ? { ...msg, approved: status } : msg)),
@@ -268,6 +274,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         selectedModel: preferencesStore.selectedModel,
         mcpEnabled: preferencesStore.mcpEnabled,
         mcpConfiguration: preferencesStore.mcpConfiguration,
+        bypassApprovals: preferencesStore.bypassApprovals,
         explainEvent: preferencesStore.explainEvent,
         ollamaHost: preferencesStore.ollamaHost,
         ollamaPort: preferencesStore.ollamaPort,
@@ -279,6 +286,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         freeLensAgent,
         setSelectedModel,
         setExplainEvent,
+        setBypassApprovals,
         setLoading,
         setConversationInterrupted,
         addMessage,
