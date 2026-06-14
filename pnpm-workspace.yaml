@@ -6,6 +6,6 @@ onlyBuiltDependencies:
   - playwright
 
 overrides:
-  "@modelcontextprotocol/sdk": "1.13.1"
+  "@modelcontextprotocol/sdk": 1.13.1
 
 shellEmulator: true

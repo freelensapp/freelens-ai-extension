@@ -1,8 +1,3 @@
-import {
-  OLLAMA_GRANITE4_3B as GRANITE4_3B,
-  OLLAMA_GRANITE4_7B as GRANITE4_7B,
-} from "../../../common/constants/ollama-models";
-
 export interface AIModelInfo {
   description: string;
   provider: string;
@@ -19,11 +14,11 @@ export enum AIModelsEnum {
   GEMINI_2_FLASH = "gemini-2.0-flash",
   // 4gb vram is more than enough, 2gb is enough for inference
   // for no gpu users we can use quantized models, but haven't tested them yet
-  OLLAMA_GRANITE4_3B = GRANITE4_3B,
+  OLLAMA_GRANITE4_3B = "granite4:3b",
   // 8gb vram is more than enough, 4gb is enough for inference
   // for no gpu users we can use quantized models, but haven't tested them yet
   // with ram it will be bit slower but should work fine
-  OLLAMA_GRANITE4_7B = GRANITE4_7B,
+  OLLAMA_GRANITE4_7B = "granite4:7b-a1b-h",
   GEMINI_2_5_FLASH = "gemini-2.5-flash",
 }
 
