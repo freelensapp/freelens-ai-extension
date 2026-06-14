@@ -1,7 +1,8 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
-import { MessageObject } from "../../renderer/business/objects/message-object";
 import { AIModelsEnum, toAIModelEnum } from "../../renderer/business/provider/ai-models";
+
+import type { MessageObject } from "../../renderer/business/objects/message-object";
 
 const DEFAULT_SELECTED_MODEL = AIModelsEnum.GPT_5_5;
 
@@ -29,6 +30,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
 
   // Not persistent
   @observable accessor explainEvent: MessageObject = {} as MessageObject;
+  // Not persistent: when enabled, the agent auto-approves tool-use requests
+  @observable accessor bypassApprovals: boolean = false;
 
   constructor() {
     super({

@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { MessageObject } from "../../business/objects/message-object";
+import * as React from "react";
+
+import type { MessageObject } from "../../business/objects/message-object";
+
+const { useEffect, useRef, useState } = React;
 
 export interface MessageHookProps {
   message: MessageObject;

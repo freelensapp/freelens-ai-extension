@@ -1,5 +1,7 @@
 import log from "loglevel";
-import { useMemo } from "react";
+import * as React from "react";
+
+const { useMemo } = React;
 
 const isProd = import.meta.env.VITE_ENV == "production";
 

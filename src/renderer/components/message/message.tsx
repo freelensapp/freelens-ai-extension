@@ -1,11 +1,12 @@
 import useChatService from "../../../common/service/chat-service";
-import { MessageObject } from "../../business/objects/message-object";
 import { getTextMessage } from "../../business/objects/message-object-provider";
 import { MessageType } from "../../business/objects/message-type";
 import Interrupt from "../interrupt/interrupt";
 import { MarkdownViewer } from "../markdown-viewer";
 import styleInline from "./message.scss?inline";
 import useMessageHook from "./message-hook";
+
+import type { MessageObject } from "../../business/objects/message-object";
 
 export interface MessageProps {
   message: MessageObject;

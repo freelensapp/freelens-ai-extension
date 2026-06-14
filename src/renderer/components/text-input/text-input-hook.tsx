@@ -1,9 +1,11 @@
 import { Renderer } from "@freelensapp/extensions";
-import React, { useEffect, useRef, useState } from "react";
+import * as React from "react";
 import { AIModelInfos, AIModelsEnum, toAIModelEnum } from "../../business/provider/ai-models";
 import { useApplicationStatusStore } from "../../context/application-context";
 
 import type { SingleValue } from "react-select";
+
+const { useEffect, useRef, useState } = React;
 
 type TextInputHookProps = {
   onSend: (message: string) => void;

@@ -1,21 +1,27 @@
 import { RemoveMessage } from "@langchain/core/messages";
-import { observer } from "mobx-react";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import * as MobxReact from "mobx-react";
+import * as React from "react";
+
+const { observer } = MobxReact;
+const { createContext, useContext, useEffect, useRef, useState } = React;
+
 import { PreferencesStore } from "../../common/store";
 import { AgentsStore } from "../../common/store/agents-store";
 import useLog from "../../common/utils/logger/logger-service";
 import { generateUuid } from "../../common/utils/uuid";
 import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
 import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
-import { MessageObject } from "../business/objects/message-object";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { AIModelsEnum } from "../business/provider/ai-models";
+
+import type { MessageObject } from "../business/objects/message-object";
 
 export interface AppContextType {
   apiKey: string;
   selectedModel: AIModelsEnum;
   mcpEnabled: boolean;
   mcpConfiguration: string;
+  bypassApprovals: boolean;
   explainEvent: MessageObject;
   ollamaHost: string;
   ollamaPort: string;
@@ -27,6 +33,7 @@ export interface AppContextType {
   mcpAgent: MPCAgent | null;
   setSelectedModel: (selectedModel: AIModelsEnum) => void;
   setExplainEvent: (messageObject: MessageObject) => void;
+  setBypassApprovals: (bypassApprovals: boolean) => void;
   setLoading: (isLoading: boolean) => void;
   setConversationInterrupted: (isConversationInterrupted: boolean) => void;
   addMessage: (message: MessageObject) => void;
@@ -257,6 +264,10 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     preferencesStore.explainEvent = messageObject;
   };
 
+  const setBypassApprovals = (bypassApprovals: boolean) => {
+    preferencesStore.bypassApprovals = bypassApprovals;
+  };
+
   const changeInterruptStatus = (id: string, status: boolean) => {
     _setChatMessages((prevMessages) =>
       prevMessages!.map((msg) => (msg.messageId === id ? { ...msg, approved: status } : msg)),
@@ -270,6 +281,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         selectedModel: preferencesStore.selectedModel,
         mcpEnabled: preferencesStore.mcpEnabled,
         mcpConfiguration: preferencesStore.mcpConfiguration,
+        bypassApprovals: preferencesStore.bypassApprovals,
         explainEvent: preferencesStore.explainEvent,
         ollamaHost: preferencesStore.ollamaHost,
         ollamaPort: preferencesStore.ollamaPort,
@@ -281,6 +293,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         freeLensAgent,
         setSelectedModel,
         setExplainEvent,
+        setBypassApprovals,
         setLoading,
         setConversationInterrupted,
         addMessage,

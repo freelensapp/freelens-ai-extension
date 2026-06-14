@@ -16,7 +16,7 @@
     "node": ">= 22.0.0",
     "freelens": "^1.4.0"
   },
-  "copyright": "\u00a9 2025-2026 Freelens Authors",
+  "copyright": "© 2025-2026 Freelens Authors",
   "license": "MIT",
   "author": {
     "name": "Freelens Authors",
