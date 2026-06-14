@@ -1,28 +1,32 @@
-name: Automated npm version
+name: Automated biome migrate
 
 on:
-  workflow_dispatch:
-    inputs:
-      newversion:
-        description: New version (X.Y.Z | major | minor | patch | premajor | preminor | prepatch | prerelease)
-        required: true
-        default: prerelease
-  release:
+  issue_comment:
     types:
-      - released
+      - created
+  push:
+    branches:
+      - main
+    paths:
+      - biome.jsonc
+      - package.json
+  schedule:
+    - cron: 2 6 * * *
+  workflow_dispatch: {}
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  npm-version:
-    name: npm version
+  biome-migrate:
+    name: biome migrate
 
     runs-on: ubuntu-24.04-arm
     environment: automated
     timeout-minutes: 10
 
+    if: github.event_name != 'issue_comment' || (startsWith(github.event.issue.title, 'Automated biome migrate') && contains(github.event.comment.body, '/rerun'))
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -59,23 +63,10 @@ jobs:
         if: steps.install-pnpm.outcome == 'failure'
         run: timeout 300 pnpm install --color=always --prefer-offline --frozen-lockfile
 
-      - name: Set version
+      - name: Run biome migrate
         run: |
-          set -eo pipefail
-          pnpm bump-version "$newversion" | tee .github/update.log
-          yq -r .version package.json > .github/version.log
-          sed -e 's/\x1b\[[0-9;]*m//g' .github/update.log > .github/pr_body.log
-        env:
-          newversion: ${{ github.event.inputs.newversion || 'prerelease' }}
-
-      - name: Update pnpm dependencies
-        id: update-pnpm
-        run: timeout 300 pnpm install --color=always --prefer-offline
-        continue-on-error: true
-
-      - name: Update pnpm dependencies (retry)
-        if: steps.update-pnpm.outcome == 'failure'
-        run: timeout 300 pnpm install --color=always --prefer-offline
+          set -o pipefail
+          pnpm biome:migrate | tee .github/pr_body.log
 
       - name: Check for changes
         run: |
@@ -91,24 +82,24 @@ jobs:
         with:
           github_token: ${{ secrets.GH_TOKEN }}
           default_author: github_actions
-          message: Automated npm version ${{ github.event.inputs.newversion || 'prerelease' }}
-          new_branch: automated/npm-version
+          message: Automated biome migrate [skip ci]
+          new_branch: automated/biome-migrate
           fetch: false
-          push: origin automated/npm-version --set-upstream --force
+          push: origin automated/biome-migrate --set-upstream --force
 
       - name: Create pull request
         if: env.changes == 'true'
         run: |-
-          version=$(cat .github/version.log)
-          if [[ $(gh pr view automated/npm-version --json state --jq .state || true) != "OPEN" ]]; then
+          if [[ $(gh pr view automated/biome-migrate --json state --jq .state || true) != "OPEN" ]]; then
             gh pr create \
-              --head automated/npm-version \
-              --title "Automated npm version v${version}" \
+              --head automated/biome-migrate \
+              --title "Automated biome migrate [skip ci]" \
               --body-file .github/pr_body.log \
-              --label automated
+              --label automated \
+              --label trunk
           else
-            gh pr edit automated/npm-version \
-              --title "Automated npm version v${version}" \
+            gh pr edit automated/biome-migrate \
+              --title "Automated biome migrate [skip ci]" \
               --body-file .github/pr_body.log
           fi
         env:
@@ -116,6 +107,6 @@ jobs:
 
       - name: Close pull request
         if: env.changes == 'false'
-        run: gh pr list --head automated/npm-version --json number --jq '.[].number' | xargs -rn1 gh pr close --delete-branch
+        run: gh pr list --head automated/biome-migrate --json number --jq '.[].number' | xargs -rn1 gh pr close --delete-branch
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}

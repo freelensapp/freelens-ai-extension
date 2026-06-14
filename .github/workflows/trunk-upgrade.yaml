@@ -21,46 +21,37 @@ jobs:
   trunk-upgrade:
     name: trunk upgrade
 
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            arch: x64
-
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04-arm
     environment: automated
     timeout-minutes: 10
 
-    if: >-
-      github.event_name != 'issue_comment' || (startsWith(github.event.issue.title, 'Automated trunk upgrade') && contains(github.event.comment.body,
-      '/rerun'))
-
+    if: github.event_name != 'issue_comment' || (startsWith(github.event.issue.title, 'Automated trunk upgrade') && contains(github.event.comment.body, '/rerun'))
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.GH_TOKEN }}
 
       - name: Setup node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        run: corepack enable
 
       - name: Get pnpm cache directory
         shell: bash
         run: echo "pnpm_cache_dir=$(pnpm store path)" >> ${GITHUB_ENV}
 
       - name: Use pnpm cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.pnpm_cache_dir }}
-          key: ${{ matrix.os }}-${{ matrix.arch }}-node-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ubuntu-24.04-arm-node-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ matrix.os }}-${{ matrix.arch }}-node-
+            ubuntu-24.04-arm-node-
 
       - name: Install pnpm dependencies
         id: install-pnpm
@@ -76,6 +67,7 @@ jobs:
 
       - name: Trunk upgrade
         run: |
+          set -o pipefail
           trunk upgrade --yes-to-all --no-progress --ci --color | tee .github/update.log
           sed -e '/Downloading Trunk/,/Unpacking Trunk... done/d' -e 's/\x1b\[[0-9;]*m//g' -e 's/^\(  \)\{0,1\}  /\1- /' .github/update.log > .github/pr_body.log
           perl -0777 -ne 'print join ", ", map {s/://gr} map {s/^- //r} grep {/^(-|cli) /} split "\n"' .github/pr_body.log > .github/pr_title.log
@@ -97,7 +89,7 @@ jobs:
 
       - name: Commit and push to branch
         if: env.changes == 'true'
-        uses: EndBug/add-and-commit@v9
+        uses: EndBug/add-and-commit@v10
         with:
           github_token: ${{ secrets.GH_TOKEN }}
           default_author: github_actions

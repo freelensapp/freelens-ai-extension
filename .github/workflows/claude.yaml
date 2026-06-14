@@ -71,8 +71,7 @@ jobs:
 
     steps:
       - name: Checkout (PR — forked code)
-        if: github.event_name == 'issue_comment' && github.event.issue.pull_request || github.event_name == 'pull_request_review_comment'
-          || github.event_name == 'pull_request_review'
+        if: github.event_name == 'issue_comment' && github.event.issue.pull_request || github.event_name == 'pull_request_review_comment' || github.event_name == 'pull_request_review'
         uses: actions/checkout@v6
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -80,8 +79,7 @@ jobs:
           fetch-depth: 0
 
       - name: Checkout (default branch — issues, workflow_dispatch)
-        if: github.event_name == 'issues' || github.event_name == 'workflow_dispatch' || (github.event_name == 'issue_comment'
-          && !github.event.issue.pull_request)
+        if: github.event_name == 'issues' || github.event_name == 'workflow_dispatch' || (github.event_name == 'issue_comment' && !github.event.issue.pull_request)
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -116,8 +114,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.TURBOREPO_CACHE }}
-          key: ${{ matrix.runs-on }}-${{ matrix.arch }}-turborepo-${{ hashFiles('package.json', 'freelens/package.json', 'packages/**/package.json',
-            'pnpm-lock.yaml','turbo.json') }}
+          key: ${{ matrix.runs-on }}-${{ matrix.arch }}-turborepo-${{ hashFiles('package.json', 'freelens/package.json', 'packages/**/package.json', 'pnpm-lock.yaml','turbo.json') }}
           restore-keys: |
             ${{ matrix.runs-on }}-${{ matrix.arch }}-turborepo-
 
