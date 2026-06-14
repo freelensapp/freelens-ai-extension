@@ -72,6 +72,18 @@ jobs:
         run: timeout 300 pnpm install --color=always --prefer-offline --frozen-lockfile
 
       - name: Build plugin
+        id: build-plugin
+        run: pnpm build
+        continue-on-error: true
+
+      - name: Build plugin (retry)
+        id: build-plugin-2
+        if: steps.build-plugin.outcome == 'failure'
+        run: pnpm build
+        continue-on-error: true
+
+      - name: Build plugin (retry 2)
+        if: steps.build-plugin-2.outcome == 'failure'
         run: pnpm build
 
       - name: Pack plugin
@@ -182,6 +194,20 @@ jobs:
         run: pnpx playwright install-deps
 
       - name: Build app
+        id: build-app
+        working-directory: freelens
+        run: pnpm --color=always --stream build
+        continue-on-error: true
+
+      - name: Build app (retry)
+        id: build-app-2
+        if: steps.build-app.outcome == 'failure'
+        working-directory: freelens
+        run: pnpm --color=always --stream build
+        continue-on-error: true
+
+      - name: Build app (retry 2)
+        if: steps.build-app-2.outcome == 'failure'
         working-directory: freelens
         run: pnpm --color=always --stream build
 
