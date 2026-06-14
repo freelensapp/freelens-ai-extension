@@ -9,7 +9,7 @@ importers:
   .:
     devDependencies:
       '@babel/plugin-proposal-decorators':
-        specifier: ^7.29.0
+        specifier: ^7.29.7
         version: 7.29.7(@babel/core@7.29.7)
       '@electron-toolkit/tsconfig':
         specifier: ^2.0.0
