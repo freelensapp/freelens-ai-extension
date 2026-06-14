@@ -42,7 +42,7 @@ importers:
         specifier: ^15.5.13
         version: 15.5.13
       '@vitejs/plugin-react':
-        specifier: ^6.0.1
+        specifier: ^6.0.2
         version: 6.0.2(vite@8.0.16(@types/node@24.12.4)(less@4.3.0)(sass-embedded@1.100.0)(sass@1.100.0)(stylus@0.62.0)(terser@5.39.1)(yaml@2.7.1))
       electron-vite:
         specifier: ^5.0.0

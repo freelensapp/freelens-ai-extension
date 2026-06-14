@@ -73,7 +73,7 @@
     "@types/node": "~24.12.4",
     "@types/react": "^17.0.93",
     "@types/react-syntax-highlighter": "^15.5.13",
-    "@vitejs/plugin-react": "^6.0.1",
+    "@vitejs/plugin-react": "^6.0.2",
     "electron-vite": "^5.0.0",
     "loglevel": "^1.9.2",
     "lucide-react": "^0.510.0",
