@@ -5,6 +5,7 @@
   "project": ["*.{js,mjs,ts}", "src/**/*.{ts,tsx}"],
 
   "ignoreBinaries": ["electron-rebuild", "yq"],
+  "ignoreDependencies": ["@babel/plugin-proposal-decorators"],
   "typescript": {
     "config": ["tsconfig.json"]
   },
