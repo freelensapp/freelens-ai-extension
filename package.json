@@ -71,7 +71,7 @@
     "@langchain/mcp-adapters": "^0.5.2",
     "@langchain/openai": "^0.5.15",
     "@types/node": "~24.12.4",
-    "@types/react": "^17.0.87",
+    "@types/react": "^17.0.93",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^6.0.1",
     "electron-vite": "^5.0.0",
