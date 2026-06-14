@@ -1,9 +1,13 @@
 import { Main } from "@freelensapp/extensions";
-import { useEffect, useRef } from "react";
+import * as React from "react";
+
+const { useEffect, useRef } = React;
+
 import useChatService from "../../../common/service/chat-service";
-import { MessageObject } from "../../business/objects/message-object";
 import { MessageType } from "../../business/objects/message-type";
 import { useApplicationStatusStore } from "../../context/application-context";
+
+import type { MessageObject } from "../../business/objects/message-object";
 
 export interface ActionToApprove {
   action: string;

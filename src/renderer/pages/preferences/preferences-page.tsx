@@ -1,5 +1,8 @@
 import { Renderer } from "@freelensapp/extensions";
-import { observer } from "mobx-react";
+import * as MobxReact from "mobx-react";
+
+const { observer } = MobxReact;
+
 import { PreferencesStore } from "../../../common/store";
 
 const {

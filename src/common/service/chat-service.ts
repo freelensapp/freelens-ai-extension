@@ -1,5 +1,4 @@
 import { Command } from "@langchain/langgraph";
-import { MessageObject } from "../../renderer/business/objects/message-object";
 import { getInterruptMessage, getTextMessage } from "../../renderer/business/objects/message-object-provider";
 import { MessageType } from "../../renderer/business/objects/message-type";
 import { AgentService, useAgentService } from "../../renderer/business/service/agent-service";
@@ -7,6 +6,8 @@ import { AiAnalysisService, useAiAnalysisService } from "../../renderer/business
 import { ActionToApprove } from "../../renderer/components/chat";
 import { useApplicationStatusStore } from "../../renderer/context/application-context";
 import useLog from "../utils/logger/logger-service";
+
+import type { MessageObject } from "../../renderer/business/objects/message-object";
 
 export interface ApprovalInterrupt {
   question: string;
