@@ -58,16 +58,16 @@ lint:
   enabled:
     - taplo@0.10.0
     - actionlint@1.7.12
-    - biome@2.0.6! # datasource=npm depName=@biomejs/biome
+    - biome@2.5.0! # datasource=npm depName=@biomejs/biome
     - git-diff-check
     - markdownlint@0.48.0
     - prettier@3.8.4! # datasource=npm depName=prettier
-    - svgo@4.0.1
     - yamlfmt@0.21.0
     - yamllint@1.38.0
   disabled:
     - checkov
     - eslint
+    - svgo
     - grype
     - hadolint
     - osv-scanner
