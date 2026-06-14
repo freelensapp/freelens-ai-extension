@@ -1,3 +1,11 @@
 onlyBuiltDependencies:
-  - "@parcel/watcher"
+  - '@parcel/watcher'
+  - electron
   - esbuild
+  - node-pty
+  - playwright
+
+overrides:
+  "@modelcontextprotocol/sdk": "1.13.1"
+
+shellEmulator: true

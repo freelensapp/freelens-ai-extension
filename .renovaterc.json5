@@ -1,25 +1,32 @@
 {
-  $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: ["config:recommended", ":semanticCommitsDisabled"],
-  prHourlyLimit: 20,
-  addLabels: ["renovate"],
-  osvVulnerabilityAlerts: true,
-  postUpdateOptions: ["pnpmDedupe"],
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommitsDisabled"
+  ],
+  "prHourlyLimit": 20,
+  "addLabels": [
+    "renovate"
+  ],
+  "osvVulnerabilityAlerts": true,
+  "postUpdateOptions": [
+    "pnpmDedupe"
+  ],
   // always bump depdenencies even when are in the range
-  rangeStrategy: "bump",
-  vulnerabilityAlerts: {
-    labels: ["security"],
-    rangeStrategy: "bump",
+  "rangeStrategy": "bump",
+  "vulnerabilityAlerts": {
+    "labels": [
+      "security"
+    ],
+    "rangeStrategy": "bump",
   },
   // disable autorebasing to save unecessary workflow runs
-  rebaseWhen: "conflicted",
-  ignoreDeps: [
+  "rebaseWhen": "conflicted",
+  "ignoreDeps": [
     // it must be the same as bundled in Electron
     "node",
     // it must be the oldest possible version to get binary compatibility with older OSes
     "ubuntu",
-    // manual updates only
-    "@freelensapp/extensions",
     // must match version from Freelens
     "mobx",
     "mobx-react",
@@ -27,61 +34,88 @@
     "react-dom",
     "react-router-dom",
   ],
-  packageRules: [
+  "packageRules": [
     // peerDependencies are widen
     {
-      matchDepTypes: ["peerDependencies"],
-      rangeStrategy: "widen",
-      semanticCommitScope: "peer-deps",
+      "matchDepTypes": [
+        "peerDependencies"
+      ],
+      "rangeStrategy": "widen",
+      "semanticCommitScope": "peer-deps"
     },
     // non-major updates only
     {
-      matchDepNames: ["@types/react", "npm"],
-      matchUpdateTypes: ["major"],
-      enabled: false,
+      "matchDepNames": [
+        "@types/react",
+        "npm",
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
     },
     // patch updates only
     {
-      matchDepNames: ["@types/node"],
-      matchUpdateTypes: ["major", "minor"],
-      enabled: false,
+      "matchDepNames": [
+        "@types/node",
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor"
+      ],
+      "enabled": false
     },
+    // postupdate script
+    {
+      "matchDepNames": [
+        "@biomejs/biome",
+      ],
+      "postUpdateOptions": [
+        "runScripts"
+      ]
+    }
   ],
-  customManagers: [
+  "customManagers": [
     // additional engine field in package.json
     {
-      customType: "regex",
-      extractVersionTemplate: "^(?<version>.*)$",
-      managerFilePatterns: ["/^package\\.json$/"],
-      matchStrings: ['"freelens"\\s*:\\s*"(?<currentValue>\\S+)"'],
-      datasourceTemplate: "github-releases",
-      depNameTemplate: "freelensapp/freelens",
-      versioningTemplate: "npm",
+      "customType": "regex",
+      "extractVersionTemplate": "^(?<version>.*)$",
+      "managerFilePatterns": [
+        "/^package\\.json$/"
+      ],
+      "matchStrings": [
+        "\"freelens\"\\s*:\\s*\"(?<currentValue>\\S+)\""
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "freelensapp/freelens",
+      "versioningTemplate": "npm"
     },
     // pnpm dlx
     {
-      customType: "regex",
-      extractVersionTemplate: "^(?<version>.*)$",
-      managerFilePatterns: ["/package\\.json$/"],
-      matchStrings: [
-        'pnpm\\s+dlx\\s+(?<depName>\\S+)@(?<currentValue>\\S+?)[\\s"|<>]',
+      "customType": "regex",
+      "extractVersionTemplate": "^(?<version>.*)$",
+      "managerFilePatterns": [
+        "/package\\.json$/"
       ],
-      datasourceTemplate: "npm",
-      versioningTemplate: "npm",
+      "matchStrings": [
+        "pnpm\\s+dlx\\s+(?<depName>\\S+)@(?<currentValue>\\S+?)[\\s\"|<>]"
+      ],
+      "datasourceTemplate": "npm",
+      "versioningTemplate": "npm"
     },
     // renovate hints after comment
     {
-      customType: "regex",
-      extractVersionTemplate: "^v?(?<version>.*)$",
-      managerFilePatterns: [
+      "customType": "regex",
+      "extractVersionTemplate": "^v?(?<version>.*)$",
+      "managerFilePatterns": [
         "/^\\.github/workflows/.*\\.ya?ml$/",
-        "/^\\.trunk/trunk.yaml/",
-        "/^\\.tool-versions$/",
+        "/^\\.trunk/trunk.yaml$/",
+        "/^\\.tool-versions$/"
       ],
-      matchStrings: [
-        "(\\s+|.*?@)(?<currentValue>\\S+)\\s*#\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>\\S+))?(\\s+registryUrl=(?<registryUrl>\\S+))?\\s*\\n",
+      "matchStrings": [
+        "(\\s+|.*?@)(?<currentValue>\\S+?)!?\\s*#\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>\\S+))?(\\s+registryUrl=(?<registryUrl>\\S+))?\\s*\\n"
       ],
-      versioningTemplate: "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}",
-    },
-  ],
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
+    }
+  ]
 }
