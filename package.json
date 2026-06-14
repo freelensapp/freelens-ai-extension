@@ -84,7 +84,7 @@
     "react-select": "5.10.2",
     "react-syntax-highlighter": "^15.6.1",
     "sass": "^1.89.2",
-    "typescript": "5.8.3",
+    "typescript": "5.9.3",
     "vite": "^6.3.6",
     "vite-plugin-external": "^6.2.2",
     "zod": "^3.25.67"
