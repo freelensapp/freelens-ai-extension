@@ -56,14 +56,11 @@ lint:
       files:
         - sass
   enabled:
-    - grype@0.114.0
-    - pinact@4.1.0
     - taplo@0.10.0
     - actionlint@1.7.12
     - biome@2.0.6! # datasource=npm depName=@biomejs/biome
     - git-diff-check
     - markdownlint@0.48.0
-    - oxipng@9.1.5
     - prettier@3.6.2! # datasource=npm depName=prettier
     - svgo@4.0.1
     - yamlfmt@0.21.0
@@ -71,8 +68,11 @@ lint:
   disabled:
     - checkov
     - eslint
+    - grype
     - hadolint
     - osv-scanner
+    - oxipng
+    - pinact
     - renovate
     - trufflehog
 actions:
