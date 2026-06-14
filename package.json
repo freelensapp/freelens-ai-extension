@@ -13,7 +13,7 @@
     "out/**/*"
   ],
   "engines": {
-    "node": ">= 22.15.1",
+    "node": ">= 24.15.0",
     "freelens": "^1.4.0"
   },
   "copyright": "© 2025 Freelens Authors",
@@ -58,7 +58,7 @@
     "@langchain/langgraph": "^0.2.74",
     "@langchain/mcp-adapters": "^0.5.2",
     "@langchain/openai": "^0.5.15",
-    "@types/node": "~22.15.33",
+    "@types/node": "~24.0.0",
     "@types/react": "^17.0.87",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^4.6.0",
