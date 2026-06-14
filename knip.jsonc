@@ -1,17 +1,10 @@
 {
-  "$schema": "https://unpkg.com/knip@5/schema-jsonc.json",
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
 
-  "entry": ["out/{main,renderer}/index.js!", "src/main/index.ts", "src/renderer/index.tsx"],
-  "project": ["*.{js,mjs,ts}", "out/**/*.js!", "src/**/*.{ts,tsx}"],
+  "entry": ["src/main/index.ts", "src/renderer/index.tsx"],
+  "project": ["*.{js,mjs,ts}", "src/**/*.{ts,tsx}"],
 
-  "ignoreBinaries": ["build:.*", "electron-rebuild", "yq"],
-  "ignoreDependencies": [
-    // used as vite plugin
-    "@babel/plugin-proposal-decorators",
-    // part of the extensions API
-    "react-router-dom"
-  ],
-
+  "ignoreBinaries": ["electron-rebuild", "yq"],
   "typescript": {
     "config": ["tsconfig.json"]
   },
