@@ -1,15 +1,20 @@
 import { RemoveMessage } from "@langchain/core/messages";
-import { observer } from "mobx-react";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import * as MobxReact from "mobx-react";
+import * as React from "react";
+
+const { observer } = MobxReact;
+const { createContext, useContext, useEffect, useRef, useState } = React;
+
 import { PreferencesStore } from "../../common/store";
 import { AgentsStore } from "../../common/store/agents-store";
 import useLog from "../../common/utils/logger/logger-service";
 import { generateUuid } from "../../common/utils/uuid";
 import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
 import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
-import { MessageObject } from "../business/objects/message-object";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { AIModelsEnum } from "../business/provider/ai-models";
+
+import type { MessageObject } from "../business/objects/message-object";
 
 export interface AppContextType {
   apiKey: string;

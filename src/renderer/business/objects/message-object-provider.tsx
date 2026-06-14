@@ -1,7 +1,8 @@
 import { Interrupt } from "@langchain/langgraph";
 import { generateUuid } from "../../../common/utils/uuid";
-import { MessageObject } from "./message-object";
 import { MessageType } from "./message-type";
+
+import type { MessageObject } from "./message-object";
 
 export function getTextMessage(message: string, sent: boolean): MessageObject {
   return {
