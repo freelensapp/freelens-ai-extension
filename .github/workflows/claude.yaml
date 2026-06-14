@@ -27,6 +27,15 @@ on:
         description: Task for Claude
         required: true
         type: string
+      model:
+        description: Anthropic model to run
+        required: true
+        type: choice
+        default: claude-sonnet-4-6
+        options:
+          - claude-opus-4-8
+          - claude-sonnet-4-6
+          - claude-haiku-4.5
       create-pr:
         description: Create a PR with changes (on a new branch)
         type: boolean
@@ -71,8 +80,7 @@ jobs:
 
     steps:
       - name: Checkout (PR — forked code)
-        if: github.event_name == 'issue_comment' && github.event.issue.pull_request || github.event_name == 'pull_request_review_comment'
-          || github.event_name == 'pull_request_review'
+        if: github.event_name == 'issue_comment' && github.event.issue.pull_request || github.event_name == 'pull_request_review_comment' || github.event_name == 'pull_request_review'
         uses: actions/checkout@v6
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -80,8 +88,7 @@ jobs:
           fetch-depth: 0
 
       - name: Checkout (default branch — issues, workflow_dispatch)
-        if: github.event_name == 'issues' || github.event_name == 'workflow_dispatch' || (github.event_name == 'issue_comment'
-          && !github.event.issue.pull_request)
+        if: github.event_name == 'issues' || github.event_name == 'workflow_dispatch' || (github.event_name == 'issue_comment' && !github.event.issue.pull_request)
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -116,8 +123,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.TURBOREPO_CACHE }}
-          key: ${{ matrix.runs-on }}-${{ matrix.arch }}-turborepo-${{ hashFiles('package.json', 'freelens/package.json', 'packages/**/package.json',
-            'pnpm-lock.yaml','turbo.json') }}
+          key: ${{ matrix.runs-on }}-${{ matrix.arch }}-turborepo-${{ hashFiles('package.json', 'freelens/package.json', 'packages/**/package.json', 'pnpm-lock.yaml','turbo.json') }}
           restore-keys: |
             ${{ matrix.runs-on }}-${{ matrix.arch }}-turborepo-
 
@@ -155,6 +161,13 @@ jobs:
         shell: bash
         run: |
           DEFAULT_MODEL="claude-sonnet-4-6"
+          if [[ -n "$WORKFLOW_MODEL" ]]; then
+            MODEL_ID="$WORKFLOW_MODEL"
+            echo "Resolved model from workflow input: $MODEL_ID"
+            echo "model=$MODEL_ID" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # For PR/issue events, look in comment/issue body. For workflow_dispatch, use prompt input.
           TEXT="${COMMENT_BODY}${REVIEW_BODY}${ISSUE_BODY}${PROMPT_INPUT}"
 
@@ -180,6 +193,7 @@ jobs:
           REVIEW_BODY: ${{ github.event.review.body || '' }}
           ISSUE_BODY: ${{ github.event.issue.body || '' }}
           PROMPT_INPUT: ${{ github.event.inputs.prompt || '' }}
+          WORKFLOW_MODEL: ${{ github.event.inputs.model || '' }}
 
       - name: Run Claude Code
         if: github.event_name != 'workflow_dispatch'
