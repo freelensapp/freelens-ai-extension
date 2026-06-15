@@ -7,6 +7,15 @@ import type { MessageObject } from "../../renderer/business/objects/message-obje
 
 const DEFAULT_SELECTED_MODEL = DEFAULT_MODELS[0]?.name ?? "";
 
+// Temporary persistence trace (see issue #118). `process.type` is "browser" in
+// the main process and "renderer" in renderer frames, so the two hops are easy
+// to tell apart: renderer logs land in Freelens DevTools, main logs in the
+// launching terminal. Remove once persistence is confirmed working.
+const PROCESS_TAG = (globalThis as { process?: { type?: string } }).process?.type ?? "unknown";
+const trace = (event: string, value: unknown) => {
+  console.log(`[AI-PREFS:${PROCESS_TAG}] ${event}`, value);
+};
+
 export interface PreferencesModel {
   openAIKey: string;
   openAIBaseUrl: string;
@@ -95,6 +104,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   }
 
   fromStore(preferencesModel: PreferencesModel): void {
+    trace("fromStore", preferencesModel.openAIBaseUrl);
     this.openAIKey = preferencesModel.openAIKey;
     this.openAIBaseUrl = preferencesModel.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
     this.openAIReasoningEffort = preferencesModel.openAIReasoningEffort ?? "";
@@ -124,6 +134,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       // ollamaHost: this.ollamaHost,
       // ollamaPort: this.ollamaPort,
     };
+    trace("toJSON", value.openAIBaseUrl);
     return toJS(value);
   }
 }
