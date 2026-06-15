@@ -1,8 +1,13 @@
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+// import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 // import { ChatOllama } from "@langchain/ollama";
-import { ChatOpenAI } from "@langchain/openai";
+import { ChatOpenAI, type ChatOpenAIFields } from "@langchain/openai";
 import { PreferencesStore } from "../../../common/store";
-import { AIModelsEnum } from "./ai-models";
+import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "./ai-models";
+import { isReasoningModel } from "./model-capabilities";
+
+// Header read by the local AI proxy to decide which upstream to forward to,
+// letting the user configure a custom base URL without changing the proxy code.
+export const UPSTREAM_BASE_URL_HEADER = "x-upstream-base-url";
 
 const getAiProxyBaseUrl = (aiProxyPort: number | null) => {
   if (aiProxyPort === null) {
@@ -17,27 +22,43 @@ export const useModelProvider = () => {
   const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
   const getModel = () => {
-    switch (preferencesStore.selectedModel) {
-      case AIModelsEnum.GPT_4_1:
-      case AIModelsEnum.GPT_5:
-      case AIModelsEnum.GPT_5_4:
-      case AIModelsEnum.GPT_5_5:
-        const openAiApiKey = process.env.OPENAI_API_KEY || preferencesStore.openAIKey;
+    const modelName = preferencesStore.selectedModel;
+    const provider = preferencesStore.models.find((model) => model.name === modelName)?.provider ?? AIProviders.OPEN_AI;
 
-        return new ChatOpenAI({
-          model: preferencesStore.selectedModel,
+    switch (provider) {
+      case AIProviders.OPEN_AI: {
+        const openAiApiKey = process.env.OPENAI_API_KEY || preferencesStore.openAIKey;
+        const openAIBaseUrl = preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
+
+        const fields: ChatOpenAIFields = {
+          model: modelName,
           apiKey: openAiApiKey,
           configuration: {
-            baseURL: `${getAiProxyBaseUrl(preferencesStore.aiProxyPort)}/openai/v1`,
+            // The proxy strips the "/openai" prefix and forwards to the
+            // upstream advertised via UPSTREAM_BASE_URL_HEADER.
+            baseURL: `${getAiProxyBaseUrl(preferencesStore.aiProxyPort)}/openai`,
+            defaultHeaders: {
+              [UPSTREAM_BASE_URL_HEADER]: openAIBaseUrl,
+            },
           },
-        });
-      // case AIModelsEnum.DEEP_SEEK_R1:
-      //   return null;
-      // case AIModelsEnum.OLLAMA_LLAMA32_1B:
-      // case AIModelsEnum.OLLAMA_MISTRAL_7B:
+        };
+
+        // Reasoning models reject `temperature` and accept a reasoning effort;
+        // non-reasoning models are the inverse. Decided by name heuristic.
+        if (isReasoningModel(modelName)) {
+          if (preferencesStore.openAIReasoningEffort) {
+            fields.reasoningEffort = preferencesStore.openAIReasoningEffort as ChatOpenAIFields["reasoningEffort"];
+          }
+        } else {
+          fields.temperature = 0;
+        }
+
+        return new ChatOpenAI(fields);
+      }
+      // case AIProviders.OLLAMA: {
       //   const ollamaHost = process.env.FREELENS_OLLAMA_HOST || preferencesStore.ollamaHost;
       //   const ollamaPort = process.env.FREELENS_OLLAMA_PORT || preferencesStore.ollamaPort;
-      //   let headers = new Headers();
+      //   const headers = new Headers();
       //   headers.set("Origin", ollamaHost);
       //   return new ChatOllama({
       //     model: modelName,
@@ -45,17 +66,19 @@ export const useModelProvider = () => {
       //     headers: headers,
       //     baseUrl: `${ollamaHost}:${ollamaPort}`,
       //   });
-      case AIModelsEnum.GEMINI_2_5_FLASH:
-        const googleApiKey = process.env.GOOGLE_API_KEY || preferencesStore.googleAIKey;
-        return new ChatGoogleGenerativeAI({
-          model: preferencesStore.selectedModel,
-          temperature: 0,
-          apiKey: googleApiKey,
-          baseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort) + "/google",
-          streamUsage: false,
-        });
+      // }
+      // case AIProviders.GOOGLE: {
+      //   const googleApiKey = process.env.GOOGLE_API_KEY || preferencesStore.googleAIKey;
+      //   return new ChatGoogleGenerativeAI({
+      //     model: modelName,
+      //     temperature: 0,
+      //     apiKey: googleApiKey,
+      //     baseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort) + "/google",
+      //     streamUsage: false,
+      //   });
+      // }
       default:
-        throw new Error(`Unsupported model: ${preferencesStore.selectedModel}`);
+        throw new Error(`Unsupported provider: ${provider}`);
     }
   };
 

@@ -4,8 +4,14 @@ import type { AddressInfo } from "node:net";
 
 const AI_PROXY_HOST = "127.0.0.1";
 
+// Header set by the renderer (see model-provider.ts) carrying the full upstream
+// base URL (including any path, e.g. https://api.openai.com/v1). When present it
+// overrides the static prefix map below, so the user can configure a custom
+// base URL without changing the proxy.
+const UPSTREAM_BASE_URL_HEADER = "x-upstream-base-url";
+
 const UPSTREAM_BY_PREFIX: Record<string, string> = {
-  openai: "https://api.openai.com",
+  openai: "https://api.openai.com/v1",
   google: "https://generativelanguage.googleapis.com",
 };
 
@@ -16,7 +22,7 @@ const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
   "access-control-allow-headers":
-    "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,accept,user-agent,x-goog-api-key,x-goog-api-client",
+    "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,accept,user-agent,x-goog-api-key,x-goog-api-client,x-upstream-base-url",
 } as const;
 
 const hopByHopHeaders = new Set([
@@ -52,7 +58,7 @@ const createUpstreamHeaders = (request: IncomingMessage) => {
   const headers = new Headers();
 
   for (const [key, value] of Object.entries(request.headers)) {
-    if (hopByHopHeaders.has(key) || value === undefined) {
+    if (hopByHopHeaders.has(key) || key === UPSTREAM_BASE_URL_HEADER || value === undefined) {
       continue;
     }
 
@@ -72,9 +78,14 @@ const proxyRequest = async (request: IncomingMessage, response: ServerResponse) 
   // Extract provider prefix: /<prefix>/rest/of/path
   const match = requestPath.match(/^\/([^/]+)(\/.*)?$/);
   const prefix = match?.[1] ?? "";
-  const upstreamOrigin = UPSTREAM_BY_PREFIX[prefix];
 
-  if (!upstreamOrigin) {
+  // Prefer the upstream base URL advertised by the renderer; fall back to the
+  // static prefix map for callers that do not set the header.
+  const headerBaseUrl = request.headers[UPSTREAM_BASE_URL_HEADER];
+  const upstreamBaseUrl =
+    (typeof headerBaseUrl === "string" && headerBaseUrl) || UPSTREAM_BY_PREFIX[prefix];
+
+  if (!upstreamBaseUrl) {
     response.statusCode = 404;
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({ error: `Unknown proxy prefix: ${prefix}` }));
@@ -82,7 +93,11 @@ const proxyRequest = async (request: IncomingMessage, response: ServerResponse) 
   }
 
   const remainingPath = match?.[2] ?? "/";
-  const upstreamUrl = new URL(remainingPath, upstreamOrigin);
+  // Preserve any path on the base URL (e.g. ".../v1") instead of letting the
+  // absolute remaining path replace it.
+  const upstreamBase = new URL(upstreamBaseUrl);
+  const basePath = upstreamBase.pathname.replace(/\/$/, "");
+  const upstreamUrl = new URL(`${basePath}${remainingPath}`, upstreamBase.origin);
   const method = request.method ?? "GET";
   const body = method === "GET" || method === "HEAD" ? undefined : await readRequestBody(request);
 
