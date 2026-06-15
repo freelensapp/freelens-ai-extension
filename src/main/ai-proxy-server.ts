@@ -82,8 +82,7 @@ const proxyRequest = async (request: IncomingMessage, response: ServerResponse) 
   // Prefer the upstream base URL advertised by the renderer; fall back to the
   // static prefix map for callers that do not set the header.
   const headerBaseUrl = request.headers[UPSTREAM_BASE_URL_HEADER];
-  const upstreamBaseUrl =
-    (typeof headerBaseUrl === "string" && headerBaseUrl) || UPSTREAM_BY_PREFIX[prefix];
+  const upstreamBaseUrl = (typeof headerBaseUrl === "string" && headerBaseUrl) || UPSTREAM_BY_PREFIX[prefix];
 
   if (!upstreamBaseUrl) {
     response.statusCode = 404;

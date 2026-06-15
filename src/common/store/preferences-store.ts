@@ -1,10 +1,6 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
-import {
-  type CustomModel,
-  DEFAULT_MODELS,
-  DEFAULT_OPENAI_BASE_URL,
-} from "../../renderer/business/provider/ai-models";
+import { type CustomModel, DEFAULT_MODELS, DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
 
 import type { MessageObject } from "../../renderer/business/objects/message-object";
 
