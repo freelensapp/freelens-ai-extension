@@ -4,14 +4,19 @@ import { FreeLensAgent } from "../../renderer/business/agent/freelens-agent-syst
 import { MPCAgent } from "../../renderer/business/agent/mcp-agent";
 
 export class AgentsStore extends Common.Store.ExtensionStore {
-  @observable freeLensAgent: FreeLensAgent | null = null;
-  @observable mcpAgent: MPCAgent | null = null;
+  freeLensAgent: FreeLensAgent | null = null;
+  mcpAgent: MPCAgent | null = null;
 
   constructor() {
     super({
       configName: "freelens-ai-agents-store",
     });
-    makeObservable(this);
+    // Use the explicit annotation form instead of `@observable` decorators;
+    // see the note in preferences-store.ts for why decorators do not work here.
+    makeObservable(this, {
+      freeLensAgent: observable,
+      mcpAgent: observable,
+    });
   }
 
   fromStore(): void {}

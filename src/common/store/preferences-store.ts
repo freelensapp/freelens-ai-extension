@@ -23,22 +23,22 @@ export interface PreferencesModel {
 
 export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesModel> {
   // Persistent
-  @observable openAIKey: string = "";
-  @observable openAIBaseUrl: string = DEFAULT_OPENAI_BASE_URL;
-  @observable openAIReasoningEffort: string = "";
-  // @observable googleAIKey: string = "";
-  @observable aiProxyPort: number | null = null;
-  @observable selectedModel: string = DEFAULT_SELECTED_MODEL;
-  @observable models: CustomModel[] = [...DEFAULT_MODELS];
-  @observable mcpEnabled: boolean = false;
-  @observable mcpConfiguration: string = "";
-  // @observable ollamaHost: string = "";
-  // @observable ollamaPort: string = "";
+  openAIKey: string = "";
+  openAIBaseUrl: string = DEFAULT_OPENAI_BASE_URL;
+  openAIReasoningEffort: string = "";
+  // googleAIKey: string = "";
+  aiProxyPort: number | null = null;
+  selectedModel: string = DEFAULT_SELECTED_MODEL;
+  models: CustomModel[] = [...DEFAULT_MODELS];
+  mcpEnabled: boolean = false;
+  mcpConfiguration: string = "";
+  // ollamaHost: string = "";
+  // ollamaPort: string = "";
 
   // Not persistent
-  @observable explainEvent: MessageObject = {} as MessageObject;
+  explainEvent: MessageObject = {} as MessageObject;
   // Not persistent: when enabled, the agent auto-approves tool-use requests
-  @observable bypassApprovals: boolean = false;
+  bypassApprovals: boolean = false;
 
   constructor() {
     super({
@@ -68,7 +68,26 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         // ollamaPort: "9898",
       },
     });
-    makeObservable(this);
+    // Use the explicit annotation form instead of `@observable` decorators.
+    // The build's legacy decorator transform emits native class-field
+    // initializers, which the decorators cannot convert into observables; the
+    // explicit form reads the initialized field values directly and works
+    // regardless of how the build emits class fields.
+    makeObservable(this, {
+      openAIKey: observable,
+      openAIBaseUrl: observable,
+      openAIReasoningEffort: observable,
+      // googleAIKey: observable,
+      aiProxyPort: observable,
+      selectedModel: observable,
+      models: observable,
+      mcpEnabled: observable,
+      mcpConfiguration: observable,
+      // ollamaHost: observable,
+      // ollamaPort: observable,
+      explainEvent: observable,
+      bypassApprovals: observable,
+    });
   }
 
   async updateMcpConfiguration(newMcpConfiguration: string) {
