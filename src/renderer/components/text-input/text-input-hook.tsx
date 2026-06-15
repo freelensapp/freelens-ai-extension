@@ -1,7 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as React from "react";
 import { PreferencesStore } from "../../../common/store";
-import { AIProviders } from "../../business/provider/ai-models";
 import { useApplicationStatusStore } from "../../context/application-context";
 
 import type { SingleValue } from "react-select";
@@ -18,28 +17,13 @@ type TextInputHookProps = {
 
 const MAX_ROWS = 5;
 
-// A model is only offered in the dropdown if its provider has a usable key.
-const hasKeyForProvider = (preferencesStore: PreferencesStore, provider: AIProviders): boolean => {
-  switch (provider) {
-    case AIProviders.OPEN_AI:
-      return Boolean(process.env.OPENAI_API_KEY || preferencesStore.openAIKey);
-    // case AIProviders.GOOGLE:
-    //   return Boolean(process.env.GOOGLE_API_KEY || preferencesStore.googleAIKey);
-    default:
-      return false;
-  }
-};
-
 export const useTextInput = ({ onSend }: TextInputHookProps) => {
   const [message, setMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
   const applicationStatusStore = useApplicationStatusStore();
 
-  // Only list models whose provider has a key configured.
-  const modelSelections = preferencesStore.models
-    .filter((model) => hasKeyForProvider(preferencesStore, model.provider))
-    .map((model) => ({ value: model.name, label: model.name }));
+  const modelSelections = preferencesStore.models.map((model) => ({ value: model.name, label: model.name }));
 
   const hasAvailableModels = modelSelections.length > 0;
 
