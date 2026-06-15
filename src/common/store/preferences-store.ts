@@ -1,6 +1,7 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
 import { type CustomModel, DEFAULT_MODELS, DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
+import { resolveSelectedModel } from "../../renderer/business/provider/model-list";
 
 import type { MessageObject } from "../../renderer/business/objects/message-object";
 
@@ -83,9 +84,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this.models = preferencesModel.models?.length ? preferencesModel.models : [...DEFAULT_MODELS];
     // Validate the selection against the available models; fall back to the
     // first entry (replaces the old enum validation).
-    this.selectedModel = this.models.some((model) => model.name === preferencesModel.selectedModel)
-      ? preferencesModel.selectedModel
-      : (this.models[0]?.name ?? DEFAULT_SELECTED_MODEL);
+    this.selectedModel = resolveSelectedModel(this.models, preferencesModel.selectedModel);
     this.mcpEnabled = preferencesModel.mcpEnabled;
     this.mcpConfiguration = preferencesModel.mcpConfiguration;
     // this.ollamaHost = preferencesModel.ollamaHost;

@@ -2,6 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
 import { AIProviders, DEFAULT_MODELS, PROVIDER_LABELS } from "../../business/provider/ai-models";
+import { addModel, removeModelAt, resolveSelectedModel } from "../../business/provider/model-list";
 
 import type { SingleValue } from "react-select";
 
@@ -34,32 +35,22 @@ export const PreferencesPage = observer(() => {
   const [newModelProvider, setNewModelProvider] = useState<AIProviders>(AIProviders.OPEN_AI);
   const [newModelName, setNewModelName] = useState<string>("");
 
-  const addModel = () => {
-    const name = newModelName.trim();
-    if (!name) return;
-    // Avoid duplicates of the same provider + model name.
-    if (preferencesStore.models.some((model) => model.provider === newModelProvider && model.name === name)) {
-      setNewModelName("");
-      return;
-    }
-    preferencesStore.models = [...preferencesStore.models, { provider: newModelProvider, name }];
+  const handleAddModel = () => {
+    // `addModel` trims the name and ignores empty/duplicate entries.
+    preferencesStore.models = addModel(preferencesStore.models, newModelProvider, newModelName);
     setNewModelName("");
   };
 
   const removeModel = (index: number) => {
-    const removed = preferencesStore.models[index];
-    preferencesStore.models = preferencesStore.models.filter((_, i) => i !== index);
-    // If the removed entry was selected, fall back to a valid model.
-    if (removed?.name === preferencesStore.selectedModel) {
-      preferencesStore.selectedModel = preferencesStore.models[0]?.name ?? "";
-    }
+    preferencesStore.models = removeModelAt(preferencesStore.models, index);
+    // Re-validate the selection: if the removed entry was selected, fall back
+    // to a valid model (or "" when the list is now empty).
+    preferencesStore.selectedModel = resolveSelectedModel(preferencesStore.models, preferencesStore.selectedModel);
   };
 
   const resetModels = () => {
     preferencesStore.models = [...DEFAULT_MODELS];
-    if (!preferencesStore.models.some((model) => model.name === preferencesStore.selectedModel)) {
-      preferencesStore.selectedModel = preferencesStore.models[0]?.name ?? "";
-    }
+    preferencesStore.selectedModel = resolveSelectedModel(preferencesStore.models, preferencesStore.selectedModel);
   };
 
   return (
@@ -123,10 +114,10 @@ export const PreferencesPage = observer(() => {
             placeholder="Model name, e.g. gpt-5.5"
             value={newModelName}
             onChange={(value: string) => setNewModelName(value)}
-            onSubmit={addModel}
+            onSubmit={handleAddModel}
           />
         </div>
-        <Button primary label="Add" onClick={addModel} />
+        <Button primary label="Add" onClick={handleAddModel} />
       </div>
       <div style={{ marginTop: 8 }}>
         <Button plain label="Reset to defaults" onClick={resetModels} />

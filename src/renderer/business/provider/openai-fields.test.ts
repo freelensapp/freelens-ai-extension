@@ -1,0 +1,38 @@
+import { describe, expect, it } from "vitest";
+import { buildOpenAIChatFields, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
+
+const baseOptions = {
+  apiKey: "sk-test",
+  upstreamBaseUrl: "https://api.openai.com/v1",
+  proxyBaseUrl: "http://127.0.0.1:1234",
+};
+
+describe("buildOpenAIChatFields", () => {
+  it("routes through the proxy and advertises the upstream via header", () => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-4.1" });
+    expect(fields.model).toBe("gpt-4.1");
+    expect(fields.apiKey).toBe("sk-test");
+    expect(fields.configuration?.baseURL).toBe("http://127.0.0.1:1234/openai");
+    expect(fields.configuration?.defaultHeaders).toMatchObject({
+      [UPSTREAM_BASE_URL_HEADER]: "https://api.openai.com/v1",
+    });
+  });
+
+  it("sets temperature 0 and no reasoning effort for non-reasoning models", () => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-4.1", reasoningEffort: "high" });
+    expect(fields.temperature).toBe(0);
+    expect(fields.reasoningEffort).toBeUndefined();
+  });
+
+  it("sets reasoning effort and omits temperature for reasoning models", () => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-5.5", reasoningEffort: "high" });
+    expect(fields.reasoningEffort).toBe("high");
+    expect(fields.temperature).toBeUndefined();
+  });
+
+  it("omits reasoning effort when it is not configured", () => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-5.5", reasoningEffort: "" });
+    expect(fields.reasoningEffort).toBeUndefined();
+    expect(fields.temperature).toBeUndefined();
+  });
+});

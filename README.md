@@ -48,24 +48,33 @@ Use a following URL in the browser:
 [freelens://app/extensions/install/%40freelensapp%2Fai-extension](freelens://app/extensions/install/%40freelensapp%2Fai-extension)
 
 ## Available Models
-freelens-ai-extension currently supports integration with the following AI models:
+The list of models is fully editable in the extension preferences. You can add
+or remove any model offered by the configured provider; the model name you enter
+is sent directly to the provider API.
+
+The list comes seeded with these OpenAI models, which you can change at any time:
 
 - ***gpt-5.5***
 - ***gpt-5.4***
-- ***gpt-5***
-- ***gpt-4.1***
-- ***gemini 2.5 flash***
+- ***gpt-5.4-mini***
 
-Each model offers different capabilities and performance characteristics.
-Choose the one that best suits your needs and workflow requirements.
+Model-specific behavior (for example, sending a reasoning effort instead of a
+temperature) is decided by heuristics on the model name, so adding a new model
+needs no code changes.
+
+> Currently only the OpenAI provider is enabled. Google/Gemini and Ollama
+> support is temporarily disabled and will return after further refactoring.
 
 ### Connecting a model
-You can connect your model by setting its API Key in the preferences page or by using you environment variables;
-for example you can set:
-- GOOGLE_API_KEY = ...
+Open the preferences page and, in the OpenAI section, set your API key and
+(optionally) a custom base URL. You can also provide the key through an
+environment variable instead:
+
 - OPENAI_API_KEY = ...
 
-together to switch model without switch the API Key in settings page.
+A model is only offered in the chat dropdown once its provider has a key set; if
+no model is available, the chat shows a button that takes you to the preferences
+page.
 
 ---
 
