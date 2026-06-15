@@ -117,6 +117,32 @@ These are NOT bundled, they come from the Freelens host as globals:
 
 Other dependencies ARE bundled into the extension output.
 
+## AI Model & Provider System
+
+The list of chat models is user-editable and persisted in the preferences
+store; there is no hardcoded model enum. Key files live in
+`src/renderer/business/provider/`:
+
+- `ai-models.tsx` — `AIProviders` enum (only `OPEN_AI` active; Google/Ollama
+  commented out for later re-add), the `CustomModel` type (`{ provider, name }`),
+  the seed list `DEFAULT_MODELS` (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`), and
+  `DEFAULT_OPENAI_BASE_URL`.
+- `model-capabilities.ts` — name heuristics (regex) deciding model behavior.
+  Add new model families here rather than hardcoding ids. Reasoning models
+  (`o<n>`, `gpt-5.x`) take a reasoning effort and reject `temperature`.
+- `model-list.ts` — pure helpers for the editable list (trim, dedupe, remove,
+  `resolveSelectedModel` selection fallback). No host/MobX deps so they are
+  unit-tested directly.
+- `openai-fields.ts` — pure `buildOpenAIChatFields` builder (proxy routing
+  header + reasoning-effort/temperature heuristic), unit-tested in isolation.
+- `model-provider.ts` — `getModel()` resolves the selected model's provider and
+  builds the LangChain client; throws when no model is selected.
+
+A custom base URL is routed to the local proxy (`src/main/ai-proxy-server.ts`)
+via the `x-upstream-base-url` header rather than being passed straight to the
+client. When changing the heuristics or list logic, prefer extending the pure
+helpers and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`).
+
 ## Code Style
 
 - **Biome** formats **TypeScript/TSX**: double quotes, semicolons, trailing commas, 2-space indent, 120 char line width
