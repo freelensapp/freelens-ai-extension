@@ -1,13 +1,14 @@
 // import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 // import { ChatOllama } from "@langchain/ollama";
-import { ChatOpenAI, type ChatOpenAIFields } from "@langchain/openai";
+import { ChatOpenAI } from "@langchain/openai";
 import { PreferencesStore } from "../../../common/store";
 import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "./ai-models";
-import { isReasoningModel } from "./model-capabilities";
+import { findProvider } from "./model-list";
+import { buildOpenAIChatFields } from "./openai-fields";
 
-// Header read by the local AI proxy to decide which upstream to forward to,
-// letting the user configure a custom base URL without changing the proxy code.
-export const UPSTREAM_BASE_URL_HEADER = "x-upstream-base-url";
+// Re-exported for callers that imported it from here previously; the canonical
+// definition now lives next to the field builder.
+export { UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
 
 const getAiProxyBaseUrl = (aiProxyPort: number | null) => {
   if (aiProxyPort === null) {
@@ -23,35 +24,28 @@ export const useModelProvider = () => {
 
   const getModel = () => {
     const modelName = preferencesStore.selectedModel;
-    const provider = preferencesStore.models.find((model) => model.name === modelName)?.provider ?? AIProviders.OPEN_AI;
+
+    // Guard the empty-list / no-selection case: the chat UI offers a
+    // "Configure models in preferences" button instead of a dropdown when no
+    // model is available, but bail out clearly if we are still reached.
+    if (!modelName) {
+      throw new Error("No model selected. Add a model in the extension preferences.");
+    }
+
+    const provider = findProvider(preferencesStore.models, modelName) ?? AIProviders.OPEN_AI;
 
     switch (provider) {
       case AIProviders.OPEN_AI: {
         const openAiApiKey = process.env.OPENAI_API_KEY || preferencesStore.openAIKey;
         const openAIBaseUrl = preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
 
-        const fields: ChatOpenAIFields = {
-          model: modelName,
+        const fields = buildOpenAIChatFields({
+          modelName,
           apiKey: openAiApiKey,
-          configuration: {
-            // The proxy strips the "/openai" prefix and forwards to the
-            // upstream advertised via UPSTREAM_BASE_URL_HEADER.
-            baseURL: `${getAiProxyBaseUrl(preferencesStore.aiProxyPort)}/openai`,
-            defaultHeaders: {
-              [UPSTREAM_BASE_URL_HEADER]: openAIBaseUrl,
-            },
-          },
-        };
-
-        // Reasoning models reject `temperature` and accept a reasoning effort;
-        // non-reasoning models are the inverse. Decided by name heuristic.
-        if (isReasoningModel(modelName)) {
-          if (preferencesStore.openAIReasoningEffort) {
-            fields.reasoningEffort = preferencesStore.openAIReasoningEffort as ChatOpenAIFields["reasoningEffort"];
-          }
-        } else {
-          fields.temperature = 0;
-        }
+          upstreamBaseUrl: openAIBaseUrl,
+          proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
+          reasoningEffort: preferencesStore.openAIReasoningEffort,
+        });
 
         return new ChatOpenAI(fields);
       }
