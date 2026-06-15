@@ -83,8 +83,8 @@ jobs:
         if: github.event_name == 'issue_comment' && github.event.issue.pull_request || github.event_name == 'pull_request_review_comment' || github.event_name == 'pull_request_review'
         uses: actions/checkout@v6
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.ref || format('refs/pull/{0}/head', github.event.issue.number) }}
           fetch-depth: 0
 
       - name: Checkout (default branch — issues, workflow_dispatch)
