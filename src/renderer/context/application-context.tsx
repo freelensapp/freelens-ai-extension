@@ -12,26 +12,24 @@ import { generateUuid } from "../../common/utils/uuid";
 import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
 import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
 import { getTextMessage } from "../business/objects/message-object-provider";
-import { AIModelsEnum } from "../business/provider/ai-models";
+import { AIProviders } from "../business/provider/ai-models";
 
 import type { MessageObject } from "../business/objects/message-object";
 
 export interface AppContextType {
   apiKey: string;
-  selectedModel: AIModelsEnum;
+  selectedModel: string;
   mcpEnabled: boolean;
   mcpConfiguration: string;
   bypassApprovals: boolean;
   explainEvent: MessageObject;
-  ollamaHost: string;
-  ollamaPort: string;
   conversationId: string;
   isLoading: boolean;
   isConversationInterrupted: boolean;
   chatMessages: MessageObject[] | null;
   freeLensAgent: FreeLensAgent | null;
   mcpAgent: MPCAgent | null;
-  setSelectedModel: (selectedModel: AIModelsEnum) => void;
+  setSelectedModel: (selectedModel: string) => void;
   setExplainEvent: (messageObject: MessageObject) => void;
   setBypassApprovals: (bypassApprovals: boolean) => void;
   setLoading: (isLoading: boolean) => void;
@@ -247,8 +245,22 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     return freeLensAgent;
   };
 
-  const setSelectedModel = (selectedModel: AIModelsEnum) => {
+  const setSelectedModel = (selectedModel: string) => {
     preferencesStore.selectedModel = selectedModel;
+  };
+
+  // The API key to use depends on the selected model's provider. Only OpenAI is
+  // active for now; other providers are derived here once re-added.
+  const getApiKeyForSelectedModel = (): string => {
+    const provider = preferencesStore.models.find((model) => model.name === preferencesStore.selectedModel)?.provider;
+    switch (provider) {
+      case AIProviders.OPEN_AI:
+        return preferencesStore.openAIKey;
+      // case AIProviders.GOOGLE:
+      //   return preferencesStore.googleAIKey;
+      default:
+        return preferencesStore.openAIKey;
+    }
   };
 
   const getAvailableTools = async () => {
@@ -275,14 +287,12 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   return (
     <AppContext.Provider
       value={{
-        apiKey: preferencesStore.openAIKey,
+        apiKey: getApiKeyForSelectedModel(),
         selectedModel: preferencesStore.selectedModel,
         mcpEnabled: preferencesStore.mcpEnabled,
         mcpConfiguration: preferencesStore.mcpConfiguration,
         bypassApprovals: preferencesStore.bypassApprovals,
         explainEvent: preferencesStore.explainEvent,
-        ollamaHost: preferencesStore.ollamaHost,
-        ollamaPort: preferencesStore.ollamaPort,
         conversationId,
         isLoading,
         isConversationInterrupted,

@@ -1,23 +1,25 @@
 import { Renderer } from "@freelensapp/extensions";
 import { Eraser, SendHorizonal, ShieldOff } from "lucide-react";
+import * as MobxReact from "mobx-react";
 import * as React from "react";
-import { AIModelsEnum } from "../../business/provider/ai-models";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { AvailableTools } from "../available-tools/available-tools";
 import styleInline from "./text-input.scss?inline";
 import { useTextInput } from "./text-input-hook";
 
+const { observer } = MobxReact;
+
 const {
-  Component: { Select },
+  Component: { Button, Select },
 } = Renderer;
 
-type TextInputOption = Renderer.Component.SelectOption<AIModelsEnum>;
+type TextInputOption = Renderer.Component.SelectOption<string>;
 
 type TextInputProps = {
   onSend: (message: string) => void;
 };
 
-export const TextInput = ({ onSend }: TextInputProps) => {
+export const TextInput = observer(({ onSend }: TextInputProps) => {
   const applicationStatusStore = useApplicationStatusStore();
   const textInputHook = useTextInput({ onSend });
   const textInputOptions = textInputHook.modelSelections as TextInputOption[];
@@ -106,14 +108,23 @@ export const TextInput = ({ onSend }: TextInputProps) => {
               </button>
             </div>
             <div style={{ display: "flex", alignItems: "center" }}>
-              <Select
-                id="update-channel-input"
-                options={textInputOptions}
-                value={applicationStatusStore.selectedModel}
-                onChange={textInputHook.onChangeModel}
-                themeName="lens"
-                className="text-input-select-box"
-              />
+              {textInputHook.hasAvailableModels ? (
+                <Select
+                  id="update-channel-input"
+                  options={textInputOptions}
+                  value={applicationStatusStore.selectedModel}
+                  onChange={textInputHook.onChangeModel}
+                  themeName="lens"
+                  className="text-input-select-box"
+                />
+              ) : (
+                <Button
+                  primary
+                  label="Configure models in preferences"
+                  onClick={textInputHook.goToPreferences}
+                  title="No model is available. Set an API key and add models in Freelens AI settings."
+                />
+              )}
               <button
                 className="text-input-send-button"
                 onClick={textInputHook.handleSend}
@@ -131,4 +142,4 @@ export const TextInput = ({ onSend }: TextInputProps) => {
       </div>
     </>
   );
-};
+});
