@@ -4,8 +4,8 @@ import { FreeLensAgent } from "../../renderer/business/agent/freelens-agent-syst
 import { MPCAgent } from "../../renderer/business/agent/mcp-agent";
 
 export class AgentsStore extends Common.Store.ExtensionStore {
-  @observable accessor freeLensAgent: FreeLensAgent | null = null;
-  @observable accessor mcpAgent: MPCAgent | null = null;
+  @observable freeLensAgent: FreeLensAgent | null = null;
+  @observable mcpAgent: MPCAgent | null = null;
 
   constructor() {
     super({
@@ -14,9 +14,9 @@ export class AgentsStore extends Common.Store.ExtensionStore {
     makeObservable(this);
   }
 
-  fromStore = (): void => {};
+  fromStore(): void {}
 
-  toJSON = () => {
+  toJSON() {
     return toJS({});
-  };
+  }
 }

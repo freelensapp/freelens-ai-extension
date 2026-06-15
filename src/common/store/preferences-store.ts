@@ -23,22 +23,22 @@ export interface PreferencesModel {
 
 export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesModel> {
   // Persistent
-  @observable accessor openAIKey: string = "";
-  @observable accessor openAIBaseUrl: string = DEFAULT_OPENAI_BASE_URL;
-  @observable accessor openAIReasoningEffort: string = "";
-  // @observable accessor googleAIKey: string = "";
-  @observable accessor aiProxyPort: number | null = null;
-  @observable accessor selectedModel: string = DEFAULT_SELECTED_MODEL;
-  @observable accessor models: CustomModel[] = [...DEFAULT_MODELS];
-  @observable accessor mcpEnabled: boolean = false;
-  @observable accessor mcpConfiguration: string = "";
-  // @observable accessor ollamaHost: string = "";
-  // @observable accessor ollamaPort: string = "";
+  @observable openAIKey: string = "";
+  @observable openAIBaseUrl: string = DEFAULT_OPENAI_BASE_URL;
+  @observable openAIReasoningEffort: string = "";
+  // @observable googleAIKey: string = "";
+  @observable aiProxyPort: number | null = null;
+  @observable selectedModel: string = DEFAULT_SELECTED_MODEL;
+  @observable models: CustomModel[] = [...DEFAULT_MODELS];
+  @observable mcpEnabled: boolean = false;
+  @observable mcpConfiguration: string = "";
+  // @observable ollamaHost: string = "";
+  // @observable ollamaPort: string = "";
 
   // Not persistent
-  @observable accessor explainEvent: MessageObject = {} as MessageObject;
+  @observable explainEvent: MessageObject = {} as MessageObject;
   // Not persistent: when enabled, the agent auto-approves tool-use requests
-  @observable accessor bypassApprovals: boolean = false;
+  @observable bypassApprovals: boolean = false;
 
   constructor() {
     super({
@@ -71,11 +71,11 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     makeObservable(this);
   }
 
-  updateMcpConfiguration = async (newMcpConfiguration: string) => {
+  async updateMcpConfiguration(newMcpConfiguration: string) {
     this.mcpConfiguration = newMcpConfiguration;
-  };
+  }
 
-  fromStore = (preferencesModel: PreferencesModel): void => {
+  fromStore(preferencesModel: PreferencesModel): void {
     this.openAIKey = preferencesModel.openAIKey;
     this.openAIBaseUrl = preferencesModel.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
     this.openAIReasoningEffort = preferencesModel.openAIReasoningEffort ?? "";
@@ -89,9 +89,9 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this.mcpConfiguration = preferencesModel.mcpConfiguration;
     // this.ollamaHost = preferencesModel.ollamaHost;
     // this.ollamaPort = preferencesModel.ollamaPort;
-  };
+  }
 
-  toJSON = (): PreferencesModel => {
+  toJSON(): PreferencesModel {
     const value: PreferencesModel = {
       openAIKey: this.openAIKey,
       openAIBaseUrl: this.openAIBaseUrl,
@@ -106,5 +106,5 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       // ollamaPort: this.ollamaPort,
     };
     return toJS(value);
-  };
+  }
 }
