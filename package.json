@@ -84,6 +84,7 @@
     "react-markdown": "^6.0.3",
     "react-select": "5.10.2",
     "react-syntax-highlighter": "^15.6.1",
+    "remark-gfm": "^1.0.0",
     "sass": "^1.89.2",
     "typescript": "5.9.3",
     "vite": "^8.0.16",

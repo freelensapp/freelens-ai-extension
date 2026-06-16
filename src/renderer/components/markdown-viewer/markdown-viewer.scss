@@ -12,6 +12,27 @@
 .markdown-viewer-container-theme li,
 .markdown-viewer-container-theme a,
 .markdown-viewer-container-theme code,
-.markdown-viewer-container-theme blockquote {
+.markdown-viewer-container-theme blockquote,
+.markdown-viewer-container-theme th,
+.markdown-viewer-container-theme td {
   color: var(--textColorAccent);
+}
+
+.markdown-viewer-container-theme table {
+  border-collapse: collapse;
+  display: block;
+  margin: 0.5em 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.markdown-viewer-container-theme th,
+.markdown-viewer-container-theme td {
+  border: 1px solid var(--borderColor);
+  padding: 0.4em 0.6em;
+  text-align: left;
+}
+
+.markdown-viewer-container-theme th {
+  font-weight: 600;
 }
