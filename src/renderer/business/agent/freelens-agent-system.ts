@@ -24,7 +24,7 @@ export const useFreeLensAgentSystem = () => {
   const conclusionsAgentName = "conclusionsAgent";
   const subAgentResponsibilities = [
     "agentAnalyzer: Reads and inspects live cluster resources (pods, deployments, services, CRDs, and other kinds), events, namespaces, warnings and errors. Use it for any read-only query about the current state of the cluster.",
-    "kubernetesOperator: Operates on the cluster in write mode (for example apply changes) and then exits",
+    "kubernetesOperator: Performs any change to the cluster - create, update, replace, patch, annotate, label, scale, restart, delete resources, and trigger operations such as Flux/Argo reconciliation (which is done by patching an annotation). Route here for any request that modifies, triggers, reconciles, restarts, scales, suspends, resumes, rolls out, or applies anything, even when the request uses tool-specific jargon instead of the word \"write\".",
     "generalPurposeAgent: Handles general queries including but not limited to: Kubernetes conceptual explanations, best practices, architecture patterns, and non-Kubernetes technical questions. This agent doesn't interact with the live cluster but provides comprehensive knowledge-based responses.",
   ];
   const availableTools = toolFunctionDescriptions;
