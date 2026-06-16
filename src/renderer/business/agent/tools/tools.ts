@@ -5,6 +5,7 @@ import {
   createKubernetesResource as createKubernetesResourceImpl,
   deleteKubernetesResource as deleteKubernetesResourceImpl,
   getKubernetesResource as getKubernetesResourceImpl,
+  getPodLogs as getPodLogsImpl,
   listKubernetesResources as listKubernetesResourcesImpl,
   patchKubernetesResource as patchKubernetesResourceImpl,
   updateKubernetesResource as updateKubernetesResourceImpl,
@@ -144,6 +145,29 @@ export const patchKubernetesResource = tool(patchKubernetesResourceImpl, {
   }),
 });
 
+export const getPodLogs = tool(getPodLogsImpl, {
+  name: "getPodLogs",
+  description:
+    "Read a one-shot snapshot of container logs from a pod. Namespace is required. If the container is omitted on a multi-container pod, the available containers are returned so one can be chosen. Use previous: true to read the last terminated instance (useful for CrashLoopBackOff).",
+  schema: z.object({
+    name: z.string().describe("The name of the pod"),
+    namespace: z.string().describe("The namespace of the pod"),
+    container: z
+      .string()
+      .optional()
+      .describe("The container to read logs from (required only for multi-container pods)"),
+    previous: z
+      .boolean()
+      .optional()
+      .describe("Read logs from the previous (terminated) container instance, e.g. for CrashLoopBackOff"),
+    tailLines: z
+      .number()
+      .optional()
+      .describe("Number of lines from the end of the logs to read (defaults to the preference value)"),
+    timestamps: z.boolean().optional().describe("Prefix every log line with an RFC3339 timestamp"),
+  }),
+});
+
 export const deleteKubernetesResource = tool(deleteKubernetesResourceImpl, {
   name: "deleteKubernetesResource",
   description: "Delete a Kubernetes resource by name (namespace required for namespaced kinds)",
@@ -160,6 +184,7 @@ export const allToolFunctions = [
   getWarningEventsByNamespace,
   listKubernetesResources,
   getKubernetesResource,
+  getPodLogs,
   createKubernetesResource,
   updateKubernetesResource,
   patchKubernetesResource,
@@ -195,6 +220,14 @@ export const toolFunctionDescriptions = [
     arguments:
       "Requires the resource kind (string) and name (string), and optionally the apiVersion (string). Namespace (string) is required for namespaced kinds.",
     returnType: "Returns a JSON string containing the requested resource.",
+  },
+  {
+    name: "getPodLogs",
+    description: "Read a one-shot snapshot of container logs from a pod",
+    arguments:
+      "Requires the pod name (string) and namespace (string), and optionally the container (string; required only for multi-container pods), previous (boolean, for terminated instances), tailLines (number) and timestamps (boolean).",
+    returnType:
+      "Returns the (possibly truncated) container logs as a string, or the list of containers to choose from for multi-container pods.",
   },
   {
     name: "createKubernetesResource",

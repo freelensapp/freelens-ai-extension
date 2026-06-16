@@ -1,5 +1,14 @@
 import { Renderer } from "@freelensapp/extensions";
 import { interrupt } from "@langchain/langgraph";
+import { PreferencesStore } from "../../../../common/store";
+import {
+  capLogOutput,
+  capTailLines,
+  collectContainerNames,
+  emptyLogsMessage,
+  type GetPodLogsInput,
+  resolveContainer,
+} from "./pod-logs";
 import { type Manifest, prepareManifest, resolveApiVersion, validateManifest } from "./resource-handlers";
 
 type KubeApi = Renderer.K8sApi.KubeApi;
@@ -321,6 +330,77 @@ export async function deleteKubernetesResource({
     return `${kind} deleted successfully`;
   } catch (error) {
     console.error("[Tool invocation error: deleteKubernetesResource] - ", error);
+    return JSON.stringify(error);
+  }
+}
+
+/**
+ * Read a one-shot snapshot of container logs from a pod. Loads the pod to
+ * enumerate its containers, runs the optional approval gate (controlled by the
+ * `podLogsRequireApproval` preference), then fetches the logs and caps the
+ * output so it cannot overflow the model context.
+ */
+export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
+  const { name, namespace, container, previous, timestamps } = input;
+  console.log(
+    "[Tool invocation: getPodLogs] - name:",
+    name,
+    "namespace:",
+    namespace,
+    "container:",
+    container,
+    "previous:",
+    previous,
+  );
+
+  if (!namespace) {
+    return `Pods are namespaced; please provide a namespace to read logs for "${name}".`;
+  }
+
+  const podsApi = Renderer.K8sApi.podsApi;
+  const store = Renderer.K8sApi.apiManager.getStore(podsApi);
+  if (!store) {
+    return "Could not resolve the Pods store.";
+  }
+
+  let pod: KubeObject | undefined;
+  try {
+    pod = await store.load({ name, namespace });
+  } catch (error) {
+    console.error("[Tool invocation error: getPodLogs] - ", error);
+    return JSON.stringify(error);
+  }
+  if (!pod) {
+    return `The Pod "${name}" was not found in namespace "${namespace}".`;
+  }
+
+  const resolution = resolveContainer(container, collectContainerNames(pod.spec));
+  if (resolution.kind !== "resolved") {
+    return resolution.message;
+  }
+  const selectedContainer = resolution.container;
+
+  const preferences = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+  const tailLines = capTailLines(input.tailLines, preferences.podLogsTailLines);
+
+  if (
+    preferences.podLogsRequireApproval &&
+    !requestApproval("READ LOGS POD", { name, namespace, container: selectedContainer, previous })
+  ) {
+    return "The user denied the action";
+  }
+
+  try {
+    const logs = await podsApi.getLogs(
+      { name, namespace },
+      { container: selectedContainer, tailLines, timestamps, previous },
+    );
+    if (!logs || logs.trim().length === 0) {
+      return emptyLogsMessage(selectedContainer, name, previous);
+    }
+    return capLogOutput(logs);
+  } catch (error) {
+    console.error("[Tool invocation error: getPodLogs] - ", error);
     return JSON.stringify(error);
   }
 }

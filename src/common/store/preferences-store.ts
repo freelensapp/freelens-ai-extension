@@ -18,9 +18,13 @@ export interface PreferencesModel {
   models: CustomModel[];
   mcpEnabled: boolean;
   mcpConfiguration: string;
+  podLogsRequireApproval: boolean;
+  podLogsTailLines: number;
   // ollamaHost: string;
   // ollamaPort: string;
 }
+
+export const DEFAULT_POD_LOGS_TAIL_LINES = 1000;
 
 export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesModel> {
   // Persistent
@@ -34,6 +38,11 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   models: CustomModel[] = [...DEFAULT_MODELS];
   mcpEnabled: boolean = false;
   mcpConfiguration: string = "";
+  // When enabled, reading pod logs goes through the human-in-the-loop approval
+  // gate (logs can contain secrets/PII). Enabled by default.
+  podLogsRequireApproval: boolean = true;
+  // Default number of tail lines fetched when reading pod logs.
+  podLogsTailLines: number = DEFAULT_POD_LOGS_TAIL_LINES;
   // ollamaHost: string = "";
   // ollamaPort: string = "";
 
@@ -55,6 +64,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         selectedModel: DEFAULT_SELECTED_MODEL,
         models: [...DEFAULT_MODELS],
         mcpEnabled: false,
+        podLogsRequireApproval: true,
+        podLogsTailLines: DEFAULT_POD_LOGS_TAIL_LINES,
         mcpConfiguration: JSON.stringify(
           {
             mcpServers: {
@@ -87,6 +98,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       models: observable,
       mcpEnabled: observable,
       mcpConfiguration: observable,
+      podLogsRequireApproval: observable,
+      podLogsTailLines: observable,
       // ollamaHost: observable,
       // ollamaPort: observable,
       explainEvent: observable,
@@ -111,6 +124,11 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this.selectedModel = resolveSelectedModel(this.models, preferencesModel.selectedModel);
     this.mcpEnabled = preferencesModel.mcpEnabled;
     this.mcpConfiguration = preferencesModel.mcpConfiguration;
+    this.podLogsRequireApproval = preferencesModel.podLogsRequireApproval ?? true;
+    this.podLogsTailLines =
+      typeof preferencesModel.podLogsTailLines === "number" && preferencesModel.podLogsTailLines > 0
+        ? preferencesModel.podLogsTailLines
+        : DEFAULT_POD_LOGS_TAIL_LINES;
     // this.ollamaHost = preferencesModel.ollamaHost;
     // this.ollamaPort = preferencesModel.ollamaPort;
   }
@@ -132,6 +150,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       models: toJS(this.models),
       mcpEnabled: this.mcpEnabled,
       mcpConfiguration: this.mcpConfiguration,
+      podLogsRequireApproval: this.podLogsRequireApproval,
+      podLogsTailLines: this.podLogsTailLines,
       // ollamaHost: this.ollamaHost,
       // ollamaPort: this.ollamaPort,
     };

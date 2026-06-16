@@ -9,7 +9,7 @@ import type { SingleValue } from "react-select";
 const { observer } = MobxReact;
 const { useState } = React;
 
-import { PreferencesStore } from "../../../common/store";
+import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore } from "../../../common/store";
 
 const {
   Component: { Button, Icon, Input, Select, Switch, HorizontalLine },
@@ -182,6 +182,35 @@ export const PreferencesPage = observer(() => {
           />
         </div>
       </div>
+
+      <HorizontalLine />
+
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Pod logs</div>
+      <div style={{ marginTop: 8, fontWeight: "bold" }}>Require approval before reading pod logs</div>
+      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
+        Pod logs can contain secrets or personal data. When enabled, the agent asks for confirmation before reading
+        container logs.
+      </div>
+      <Switch
+        style={{ marginBottom: 8 }}
+        label="Require approval before reading pod logs"
+        checked={preferencesStore.podLogsRequireApproval}
+        onChange={(checked: boolean) => (preferencesStore.podLogsRequireApproval = checked)}
+      />
+      <div style={{ marginTop: 8, fontWeight: "bold" }}>Default tail lines</div>
+      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
+        Number of lines read from the end of the logs when the agent does not request a specific amount.
+      </div>
+      <Input
+        type="number"
+        placeholder={String(DEFAULT_POD_LOGS_TAIL_LINES)}
+        value={String(preferencesStore.podLogsTailLines)}
+        onChange={(value: string) => {
+          const parsed = Number.parseInt(value, 10);
+          preferencesStore.podLogsTailLines =
+            Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_POD_LOGS_TAIL_LINES;
+        }}
+      />
     </>
   );
 });
