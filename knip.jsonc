@@ -5,7 +5,10 @@
   "project": ["*.{js,mjs,ts}", "src/**/*.{ts,tsx}"],
 
   "ignoreBinaries": ["electron-rebuild", "yq"],
-  "ignoreDependencies": ["@babel/plugin-proposal-decorators", "@langchain/google-genai"],
+  // `electron` is provided by the Freelens host at runtime and required lazily in
+  // src/renderer/navigation/navigate-to-extension-preferences.ts, so it is not a
+  // declared dependency.
+  "ignoreDependencies": ["@babel/plugin-proposal-decorators", "@langchain/google-genai", "electron"],
   "typescript": {
     "config": ["tsconfig.json"]
   },
