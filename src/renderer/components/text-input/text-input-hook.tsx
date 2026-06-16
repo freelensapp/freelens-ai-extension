@@ -3,13 +3,9 @@ import * as React from "react";
 import { PreferencesStore } from "../../../common/store";
 import { isAgentConfigured } from "../../business/provider/chat-readiness";
 import { useApplicationStatusStore } from "../../context/application-context";
-import { getExtensionPreferencesPath } from "../../navigation/extension-preferences";
+import { navigateToExtensionPreferences } from "../../navigation/navigate-to-extension-preferences";
 
 import type { SingleValue } from "react-select";
-
-const {
-  Navigation: { navigate },
-} = Renderer;
 
 const { useEffect, useRef, useState } = React;
 
@@ -73,7 +69,7 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
     }
   };
 
-  const goToPreferences = () => navigate(getExtensionPreferencesPath());
+  const goToPreferences = () => navigateToExtensionPreferences();
 
   return {
     message,
