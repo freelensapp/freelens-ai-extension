@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isReasoningModel, supportsTemperature } from "./model-capabilities";
+import { isReasoningModel, requiresAutoToolChoice, supportsTemperature } from "./model-capabilities";
 
 describe("isReasoningModel", () => {
   it.each([
@@ -22,6 +22,22 @@ describe("isReasoningModel", () => {
     "",
   ])("treats %s as a non-reasoning model", (name) => {
     expect(isReasoningModel(name)).toBe(false);
+  });
+});
+
+describe("requiresAutoToolChoice", () => {
+  it.each([
+    "deepseek-v4-pro",
+    "deepseek-reasoner",
+    "DeepSeek-V4",
+    "qwen3-235b",
+    "Qwen2.5-72B",
+  ])("requires tool_choice auto for thinking model %s", (name) => {
+    expect(requiresAutoToolChoice(name)).toBe(true);
+  });
+
+  it.each(["gpt-5.5", "gpt-5.4", "gpt-4o", "o3-mini", ""])("keeps forced tool_choice for %s", (name) => {
+    expect(requiresAutoToolChoice(name)).toBe(false);
   });
 });
 
