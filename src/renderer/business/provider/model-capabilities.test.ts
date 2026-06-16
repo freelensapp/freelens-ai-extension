@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isReasoningModel, supportsTemperature } from "./model-capabilities";
+import { buildDisableThinkingKwargs, isReasoningModel, supportsTemperature } from "./model-capabilities";
 
 describe("isReasoningModel", () => {
   it.each([
@@ -30,5 +30,21 @@ describe("supportsTemperature", () => {
     for (const name of ["gpt-5.5", "o1", "gpt-4.1", "gpt-4o"]) {
       expect(supportsTemperature(name)).toBe(!isReasoningModel(name));
     }
+  });
+});
+
+describe("buildDisableThinkingKwargs", () => {
+  it.each([
+    ["deepseek-v4-pro", { thinking: { type: "disabled" }, chat_template_kwargs: { thinking: false } }],
+    ["DeepSeek-Reasoner", { thinking: { type: "disabled" }, chat_template_kwargs: { thinking: false } }],
+    ["qwen3-235b", { chat_template_kwargs: { enable_thinking: false } }],
+    ["claude-opus-4-8", { thinking: { type: "disabled" } }],
+    ["gemini-3-pro", { reasoning_effort: "none" }],
+  ])("returns the family-specific kwargs for %s", (name, expected) => {
+    expect(buildDisableThinkingKwargs(name)).toEqual(expected);
+  });
+
+  it.each(["gpt-5.5", "gpt-4o", "o3-mini", ""])("returns null when no family matches (%s)", (name) => {
+    expect(buildDisableThinkingKwargs(name)).toBeNull();
   });
 });

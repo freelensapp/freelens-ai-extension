@@ -36,13 +36,26 @@ describe("buildOpenAIChatFields", () => {
     expect(fields.temperature).toBeUndefined();
   });
 
-  it("disables thinking via modelKwargs when requested", () => {
+  it("disables thinking with DeepSeek-specific kwargs when requested", () => {
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "deepseek-v4-pro", disableThinking: true });
-    expect(fields.modelKwargs).toMatchObject({ thinking: { type: "disabled" } });
+    expect(fields.modelKwargs).toMatchObject({
+      thinking: { type: "disabled" },
+      chat_template_kwargs: { thinking: false },
+    });
+  });
+
+  it("disables thinking with Qwen-specific kwargs when requested", () => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "qwen3-235b", disableThinking: true });
+    expect(fields.modelKwargs).toMatchObject({ chat_template_kwargs: { enable_thinking: false } });
   });
 
   it("omits the thinking modelKwargs when not requested", () => {
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "deepseek-v4-pro" });
+    expect(fields.modelKwargs).toBeUndefined();
+  });
+
+  it("omits thinking kwargs for models with no known disable mechanism", () => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-5.5", disableThinking: true });
     expect(fields.modelKwargs).toBeUndefined();
   });
 });

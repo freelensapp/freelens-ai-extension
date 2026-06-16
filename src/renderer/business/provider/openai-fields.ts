@@ -3,7 +3,7 @@
 // reasoning-effort vs temperature heuristic) can be unit-tested without the
 // MobX store or instantiating a real client.
 
-import { isReasoningModel } from "./model-capabilities";
+import { buildDisableThinkingKwargs, isReasoningModel } from "./model-capabilities";
 
 import type { ChatOpenAIFields } from "@langchain/openai";
 
@@ -61,10 +61,16 @@ export const buildOpenAIChatFields = ({
     fields.temperature = 0;
   }
 
-  // Sent via `modelKwargs` so it reaches the upstream request body verbatim
-  // without being passed as a typed field that providers like OpenAI reject.
+  // Disabling thinking is provider-specific (the payload differs per model
+  // family), so the kwargs are resolved by name heuristic and merged into
+  // `modelKwargs` to reach the upstream request body verbatim. Models with no
+  // known disable mechanism contribute nothing, avoiding fields that providers
+  // like OpenAI would reject.
   if (disableThinking) {
-    fields.modelKwargs = { ...fields.modelKwargs, thinking: { type: "disabled" } };
+    const thinkingKwargs = buildDisableThinkingKwargs(modelName);
+    if (thinkingKwargs) {
+      fields.modelKwargs = { ...fields.modelKwargs, ...thinkingKwargs };
+    }
   }
 
   return fields;
