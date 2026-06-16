@@ -1,8 +1,6 @@
 export enum AIProviders {
   OPEN_AI = "open-ai",
   // DEEP_SEEK = "deep-seek",
-  // OLLAMA = "ollama",
-  // GOOGLE = "google",
 }
 
 // A model the user can add/remove freely. `name` is the model id sent to the
@@ -25,5 +23,4 @@ export const DEFAULT_MODELS: CustomModel[] = [
 
 export const PROVIDER_LABELS: Record<AIProviders, string> = {
   [AIProviders.OPEN_AI]: "OpenAI",
-  // [AIProviders.GOOGLE]: "Google",
 };

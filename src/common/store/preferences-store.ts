@@ -12,7 +12,6 @@ export interface PreferencesModel {
   openAIBaseUrl: string;
   openAIReasoningEffort: string;
   disableThinking: boolean;
-  // googleAIKey: string;
   aiProxyPort: number | null;
   selectedModel: string;
   models: CustomModel[];
@@ -20,8 +19,6 @@ export interface PreferencesModel {
   mcpConfiguration: string;
   podLogsRequireApproval: boolean;
   podLogsTailLines: number;
-  // ollamaHost: string;
-  // ollamaPort: string;
 }
 
 export const DEFAULT_POD_LOGS_TAIL_LINES = 1000;
@@ -32,7 +29,6 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   openAIBaseUrl: string = DEFAULT_OPENAI_BASE_URL;
   openAIReasoningEffort: string = "";
   disableThinking: boolean = false;
-  // googleAIKey: string = "";
   aiProxyPort: number | null = null;
   selectedModel: string = DEFAULT_SELECTED_MODEL;
   models: CustomModel[] = [...DEFAULT_MODELS];
@@ -43,8 +39,6 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   podLogsRequireApproval: boolean = true;
   // Default number of tail lines fetched when reading pod logs.
   podLogsTailLines: number = DEFAULT_POD_LOGS_TAIL_LINES;
-  // ollamaHost: string = "";
-  // ollamaPort: string = "";
 
   // Not persistent
   explainEvent: MessageObject = {} as MessageObject;
@@ -59,7 +53,6 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         openAIBaseUrl: DEFAULT_OPENAI_BASE_URL,
         openAIReasoningEffort: "",
         disableThinking: false,
-        // googleAIKey: "",
         aiProxyPort: null,
         selectedModel: DEFAULT_SELECTED_MODEL,
         models: [...DEFAULT_MODELS],
@@ -78,8 +71,6 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
           null,
           2,
         ),
-        // ollamaHost: "http://127.0.0.1",
-        // ollamaPort: "9898",
       },
     });
     // Use the explicit annotation form instead of `@observable` decorators.
@@ -92,7 +83,6 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       openAIBaseUrl: observable,
       openAIReasoningEffort: observable,
       disableThinking: observable,
-      // googleAIKey: observable,
       aiProxyPort: observable,
       selectedModel: observable,
       models: observable,
@@ -100,8 +90,6 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       mcpConfiguration: observable,
       podLogsRequireApproval: observable,
       podLogsTailLines: observable,
-      // ollamaHost: observable,
-      // ollamaPort: observable,
       explainEvent: observable,
       bypassApprovals: observable,
     });
@@ -116,7 +104,6 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this.openAIBaseUrl = preferencesModel.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
     this.openAIReasoningEffort = preferencesModel.openAIReasoningEffort ?? "";
     this.disableThinking = preferencesModel.disableThinking ?? false;
-    // this.googleAIKey = preferencesModel.googleAIKey;
     this.aiProxyPort = preferencesModel.aiProxyPort ?? null;
     this.models = preferencesModel.models?.length ? preferencesModel.models : [...DEFAULT_MODELS];
     // Validate the selection against the available models; fall back to the
@@ -129,8 +116,6 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       typeof preferencesModel.podLogsTailLines === "number" && preferencesModel.podLogsTailLines > 0
         ? preferencesModel.podLogsTailLines
         : DEFAULT_POD_LOGS_TAIL_LINES;
-    // this.ollamaHost = preferencesModel.ollamaHost;
-    // this.ollamaPort = preferencesModel.ollamaPort;
   }
 
   toJSON(): PreferencesModel {
@@ -144,7 +129,6 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       openAIBaseUrl: this.openAIBaseUrl,
       openAIReasoningEffort: this.openAIReasoningEffort,
       disableThinking: this.disableThinking,
-      // googleAIKey: this.googleAIKey,
       aiProxyPort: this.aiProxyPort,
       selectedModel: this.selectedModel,
       models: toJS(this.models),
@@ -152,8 +136,6 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       mcpConfiguration: this.mcpConfiguration,
       podLogsRequireApproval: this.podLogsRequireApproval,
       podLogsTailLines: this.podLogsTailLines,
-      // ollamaHost: this.ollamaHost,
-      // ollamaPort: this.ollamaPort,
     };
   }
 }

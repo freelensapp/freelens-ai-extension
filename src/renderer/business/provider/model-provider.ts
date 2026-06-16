@@ -1,5 +1,3 @@
-// import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-// import { ChatOllama } from "@langchain/ollama";
 import { ChatOpenAI } from "@langchain/openai";
 import { PreferencesStore } from "../../../common/store";
 import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "./ai-models";
@@ -59,28 +57,6 @@ export const useModelProvider = () => {
 
         return new ChatOpenAI(fields);
       }
-      // case AIProviders.OLLAMA: {
-      //   const ollamaHost = process.env.FREELENS_OLLAMA_HOST || preferencesStore.ollamaHost;
-      //   const ollamaPort = process.env.FREELENS_OLLAMA_PORT || preferencesStore.ollamaPort;
-      //   const headers = new Headers();
-      //   headers.set("Origin", ollamaHost);
-      //   return new ChatOllama({
-      //     model: modelName,
-      //     temperature: 0,
-      //     headers: headers,
-      //     baseUrl: `${ollamaHost}:${ollamaPort}`,
-      //   });
-      // }
-      // case AIProviders.GOOGLE: {
-      //   const googleApiKey = process.env.GOOGLE_API_KEY || preferencesStore.googleAIKey;
-      //   return new ChatGoogleGenerativeAI({
-      //     model: modelName,
-      //     temperature: 0,
-      //     apiKey: googleApiKey,
-      //     baseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort) + "/google",
-      //     streamUsage: false,
-      //   });
-      // }
       default:
         throw new Error(`Unsupported provider: ${provider}`);
     }

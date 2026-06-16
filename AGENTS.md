@@ -123,10 +123,9 @@ The list of chat models is user-editable and persisted in the preferences
 store; there is no hardcoded model enum. Key files live in
 `src/renderer/business/provider/`:
 
-- `ai-models.tsx` — `AIProviders` enum (only `OPEN_AI` active; Google/Ollama
-  commented out for later re-add), the `CustomModel` type (`{ provider, name }`),
-  the seed list `DEFAULT_MODELS` (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`), and
-  `DEFAULT_OPENAI_BASE_URL`.
+- `ai-models.tsx` — `AIProviders` enum (only `OPEN_AI` active), the
+  `CustomModel` type (`{ provider, name }`), the seed list `DEFAULT_MODELS`
+  (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`), and `DEFAULT_OPENAI_BASE_URL`.
 - `model-capabilities.ts` — name heuristics (regex) deciding model behavior.
   Add new model families here rather than hardcoding ids. Reasoning models
   (`o<n>`, `gpt-5.x`) take a reasoning effort and reject `temperature`.

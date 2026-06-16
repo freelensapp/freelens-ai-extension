@@ -134,25 +134,6 @@ export const PreferencesPage = observer(() => {
         <Button plain label="Reset to defaults" onClick={resetModels} />
       </div>
 
-      {/*<HorizontalLine />*/}
-      {/*<div>*/}
-      {/*  <SubTitle title="Ollama settings" />*/}
-      {/*  If you're using Ollama, there's no need for an API key.*/}
-      {/*  <div style={{ marginTop: 8, fontWeight: "bold" }}>Ollama host</div>*/}
-      {/*  <Input*/}
-      {/*    style={{ marginBottom: 8 }}*/}
-      {/*    placeholder="Set here your ollama host"*/}
-      {/*    value={preferencesStore.ollamaHost}*/}
-      {/*    onChange={(value: string) => (preferencesStore.ollamaHost = value)}*/}
-      {/*  />*/}
-      {/*  <div style={{ marginTop: 8, fontWeight: "bold" }}>Ollama port</div>*/}
-      {/*  <Input*/}
-      {/*    placeholder="Set here your ollama port"*/}
-      {/*    value={preferencesStore.ollamaPort}*/}
-      {/*    onChange={(value: string) => (preferencesStore.ollamaPort = value)}*/}
-      {/*  />*/}
-      {/*</div>*/}
-
       <HorizontalLine />
       <div>
         <div style={{ fontWeight: "bold" }}>Enable MCP</div>
