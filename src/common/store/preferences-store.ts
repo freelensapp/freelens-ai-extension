@@ -11,6 +11,7 @@ export interface PreferencesModel {
   openAIKey: string;
   openAIBaseUrl: string;
   openAIReasoningEffort: string;
+  disableThinking: boolean;
   // googleAIKey: string;
   aiProxyPort: number | null;
   selectedModel: string;
@@ -23,22 +24,23 @@ export interface PreferencesModel {
 
 export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesModel> {
   // Persistent
-  @observable accessor openAIKey: string = "";
-  @observable accessor openAIBaseUrl: string = DEFAULT_OPENAI_BASE_URL;
-  @observable accessor openAIReasoningEffort: string = "";
-  // @observable accessor googleAIKey: string = "";
-  @observable accessor aiProxyPort: number | null = null;
-  @observable accessor selectedModel: string = DEFAULT_SELECTED_MODEL;
-  @observable accessor models: CustomModel[] = [...DEFAULT_MODELS];
-  @observable accessor mcpEnabled: boolean = false;
-  @observable accessor mcpConfiguration: string = "";
-  // @observable accessor ollamaHost: string = "";
-  // @observable accessor ollamaPort: string = "";
+  openAIKey: string = "";
+  openAIBaseUrl: string = DEFAULT_OPENAI_BASE_URL;
+  openAIReasoningEffort: string = "";
+  disableThinking: boolean = false;
+  // googleAIKey: string = "";
+  aiProxyPort: number | null = null;
+  selectedModel: string = DEFAULT_SELECTED_MODEL;
+  models: CustomModel[] = [...DEFAULT_MODELS];
+  mcpEnabled: boolean = false;
+  mcpConfiguration: string = "";
+  // ollamaHost: string = "";
+  // ollamaPort: string = "";
 
   // Not persistent
-  @observable accessor explainEvent: MessageObject = {} as MessageObject;
+  explainEvent: MessageObject = {} as MessageObject;
   // Not persistent: when enabled, the agent auto-approves tool-use requests
-  @observable accessor bypassApprovals: boolean = false;
+  bypassApprovals: boolean = false;
 
   constructor() {
     super({
@@ -47,6 +49,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         openAIKey: "",
         openAIBaseUrl: DEFAULT_OPENAI_BASE_URL,
         openAIReasoningEffort: "",
+        disableThinking: false,
         // googleAIKey: "",
         aiProxyPort: null,
         selectedModel: DEFAULT_SELECTED_MODEL,
@@ -68,17 +71,38 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         // ollamaPort: "9898",
       },
     });
-    makeObservable(this);
+    // Use the explicit annotation form instead of `@observable` decorators.
+    // The build's legacy decorator transform emits native class-field
+    // initializers, which the decorators cannot convert into observables; the
+    // explicit form reads the initialized field values directly and works
+    // regardless of how the build emits class fields.
+    makeObservable(this, {
+      openAIKey: observable,
+      openAIBaseUrl: observable,
+      openAIReasoningEffort: observable,
+      disableThinking: observable,
+      // googleAIKey: observable,
+      aiProxyPort: observable,
+      selectedModel: observable,
+      models: observable,
+      mcpEnabled: observable,
+      mcpConfiguration: observable,
+      // ollamaHost: observable,
+      // ollamaPort: observable,
+      explainEvent: observable,
+      bypassApprovals: observable,
+    });
   }
 
-  updateMcpConfiguration = async (newMcpConfiguration: string) => {
+  async updateMcpConfiguration(newMcpConfiguration: string) {
     this.mcpConfiguration = newMcpConfiguration;
-  };
+  }
 
-  fromStore = (preferencesModel: PreferencesModel): void => {
+  fromStore(preferencesModel: PreferencesModel): void {
     this.openAIKey = preferencesModel.openAIKey;
     this.openAIBaseUrl = preferencesModel.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
     this.openAIReasoningEffort = preferencesModel.openAIReasoningEffort ?? "";
+    this.disableThinking = preferencesModel.disableThinking ?? false;
     // this.googleAIKey = preferencesModel.googleAIKey;
     this.aiProxyPort = preferencesModel.aiProxyPort ?? null;
     this.models = preferencesModel.models?.length ? preferencesModel.models : [...DEFAULT_MODELS];
@@ -89,22 +113,27 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this.mcpConfiguration = preferencesModel.mcpConfiguration;
     // this.ollamaHost = preferencesModel.ollamaHost;
     // this.ollamaPort = preferencesModel.ollamaPort;
-  };
+  }
 
-  toJSON = (): PreferencesModel => {
-    const value: PreferencesModel = {
+  toJSON(): PreferencesModel {
+    // `models` is an observable array; the host persists this value by sending
+    // it over IPC, which structure-clones it. A live MobX proxy cannot be
+    // cloned ("An object could not be cloned"), so convert it to a plain array.
+    // `toJS` must be applied to the observable itself: it is a no-op on a plain
+    // wrapper object and does not recurse into non-observables.
+    return {
       openAIKey: this.openAIKey,
       openAIBaseUrl: this.openAIBaseUrl,
       openAIReasoningEffort: this.openAIReasoningEffort,
+      disableThinking: this.disableThinking,
       // googleAIKey: this.googleAIKey,
       aiProxyPort: this.aiProxyPort,
       selectedModel: this.selectedModel,
-      models: this.models,
+      models: toJS(this.models),
       mcpEnabled: this.mcpEnabled,
       mcpConfiguration: this.mcpConfiguration,
       // ollamaHost: this.ollamaHost,
       // ollamaPort: this.ollamaPort,
     };
-    return toJS(value);
-  };
+  }
 }

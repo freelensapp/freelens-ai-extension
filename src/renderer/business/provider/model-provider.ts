@@ -45,6 +45,7 @@ export const useModelProvider = () => {
           upstreamBaseUrl: openAIBaseUrl,
           proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
           reasoningEffort: preferencesStore.openAIReasoningEffort,
+          disableThinking: preferencesStore.disableThinking,
         });
 
         return new ChatOpenAI(fields);

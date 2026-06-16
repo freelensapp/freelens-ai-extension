@@ -22,6 +22,12 @@ export interface OpenAIChatFieldsOptions {
   proxyBaseUrl: string;
   // Optional reasoning effort; applied only to reasoning-capable models.
   reasoningEffort?: string;
+  // When true, request the upstream to disable its "thinking" mode. Some
+  // providers (e.g. DeepSeek via LiteLLM) expose a thinking mode that is
+  // mutually exclusive with the forced `tool_choice` the supervisor agent uses
+  // for structured output, failing with "Thinking mode does not support this
+  // tool_choice". User-controlled because it is provider-specific.
+  disableThinking?: boolean;
 }
 
 export const buildOpenAIChatFields = ({
@@ -30,6 +36,7 @@ export const buildOpenAIChatFields = ({
   upstreamBaseUrl,
   proxyBaseUrl,
   reasoningEffort,
+  disableThinking,
 }: OpenAIChatFieldsOptions): ChatOpenAIFields => {
   const fields: ChatOpenAIFields = {
     model: modelName,
@@ -52,6 +59,12 @@ export const buildOpenAIChatFields = ({
     }
   } else {
     fields.temperature = 0;
+  }
+
+  // Sent via `modelKwargs` so it reaches the upstream request body verbatim
+  // without being passed as a typed field that providers like OpenAI reject.
+  if (disableThinking) {
+    fields.modelKwargs = { ...fields.modelKwargs, thinking: { type: "disabled" } };
   }
 
   return fields;
