@@ -7,12 +7,19 @@
 // runs. This client recovers the tool calls from the markup (see
 // `recoverDsmlToolCalls`) so the agent graph executes them normally.
 //
-// HTTP streaming is disabled (`disableStreaming = true`) so every request goes
-// through `_generate` and returns a single complete message: the DSML markup is
-// only recoverable once the whole tool-call block has arrived, and the
-// token-level streaming path would otherwise leak the markup to the UI before we
-// could rewrite it. Used only for DeepSeek models, so other models keep
-// token-by-token streaming intact.
+// `disableStreaming = true` routes the agent/langgraph calls through `_generate`
+// (instead of token-by-token `_streamResponseChunks`), so the DSML markup is
+// never streamed to the UI before we can rewrite it: the whole tool-call block
+// must have arrived before it is recoverable.
+//
+// The *upstream* HTTP request is still streamed (`streaming = true`), because a
+// non-streaming request to a slow reasoning endpoint makes the proxy's `fetch`
+// wait for the entire completion and time out with a bare "fetch failed" (502).
+// `_generate` streams the upstream response and aggregates it into a single
+// message; we pass no run manager to the super call so those per-token
+// callbacks are not forwarded to the agent's streaming handler (which would
+// leak the raw markup token by token). Used only for DeepSeek models, so other
+// models keep their normal token-by-token streaming intact.
 
 import { ChatOpenAI } from "@langchain/openai";
 import { recoverDsmlToolCalls } from "../agent/leaked-tool-calls";
@@ -22,16 +29,25 @@ import type { BaseMessage } from "@langchain/core/messages";
 import type { ChatResult } from "@langchain/core/outputs";
 
 export class DsmlAwareChatOpenAI extends ChatOpenAI {
-  // Force the non-streaming `_generate` path; see the file header.
+  // Force the agent-facing `_generate` path (no token-level streaming to the
+  // UI); see the file header.
   disableStreaming = true;
+  // Keep the upstream request streamed so the proxy `fetch` is not left waiting
+  // for a full non-streaming completion (slow reasoning models -> "fetch
+  // failed"); see the file header.
+  streaming = true;
 
   /** @ignore */
   async _generate(
     messages: BaseMessage[],
     options: this["ParsedCallOptions"],
-    runManager?: CallbackManagerForLLMRun,
+    _runManager?: CallbackManagerForLLMRun,
   ): Promise<ChatResult> {
-    const result = await super._generate(messages, options, runManager);
+    // Deliberately drop the run manager: `_generate` streams the upstream
+    // response internally, and forwarding its per-token callbacks would leak the
+    // raw DSML markup to the UI token by token. We aggregate here and hand back
+    // a single message with the tool calls recovered.
+    const result = await super._generate(messages, options, undefined);
 
     const generations = result.generations.map((generation) => {
       const message = recoverDsmlToolCalls(generation.message);
