@@ -54,7 +54,7 @@ export const useModelProvider = () => {
         // assistant text when the endpoint has no server-side tool-call parser.
         // Use a client that recovers those tool calls so the agents can run them.
         if (emitsDsmlToolCalls(modelName)) {
-          return new DsmlAwareChatOpenAI(fields);
+          return new DsmlAwareChatOpenAI({ ...fields, streaming: true });
         }
 
         return new ChatOpenAI(fields);

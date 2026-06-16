@@ -29,16 +29,20 @@ const useChatService = () => {
     }
 
     const message = error.message.toLowerCase();
+    // Duck-type the OpenAI SDK error shape: APIError subclasses carry a numeric
+    // `status`. APIConnectionError has status === undefined (the request never
+    // reached the endpoint at all), while InternalServerError has status >= 500
+    // (the proxy returned a 502/5xx because it could not reach the upstream).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const errorStatus = (error as any).status as number | undefined;
 
-    // A bare "Failed to fetch" / "fetch failed" means the request never reached
-    // the endpoint (proxy not started, wrong base URL, network blocked). The
-    // browser strips the URL from the message, so re-attach the configured
-    // endpoint and proxy port to make the error actionable.
+    // True connection failure: the renderer never reached the proxy (proxy not
+    // started, wrong port, network blocked). APIConnectionError has no HTTP
+    // status; the browser strips the URL from `Failed to fetch` so re-attach it.
     const isConnectionFailure =
-      error.name === "APIConnectionError" ||
-      message.includes("failed to fetch") ||
-      message.includes("fetch failed") ||
-      message.includes("network error");
+      error.constructor?.name === "APIConnectionError" ||
+      (errorStatus === undefined &&
+        (message.includes("failed to fetch") || message.includes("fetch failed") || message.includes("network error")));
 
     if (isConnectionFailure) {
       // @ts-ignore
@@ -49,6 +53,15 @@ const useChatService = () => {
           ? "the local AI proxy is not running yet"
           : `via the local AI proxy on port ${preferencesStore.aiProxyPort}`;
       return `Could not reach the AI endpoint ${baseUrl} (${proxyHint}). Check the base URL, your network connection, and that the endpoint is reachable. Original error: ${error.message}`;
+    }
+
+    // The proxy returned a 5xx (e.g. 502): the renderer reached the proxy
+    // successfully, but the proxy could not reach the upstream endpoint.
+    if (typeof errorStatus === "number" && errorStatus >= 500) {
+      // @ts-ignore
+      const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+      const baseUrl = preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
+      return `The AI proxy could not reach the upstream endpoint ${baseUrl}. Check that the endpoint is running and the base URL is correct. Original error: ${error.message}`;
     }
 
     const isGeminiTemporaryOverload =
