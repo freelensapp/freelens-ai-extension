@@ -4,6 +4,7 @@ import { AGENT_ANALYZER_PROMPT_TEMPLATE } from "../provider/prompt-template-prov
 import {
   getKubernetesResource,
   getNamespaces,
+  getPodLogs,
   getWarningEventsByNamespace,
   listKubernetesResources,
 } from "./tools/tools";
@@ -16,7 +17,7 @@ export const useAgentAnalyzer = () => {
       model &&
       createReactAgent({
         llm: model,
-        tools: [getNamespaces, getWarningEventsByNamespace, listKubernetesResources, getKubernetesResource],
+        tools: [getNamespaces, getWarningEventsByNamespace, listKubernetesResources, getKubernetesResource, getPodLogs],
         stateModifier: AGENT_ANALYZER_PROMPT_TEMPLATE,
       })
     );
