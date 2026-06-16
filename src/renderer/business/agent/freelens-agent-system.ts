@@ -6,6 +6,7 @@ import { useAgentAnalyzer } from "./analyzer-agent";
 import { useConclusionsAgent } from "./conclusions-agent";
 import { useGeneralPurposeAgent } from "./general-purpose-agent";
 import { useAgentKubernetesOperator } from "./kubernetes-operator-agent";
+import { containsLeakedToolCallMarkup, LEAKED_TOOL_CALL_MESSAGE } from "./leaked-tool-calls";
 import { teardownNode } from "./nodes/teardown";
 import { GraphState } from "./state/graph-state";
 import { useAgentSupervisor } from "./supervisor-agent";
@@ -22,7 +23,7 @@ export const useFreeLensAgentSystem = () => {
   const subAgents = ["agentAnalyzer", "kubernetesOperator", "generalPurposeAgent"];
   const conclusionsAgentName = "conclusionsAgent";
   const subAgentResponsibilities = [
-    "agentAnalyzer: Reads cluster events and find for warnings and errors",
+    "agentAnalyzer: Reads and inspects live cluster resources (pods, deployments, services, CRDs, and other kinds), events, namespaces, warnings and errors. Use it for any read-only query about the current state of the cluster.",
     "kubernetesOperator: Operates on the cluster in write mode (for example apply changes) and then exits",
     "generalPurposeAgent: Handles general queries including but not limited to: Kubernetes conceptual explanations, best practices, architecture patterns, and non-Kubernetes technical questions. This agent doesn't interact with the live cluster but provides comprehensive knowledge-based responses.",
   ];
@@ -37,11 +38,21 @@ export const useFreeLensAgentSystem = () => {
     const response: any = await agentSupervisor.invoke({ messages: state.messages });
     log.debug("Supervisor agent - supervisor response", response);
 
-    // TOOD check why response is unknown
-    if (response.goto === "__end__") {
-      response.goto = conclusionsAgentName;
+    // The supervisor must return a structured routing decision ({ reflection,
+    // goto }). When the endpoint does not parse the model's tool calls
+    // server-side, the markup leaks into the message text, the parser yields no
+    // tool call, and `response` is undefined. Fail with an actionable message
+    // instead of crashing on `response.goto` of undefined.
+    if (!response || typeof response.goto !== "string") {
+      log.error("Supervisor agent returned no routing decision", response);
+      throw new Error(`The supervisor did not return a structured routing decision. ${LEAKED_TOOL_CALL_MESSAGE}`);
     }
-    return new Command({ goto: response.goto });
+
+    let goto = response.goto;
+    if (goto === "__end__") {
+      goto = conclusionsAgentName;
+    }
+    return new Command({ goto });
   };
 
   const agentAnalyzerNode = async (state: typeof GraphState.State) => {
@@ -53,6 +64,10 @@ export const useFreeLensAgentSystem = () => {
     const result = await agentAnalyzer.invoke(state);
     const lastMessage = result.messages[result.messages.length - 1];
     log.debug("Analyzer Agent - analysis result: ", result);
+    if (containsLeakedToolCallMarkup(lastMessage.content)) {
+      log.error("Analyzer Agent - leaked tool-call markup in response", lastMessage.content);
+      throw new Error(LEAKED_TOOL_CALL_MESSAGE);
+    }
     return {
       messages: [new HumanMessage({ content: lastMessage.content })],
     };
@@ -67,6 +82,10 @@ export const useFreeLensAgentSystem = () => {
     const result = await agentKubernetesOperator.invoke(state);
     const lastMessage = result.messages[result.messages.length - 1];
     log.debug("Kubernetes Operator - k8s operator result: ", result);
+    if (containsLeakedToolCallMarkup(lastMessage.content)) {
+      log.error("Kubernetes Operator - leaked tool-call markup in response", lastMessage.content);
+      throw new Error(LEAKED_TOOL_CALL_MESSAGE);
+    }
     return {
       messages: [new HumanMessage({ content: lastMessage.content })],
     };
@@ -81,6 +100,10 @@ export const useFreeLensAgentSystem = () => {
     const result = await generalPurposeAgent.invoke(state);
     const lastMessage = result.messages[result.messages.length - 1];
     log.debug("General Purpose Agent - response: ", result);
+    if (containsLeakedToolCallMarkup(lastMessage.content)) {
+      log.error("General Purpose Agent - leaked tool-call markup in response", lastMessage.content);
+      throw new Error(LEAKED_TOOL_CALL_MESSAGE);
+    }
     return {
       messages: [new HumanMessage({ content: lastMessage.content })],
     };

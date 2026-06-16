@@ -5,15 +5,12 @@ import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { useModelProvider } from "../provider/model-provider";
 import { KUBERNETES_OPERATOR_PROMPT_TEMPLATE } from "../provider/prompt-template-provider";
 import {
-  createDeployment,
-  createPod,
-  createService,
-  deleteDeployment,
-  deletePod,
-  deleteService,
-  getDeployments,
-  getPods,
-  getServices,
+  createKubernetesResource,
+  deleteKubernetesResource,
+  getKubernetesResource,
+  listKubernetesResources,
+  patchKubernetesResource,
+  updateKubernetesResource,
 } from "./tools/tools";
 
 export const useAgentKubernetesOperator = () => {
@@ -25,15 +22,12 @@ export const useAgentKubernetesOperator = () => {
     }
 
     const tools = [
-      createPod,
-      createDeployment,
-      deletePod,
-      deleteDeployment,
-      createService,
-      deleteService,
-      getPods,
-      getDeployments,
-      getServices,
+      listKubernetesResources,
+      getKubernetesResource,
+      createKubernetesResource,
+      updateKubernetesResource,
+      patchKubernetesResource,
+      deleteKubernetesResource,
     ];
     const toolNode = new ToolNode(tools);
     const boundModel = model.bindTools(tools, { parallel_tool_calls: false });
