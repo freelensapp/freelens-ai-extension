@@ -1,10 +1,12 @@
 import { Command } from "@langchain/langgraph";
 import { getInterruptMessage, getTextMessage } from "../../renderer/business/objects/message-object-provider";
 import { MessageType } from "../../renderer/business/objects/message-type";
+import { DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
 import { AgentService, useAgentService } from "../../renderer/business/service/agent-service";
 import { AiAnalysisService, useAiAnalysisService } from "../../renderer/business/service/ai-analysis-service";
 import { ActionToApprove } from "../../renderer/components/chat";
 import { useApplicationStatusStore } from "../../renderer/context/application-context";
+import { PreferencesStore } from "../store";
 import useLog from "../utils/logger/logger-service";
 
 import type { MessageObject } from "../../renderer/business/objects/message-object";
@@ -27,6 +29,28 @@ const useChatService = () => {
     }
 
     const message = error.message.toLowerCase();
+
+    // A bare "Failed to fetch" / "fetch failed" means the request never reached
+    // the endpoint (proxy not started, wrong base URL, network blocked). The
+    // browser strips the URL from the message, so re-attach the configured
+    // endpoint and proxy port to make the error actionable.
+    const isConnectionFailure =
+      error.name === "APIConnectionError" ||
+      message.includes("failed to fetch") ||
+      message.includes("fetch failed") ||
+      message.includes("network error");
+
+    if (isConnectionFailure) {
+      // @ts-ignore
+      const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+      const baseUrl = preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
+      const proxyHint =
+        preferencesStore.aiProxyPort === null
+          ? "the local AI proxy is not running yet"
+          : `via the local AI proxy on port ${preferencesStore.aiProxyPort}`;
+      return `Could not reach the AI endpoint ${baseUrl} (${proxyHint}). Check the base URL, your network connection, and that the endpoint is reachable. Original error: ${error.message}`;
+    }
+
     const isGeminiTemporaryOverload =
       message.includes("failed to parse stream") ||
       message.includes("503") ||
