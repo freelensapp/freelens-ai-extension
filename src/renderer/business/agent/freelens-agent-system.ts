@@ -22,7 +22,7 @@ export const useFreeLensAgentSystem = () => {
   const subAgents = ["agentAnalyzer", "kubernetesOperator", "generalPurposeAgent"];
   const conclusionsAgentName = "conclusionsAgent";
   const subAgentResponsibilities = [
-    "agentAnalyzer: Reads cluster events and find for warnings and errors",
+    "agentAnalyzer: Reads and inspects live cluster resources (pods, deployments, services, CRDs, and other kinds), events, namespaces, warnings and errors. Use it for any read-only query about the current state of the cluster.",
     "kubernetesOperator: Operates on the cluster in write mode (for example apply changes) and then exits",
     "generalPurposeAgent: Handles general queries including but not limited to: Kubernetes conceptual explanations, best practices, architecture patterns, and non-Kubernetes technical questions. This agent doesn't interact with the live cluster but provides comprehensive knowledge-based responses.",
   ];
