@@ -23,3 +23,15 @@ const FORCED_TOOL_CHOICE_UNSUPPORTED_PATTERNS: RegExp[] = [/deepseek/i, /qwen/i]
 
 export const requiresAutoToolChoice = (modelName: string): boolean =>
   FORCED_TOOL_CHOICE_UNSUPPORTED_PATTERNS.some((pattern) => pattern.test(modelName));
+
+// DeepSeek models emit native tool calls in their "DSML" markup
+// (`<｜｜DSML｜｜invoke name="...">`). OpenAI-compatible endpoints that lack a
+// server-side tool-call parser leak this markup into the assistant text instead
+// of returning structured `tool_calls`, so no tool ever runs. For these models
+// we use a client that recovers the tool calls from the markup (see
+// `dsml-aware-chat-model.ts`). Extend the pattern list when another family is
+// found to emit the same markup.
+const DSML_TOOL_CALL_PATTERNS: RegExp[] = [/deepseek/i];
+
+export const emitsDsmlToolCalls = (modelName: string): boolean =>
+  DSML_TOOL_CALL_PATTERNS.some((pattern) => pattern.test(modelName));

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isReasoningModel, requiresAutoToolChoice, supportsTemperature } from "./model-capabilities";
+import {
+  emitsDsmlToolCalls,
+  isReasoningModel,
+  requiresAutoToolChoice,
+  supportsTemperature,
+} from "./model-capabilities";
 
 describe("isReasoningModel", () => {
   it.each([
@@ -38,6 +43,20 @@ describe("requiresAutoToolChoice", () => {
 
   it.each(["gpt-5.5", "gpt-5.4", "gpt-4o", "o3-mini", ""])("keeps forced tool_choice for %s", (name) => {
     expect(requiresAutoToolChoice(name)).toBe(false);
+  });
+});
+
+describe("emitsDsmlToolCalls", () => {
+  it.each([
+    "deepseek-v4-pro",
+    "deepseek-reasoner",
+    "DeepSeek-V4",
+  ])("flags DeepSeek model %s as DSML-emitting", (name) => {
+    expect(emitsDsmlToolCalls(name)).toBe(true);
+  });
+
+  it.each(["gpt-5.5", "gpt-4o", "qwen3-235b", "o3-mini", ""])("does not flag %s", (name) => {
+    expect(emitsDsmlToolCalls(name)).toBe(false);
   });
 });
 

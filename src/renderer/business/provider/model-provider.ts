@@ -3,6 +3,8 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { PreferencesStore } from "../../../common/store";
 import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "./ai-models";
+import { DsmlAwareChatOpenAI } from "./dsml-aware-chat-model";
+import { emitsDsmlToolCalls } from "./model-capabilities";
 import { findProvider } from "./model-list";
 import { buildOpenAIChatFields } from "./openai-fields";
 
@@ -47,6 +49,13 @@ export const useModelProvider = () => {
           reasoningEffort: preferencesStore.openAIReasoningEffort,
           disableThinking: preferencesStore.disableThinking,
         });
+
+        // DeepSeek models leak their native "DSML" tool-call markup into the
+        // assistant text when the endpoint has no server-side tool-call parser.
+        // Use a client that recovers those tool calls so the agents can run them.
+        if (emitsDsmlToolCalls(modelName)) {
+          return new DsmlAwareChatOpenAI(fields);
+        }
 
         return new ChatOpenAI(fields);
       }
