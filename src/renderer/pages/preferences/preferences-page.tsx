@@ -81,6 +81,17 @@ export const PreferencesPage = observer(() => {
         }
         themeName="lens"
       />
+      <div style={{ marginTop: 8, fontWeight: "bold" }}>Disable thinking mode</div>
+      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
+        Turn off the model&apos;s thinking mode. Required by some providers (e.g. DeepSeek via LiteLLM) whose thinking
+        mode conflicts with the forced tool selection used for structured output.
+      </div>
+      <Switch
+        style={{ marginBottom: 8 }}
+        label="Disable thinking mode"
+        checked={preferencesStore.disableThinking}
+        onChange={(checked: boolean) => (preferencesStore.disableThinking = checked)}
+      />
 
       <HorizontalLine />
 

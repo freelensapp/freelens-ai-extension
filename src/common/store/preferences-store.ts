@@ -11,6 +11,7 @@ export interface PreferencesModel {
   openAIKey: string;
   openAIBaseUrl: string;
   openAIReasoningEffort: string;
+  disableThinking: boolean;
   // googleAIKey: string;
   aiProxyPort: number | null;
   selectedModel: string;
@@ -26,6 +27,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   openAIKey: string = "";
   openAIBaseUrl: string = DEFAULT_OPENAI_BASE_URL;
   openAIReasoningEffort: string = "";
+  disableThinking: boolean = false;
   // googleAIKey: string = "";
   aiProxyPort: number | null = null;
   selectedModel: string = DEFAULT_SELECTED_MODEL;
@@ -47,6 +49,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         openAIKey: "",
         openAIBaseUrl: DEFAULT_OPENAI_BASE_URL,
         openAIReasoningEffort: "",
+        disableThinking: false,
         // googleAIKey: "",
         aiProxyPort: null,
         selectedModel: DEFAULT_SELECTED_MODEL,
@@ -77,6 +80,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       openAIKey: observable,
       openAIBaseUrl: observable,
       openAIReasoningEffort: observable,
+      disableThinking: observable,
       // googleAIKey: observable,
       aiProxyPort: observable,
       selectedModel: observable,
@@ -98,6 +102,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this.openAIKey = preferencesModel.openAIKey;
     this.openAIBaseUrl = preferencesModel.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
     this.openAIReasoningEffort = preferencesModel.openAIReasoningEffort ?? "";
+    this.disableThinking = preferencesModel.disableThinking ?? false;
     // this.googleAIKey = preferencesModel.googleAIKey;
     this.aiProxyPort = preferencesModel.aiProxyPort ?? null;
     this.models = preferencesModel.models?.length ? preferencesModel.models : [...DEFAULT_MODELS];
@@ -120,6 +125,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       openAIKey: this.openAIKey,
       openAIBaseUrl: this.openAIBaseUrl,
       openAIReasoningEffort: this.openAIReasoningEffort,
+      disableThinking: this.disableThinking,
       // googleAIKey: this.googleAIKey,
       aiProxyPort: this.aiProxyPort,
       selectedModel: this.selectedModel,

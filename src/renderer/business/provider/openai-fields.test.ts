@@ -35,4 +35,14 @@ describe("buildOpenAIChatFields", () => {
     expect(fields.reasoningEffort).toBeUndefined();
     expect(fields.temperature).toBeUndefined();
   });
+
+  it("disables thinking via modelKwargs when requested", () => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "deepseek-v4-pro", disableThinking: true });
+    expect(fields.modelKwargs).toMatchObject({ thinking: { type: "disabled" } });
+  });
+
+  it("omits the thinking modelKwargs when not requested", () => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "deepseek-v4-pro" });
+    expect(fields.modelKwargs).toBeUndefined();
+  });
 });
