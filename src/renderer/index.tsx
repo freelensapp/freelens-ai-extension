@@ -7,6 +7,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { PreferencesStore } from "../common/store";
 import { FreeLensAiIcon } from "./components/freelens-ai-icon";
 import { MenuEntry } from "./components/menu-entry";
+import { setExtensionPreferencesPath } from "./navigation/extension-preferences";
 import { MainPage } from "./pages/main";
 import { PreferencesPage } from "./pages/preferences";
 
@@ -15,6 +16,9 @@ type KubeObjectMenuProps<TKubeObject extends KubeObject> = Renderer.Component.Ku
 
 export default class FreeLensAIRenderer extends Renderer.LensExtension {
   async onActivate() {
+    // Resolve the route to this extension's own preferences tab so the chat
+    // "Configure agent" button can link straight to it.
+    setExtensionPreferencesPath(this.sanitizedExtensionId);
     // @ts-ignore
     PreferencesStore.getInstanceOrCreate<PreferencesStore>().loadExtension(this);
   }
