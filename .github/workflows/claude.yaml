@@ -31,7 +31,7 @@ on:
         description: Anthropic model to run
         required: true
         type: choice
-        default: claude-sonnet-4-6
+        default: claude-opus-4-8
         options:
           - claude-opus-4-8
           - claude-sonnet-4-6
@@ -160,7 +160,7 @@ jobs:
         id: parse-model
         shell: bash
         run: |
-          DEFAULT_MODEL="claude-sonnet-4-6"
+          DEFAULT_MODEL="claude-opus-4-8"
           if [[ -n "$WORKFLOW_MODEL" ]]; then
             MODEL_ID="$WORKFLOW_MODEL"
             echo "Resolved model from workflow input: $MODEL_ID"
@@ -202,7 +202,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |-
             --model ${{ steps.parse-model.outputs.model }}
-            --fallback-model claude-sonnet-4-6
+            --fallback-model claude-opus-4-8
             --max-turns 100
             --allowedTools "Read" "Write" "Edit" "Glob" "Grep" "Task" "WebSearch" "WebFetch" "BashOutput" "KillShell" "Bash(pnpm:*)" "Bash(npx:*)" "Bash(node:*)" "Bash(git:*)" "Bash(gh:*)" "Bash(yq:*)" "Bash(jq:*)" "Bash(grep:*)" "Bash(rg:*)" "Bash(sed:*)" "Bash(awk:*)" "Bash(cut:*)" "Bash(tr:*)" "Bash(sort:*)" "Bash(uniq:*)" "Bash(cat:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(wc:*)" "Bash(find:*)" "Bash(xargs:*)" "Bash(ls:*)" "Bash(tree:*)" "Bash(mkdir:*)" "Bash(touch:*)" "Bash(cp:*)" "Bash(mv:*)" "Bash(rm:*)" "Bash(tee:*)" "Bash(echo:*)"
             --append-system-prompt-file AGENTS.md
@@ -215,7 +215,7 @@ jobs:
           prompt: ${{ steps.prompt.outputs.text }}
           claude_args: |-
             --model ${{ steps.parse-model.outputs.model }}
-            --fallback-model claude-sonnet-4-6
+            --fallback-model claude-opus-4-8
             --max-turns 100
             --allowedTools "Read" "Write" "Edit" "Glob" "Grep" "Task" "WebSearch" "WebFetch" "BashOutput" "KillShell" "Bash(pnpm:*)" "Bash(npx:*)" "Bash(node:*)" "Bash(git:*)" "Bash(gh:*)" "Bash(yq:*)" "Bash(jq:*)" "Bash(grep:*)" "Bash(rg:*)" "Bash(sed:*)" "Bash(awk:*)" "Bash(cut:*)" "Bash(tr:*)" "Bash(sort:*)" "Bash(uniq:*)" "Bash(cat:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(wc:*)" "Bash(find:*)" "Bash(xargs:*)" "Bash(ls:*)" "Bash(tree:*)" "Bash(mkdir:*)" "Bash(touch:*)" "Bash(cp:*)" "Bash(mv:*)" "Bash(rm:*)" "Bash(tee:*)" "Bash(echo:*)"
             --append-system-prompt-file AGENTS.md
