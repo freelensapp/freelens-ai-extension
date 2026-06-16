@@ -1,7 +1,9 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as React from "react";
 import { PreferencesStore } from "../../../common/store";
+import { isAgentConfigured } from "../../business/provider/chat-readiness";
 import { useApplicationStatusStore } from "../../context/application-context";
+import { getExtensionPreferencesPath } from "../../navigation/extension-preferences";
 
 import type { SingleValue } from "react-select";
 
@@ -25,7 +27,15 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
 
   const modelSelections = preferencesStore.models.map((model) => ({ value: model.name, label: model.name }));
 
-  const hasAvailableModels = modelSelections.length > 0;
+  // Show the model dropdown only when the agent is ready to chat. Otherwise
+  // (no models left, or no OpenAI key set) the UI offers a single button that
+  // links to this extension's preferences.
+  const agentConfigured = isAgentConfigured({
+    models: preferencesStore.models,
+    selectedModel: preferencesStore.selectedModel,
+    openAIKey: preferencesStore.openAIKey,
+    envOpenAIKey: typeof process !== "undefined" ? process.env.OPENAI_API_KEY : undefined,
+  });
 
   const adaptTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -63,13 +73,13 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
     }
   };
 
-  const goToPreferences = () => navigate("/preferences");
+  const goToPreferences = () => navigate(getExtensionPreferencesPath());
 
   return {
     message,
     textareaRef,
     modelSelections,
-    hasAvailableModels,
+    agentConfigured,
     setMessage,
     handleKeyDown,
     handleSend,

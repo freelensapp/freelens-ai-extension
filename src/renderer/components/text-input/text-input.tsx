@@ -108,7 +108,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               </button>
             </div>
             <div style={{ display: "flex", alignItems: "center" }}>
-              {textInputHook.hasAvailableModels ? (
+              {textInputHook.agentConfigured ? (
                 <Select
                   id="update-channel-input"
                   options={textInputOptions}
@@ -120,9 +120,9 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               ) : (
                 <Button
                   primary
-                  label="Configure models in preferences"
+                  label="Configure agent"
                   onClick={textInputHook.goToPreferences}
-                  title="No model is available. Set an API key and add models in Freelens AI settings."
+                  title="Set an API key and add a model in Freelens AI settings."
                 />
               )}
               <button
