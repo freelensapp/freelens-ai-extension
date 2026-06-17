@@ -66,7 +66,7 @@
     "@babel/plugin-proposal-decorators": "^7.29.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@freelensapp/extensions": "^1.9.0",
-    "@langchain/core": "^0.3.61",
+    "@langchain/core": "^0.3.80",
     "@langchain/langgraph": "^0.2.74",
     "@langchain/mcp-adapters": "^0.5.2",
     "@langchain/openai": "^0.5.15",
