@@ -8,7 +8,7 @@
   // `electron` is provided by the Freelens host at runtime and required lazily in
   // src/renderer/navigation/navigate-to-extension-preferences.ts, so it is not a
   // declared dependency.
-  "ignoreDependencies": ["@babel/plugin-proposal-decorators", "@langchain/google-genai", "electron"],
+  "ignoreDependencies": ["@babel/plugin-proposal-decorators", "electron"],
   "typescript": {
     "config": ["tsconfig.json"]
   },

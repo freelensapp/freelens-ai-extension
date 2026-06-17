@@ -256,8 +256,6 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     switch (provider) {
       case AIProviders.OPEN_AI:
         return preferencesStore.openAIKey;
-      // case AIProviders.GOOGLE:
-      //   return preferencesStore.googleAIKey;
       default:
         return preferencesStore.openAIKey;
     }
