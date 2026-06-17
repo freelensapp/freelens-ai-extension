@@ -67,7 +67,7 @@
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@freelensapp/extensions": "^1.9.0",
     "@langchain/core": "^0.3.61",
-    "@langchain/langgraph": "^0.2.74",
+    "@langchain/langgraph": "^0.4.9",
     "@langchain/mcp-adapters": "^0.5.2",
     "@langchain/openai": "^0.5.15",
     "@types/node": "~24.12.4",
