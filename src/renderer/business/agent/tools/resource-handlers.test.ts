@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   buildServiceManifest,
+  DEFAULT_DELETE_MODE,
+  DELETE_MODES,
   getResourceHandler,
+  isDeleteMode,
+  isPodDeleteMode,
   isRestartableKind,
+  POD_DELETE_MODES,
   prepareManifest,
   RESTARTABLE_KINDS,
   resolveApiVersion,
@@ -33,6 +38,51 @@ describe("isRestartableKind", () => {
     expect(isRestartableKind("Pod")).toBe(false);
     expect(isRestartableKind("Service")).toBe(false);
     expect(isRestartableKind("Gateway")).toBe(false);
+  });
+});
+
+describe("DELETE_MODES", () => {
+  it("mirrors the host KubeObjectDeleteService delete types", () => {
+    expect(DELETE_MODES).toEqual(["delete", "force_delete", "force_finalize"]);
+  });
+
+  it("defaults to a plain delete", () => {
+    expect(DEFAULT_DELETE_MODE).toBe("delete");
+    expect(DELETE_MODES).toContain(DEFAULT_DELETE_MODE);
+  });
+});
+
+describe("isDeleteMode", () => {
+  it("accepts the supported delete modes", () => {
+    expect(isDeleteMode("delete")).toBe(true);
+    expect(isDeleteMode("force_delete")).toBe(true);
+    expect(isDeleteMode("force_finalize")).toBe(true);
+  });
+
+  it("rejects unknown modes", () => {
+    expect(isDeleteMode("evict")).toBe(false);
+    expect(isDeleteMode("")).toBe(false);
+    expect(isDeleteMode("forceDelete")).toBe(false);
+  });
+});
+
+describe("POD_DELETE_MODES", () => {
+  it("lists the pod-specific deletion variants", () => {
+    expect(POD_DELETE_MODES).toEqual(["evict", "force_delete", "delete_with_finalizers"]);
+  });
+});
+
+describe("isPodDeleteMode", () => {
+  it("accepts the supported pod deletion modes", () => {
+    expect(isPodDeleteMode("evict")).toBe(true);
+    expect(isPodDeleteMode("force_delete")).toBe(true);
+    expect(isPodDeleteMode("delete_with_finalizers")).toBe(true);
+  });
+
+  it("rejects unknown modes", () => {
+    expect(isPodDeleteMode("force_finalize")).toBe(false);
+    expect(isPodDeleteMode("delete")).toBe(false);
+    expect(isPodDeleteMode("")).toBe(false);
   });
 });
 
