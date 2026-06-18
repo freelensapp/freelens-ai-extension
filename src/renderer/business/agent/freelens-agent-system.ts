@@ -1,5 +1,5 @@
 import { HumanMessage } from "@langchain/core/messages";
-import { RunnableLambda, RunnableLike } from "@langchain/core/runnables";
+import { RunnableConfig, RunnableLambda, RunnableLike } from "@langchain/core/runnables";
 import { Command, MemorySaver, StateGraph } from "@langchain/langgraph";
 import useLog from "../../../common/utils/logger/logger-service";
 import { useAgentAnalyzer } from "./analyzer-agent";
@@ -83,33 +83,21 @@ export const useFreeLensAgentSystem = () => {
     };
   };
 
-  const kubernetesOperatorNode = async (state: typeof GraphState.State) => {
+  const kubernetesOperatorNode = async (state: typeof GraphState.State, config?: RunnableConfig) => {
     log.debug("Kubernetes Operator Agent - called with input: ", state);
     const agentKubernetesOperator = useAgentKubernetesOperator().getAgent();
     if (!agentKubernetesOperator) {
       return;
     }
-    // DIAGNOSTIC: pin down where a tool `interrupt()` goes. If the operator runs
-    // a write tool, the sub-agent invoke should throw a GraphInterrupt. Logging
-    // here tells us whether it bubbles out of the detached `.invoke()`:
-    //   - "...invoke threw" with a GraphInterrupt-named error -> it bubbles; the
-    //     parent must record it.
-    //   - "...invoke returned normally" -> the interrupt was swallowed inside the
-    //     sub-agent and never reached the parent.
-    // The error MUST be re-thrown so a real GraphInterrupt can still propagate to
-    // the parent graph.
-    let result: Awaited<ReturnType<typeof agentKubernetesOperator.invoke>>;
-    try {
-      result = await agentKubernetesOperator.invoke(state);
-      log.debug("Kubernetes Operator - sub-agent invoke returned normally");
-    } catch (error) {
-      log.debug(
-        "Kubernetes Operator - sub-agent invoke threw: ",
-        error instanceof Error ? error.name : typeof error,
-        error,
-      );
-      throw error;
-    }
+    // Run the operator sub-agent inside the parent run context by forwarding the
+    // node `config`. The sub-agent is compiled without its own checkpointer, so
+    // it inherits the parent's (the `MemorySaver` below) and the parent's
+    // `thread_id`/`checkpoint_ns`. Without this, the `interrupt()` a write tool
+    // raises for the approval prompt could not suspend the graph: the
+    // `GraphInterrupt` was neither persisted by the detached sub-agent nor
+    // re-registered by the parent, so it was lost and the run ended with an
+    // empty `next` instead of surfacing the approval prompt.
+    const result = await agentKubernetesOperator.invoke(state, config);
     const lastMessage = result.messages[result.messages.length - 1];
     log.debug("Kubernetes Operator - k8s operator result: ", result);
     const operatorUnknownTools = findUnknownToolCalls(result.messages, allToolNames);
