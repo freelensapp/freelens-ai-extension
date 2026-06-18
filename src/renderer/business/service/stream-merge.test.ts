@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createStreamMergeState, flattenContentText, mergeAiChunk } from "./stream-merge";
+import { createStreamMergeState, extractReasoningText, flattenContentText, mergeAiChunk } from "./stream-merge";
 
 describe("mergeAiChunk", () => {
   it("concatenates chunks of the same message without a separator", () => {
@@ -92,5 +92,49 @@ describe("flattenContentText", () => {
 
   it("returns an empty string when there is no text", () => {
     expect(flattenContentText([{ type: "tool_use", id: "1", name: "t", input: {} }])).toBe("");
+  });
+
+  it("skips reasoning and thinking parts so chain-of-thought never leaks into the answer", () => {
+    expect(
+      flattenContentText([
+        { type: "reasoning", text: "Let me think..." },
+        { type: "text", text: "The answer is 42." },
+        { type: "thinking", text: "more thoughts" },
+      ]),
+    ).toBe("The answer is 42.");
+  });
+});
+
+describe("extractReasoningText", () => {
+  it("reads reasoning_content from additional_kwargs", () => {
+    expect(extractReasoningText("", { reasoning_content: "Step 1: think." })).toBe("Step 1: think.");
+  });
+
+  it("falls back to the reasoning key in additional_kwargs", () => {
+    expect(extractReasoningText("", { reasoning: "thinking..." })).toBe("thinking...");
+  });
+
+  it("reads the text of an object-shaped reasoning value", () => {
+    expect(extractReasoningText("", { reasoning: { text: "nested thought" } })).toBe("nested thought");
+  });
+
+  it("collects reasoning and thinking content parts", () => {
+    expect(
+      extractReasoningText([
+        { type: "reasoning", text: "first " },
+        { type: "text", text: "the answer" },
+        { type: "thinking", text: "second" },
+      ]),
+    ).toBe("first second");
+  });
+
+  it("reads the reasoning key of a content part when text is absent", () => {
+    expect(extractReasoningText([{ type: "reasoning", reasoning: "from reasoning key" }])).toBe("from reasoning key");
+  });
+
+  it("returns an empty string when there is no reasoning", () => {
+    expect(extractReasoningText("just an answer", { foo: "bar" })).toBe("");
+    expect(extractReasoningText([{ type: "text", text: "answer" }])).toBe("");
+    expect(extractReasoningText("answer")).toBe("");
   });
 });

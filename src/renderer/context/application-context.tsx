@@ -36,6 +36,7 @@ export interface AppContextType {
   setConversationInterrupted: (isConversationInterrupted: boolean) => void;
   addMessage: (message: MessageObject) => void;
   updateLastMessage: (newText: string) => void;
+  updateLastMessageReasoning: (newText: string) => void;
   clearChat: () => void;
   getActiveAgent: () => Promise<any>;
   changeInterruptStatus: (id: string, status: boolean) => void;
@@ -146,6 +147,28 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         ...lastMessage,
         text: lastMessage.text + newText,
       };
+
+      window.sessionStorage.setItem("chatMessages", JSON.stringify(messagesCopy));
+      return messagesCopy;
+    });
+  };
+
+  const updateLastMessageReasoning = (newText: string) => {
+    _setChatMessages((prev) => {
+      const messagesCopy = prev ? [...prev] : [];
+      const lastMessage = messagesCopy[messagesCopy.length - 1];
+
+      // Reasoning streams before the answer text, so the last message is still
+      // the user's sent message (or there is none yet): start a fresh agent
+      // response to hold the reasoning.
+      if (!lastMessage || lastMessage.sent) {
+        messagesCopy.push({ ...getTextMessage("", false), reasoning: newText });
+      } else {
+        messagesCopy[messagesCopy.length - 1] = {
+          ...lastMessage,
+          reasoning: (lastMessage.reasoning ?? "") + newText,
+        };
+      }
 
       window.sessionStorage.setItem("chatMessages", JSON.stringify(messagesCopy));
       return messagesCopy;
@@ -304,6 +327,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         setConversationInterrupted,
         addMessage,
         updateLastMessage,
+        updateLastMessageReasoning,
         clearChat,
         getActiveAgent,
         changeInterruptStatus,

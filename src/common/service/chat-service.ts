@@ -2,7 +2,7 @@ import { Command } from "@langchain/langgraph";
 import { getInterruptMessage, getTextMessage } from "../../renderer/business/objects/message-object-provider";
 import { MessageType } from "../../renderer/business/objects/message-type";
 import { DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
-import { AgentService, useAgentService } from "../../renderer/business/service/agent-service";
+import { AgentService, isReasoningChunk, useAgentService } from "../../renderer/business/service/agent-service";
 import { AiAnalysisService, useAiAnalysisService } from "../../renderer/business/service/ai-analysis-service";
 import { ActionToApprove } from "../../renderer/components/chat";
 import { useApplicationStatusStore } from "../../renderer/context/application-context";
@@ -152,10 +152,18 @@ const useChatService = () => {
         // log.debug("Streaming to UI chunk: ", chunk);
         if (typeof chunk === "string") {
           applicationStatusStore.updateLastMessage(chunk);
+          continue;
+        }
+
+        // Reasoning deltas update the message's separate reasoning field rather
+        // than its visible answer text.
+        if (isReasoningChunk(chunk)) {
+          applicationStatusStore.updateLastMessageReasoning(chunk.reasoning);
+          continue;
         }
 
         // check if the chunk is an approval interrupt
-        if (typeof chunk === "object" && isApprovalInterrupt(chunk.value)) {
+        if (isApprovalInterrupt(chunk.value)) {
           log.debug("Approval interrupt received: ", chunk);
           if (applicationStatusStore.bypassApprovals) {
             log.debug("Bypass approvals mode enabled: auto-approving tool use");
