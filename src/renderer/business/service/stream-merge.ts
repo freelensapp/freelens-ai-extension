@@ -122,8 +122,8 @@ export const extractReasoningText = (
         }
         if ("text" in part && typeof part.text === "string") {
           reasoning += part.text;
-        } else if ("reasoning" in part && typeof (part as { reasoning: unknown }).reasoning === "string") {
-          reasoning += (part as { reasoning: string }).reasoning;
+        } else if ("reasoning" in part && typeof (part as { reasoning?: unknown }).reasoning === "string") {
+          reasoning += (part as { reasoning?: string }).reasoning;
         }
       }
     }

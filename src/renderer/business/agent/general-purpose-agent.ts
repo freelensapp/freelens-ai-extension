@@ -11,7 +11,7 @@ export const useGeneralPurposeAgent = () => {
       createReactAgent({
         llm: model,
         tools: [],
-        stateModifier: GENERAL_PURPOSE_AGENT_PROMPT_TEMPLATE,
+        prompt: GENERAL_PURPOSE_AGENT_PROMPT_TEMPLATE,
       })
     );
   };

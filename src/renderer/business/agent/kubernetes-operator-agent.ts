@@ -36,7 +36,7 @@ export const useAgentKubernetesOperator = () => {
     const toolNode = new ToolNode(tools);
     const boundModel = model.bindTools(tools, { parallel_tool_calls: false });
 
-    const callModel = async (state: { messages: AIMessage[] }) => {
+    const callModel = async (state: typeof MessagesAnnotation.State) => {
       const prompt = ChatPromptTemplate.fromMessages([
         ["system", KUBERNETES_OPERATOR_PROMPT_TEMPLATE],
         new MessagesPlaceholder("messages"),
@@ -45,7 +45,7 @@ export const useAgentKubernetesOperator = () => {
       return { messages: [response] };
     };
 
-    const finish = async (state: { messages: AIMessage[] }) => {
+    const finish = async (state: typeof MessagesAnnotation.State) => {
       const prompt = ChatPromptTemplate.fromMessages([
         [
           "system",
@@ -64,8 +64,8 @@ export const useAgentKubernetesOperator = () => {
     // only ever run a single tool and any "discover, then act" task stalled
     // after the discovery step. Only fall through to `finish` once the model
     // stops requesting tools.
-    const shouldContinue = (state: { messages: AIMessage[] }) => {
-      const lastMessage = state.messages[state.messages.length - 1];
+    const shouldContinue = (state: typeof MessagesAnnotation.State) => {
+      const lastMessage = state.messages[state.messages.length - 1] as AIMessage;
       return lastMessage?.tool_calls && lastMessage.tool_calls.length > 0 ? "tools" : "finish";
     };
 

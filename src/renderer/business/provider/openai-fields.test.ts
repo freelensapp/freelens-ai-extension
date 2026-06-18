@@ -21,18 +21,18 @@ describe("buildOpenAIChatFields", () => {
   it("sets temperature 0 and no reasoning effort for non-reasoning models", () => {
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-4.1", reasoningEffort: "high" });
     expect(fields.temperature).toBe(0);
-    expect(fields.reasoningEffort).toBeUndefined();
+    expect(fields.reasoning).toBeUndefined();
   });
 
   it("sets reasoning effort and omits temperature for reasoning models", () => {
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-5.5", reasoningEffort: "high" });
-    expect(fields.reasoningEffort).toBe("high");
+    expect(fields.reasoning?.effort).toBe("high");
     expect(fields.temperature).toBeUndefined();
   });
 
   it("omits reasoning effort when it is not configured", () => {
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-5.5", reasoningEffort: "" });
-    expect(fields.reasoningEffort).toBeUndefined();
+    expect(fields.reasoning).toBeUndefined();
     expect(fields.temperature).toBeUndefined();
   });
 

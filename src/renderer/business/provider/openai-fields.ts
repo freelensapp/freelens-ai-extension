@@ -55,7 +55,11 @@ export const buildOpenAIChatFields = ({
   // non-reasoning models are the inverse. Decided by name heuristic.
   if (isReasoningModel(modelName)) {
     if (reasoningEffort) {
-      fields.reasoningEffort = reasoningEffort as ChatOpenAIFields["reasoningEffort"];
+      // `@langchain/openai` v1 dropped the top-level `reasoningEffort`
+      // constructor field in favor of `reasoning.effort`. The chat-completions
+      // path (used through our proxy) maps `reasoning.effort` back to the
+      // `reasoning_effort` request parameter.
+      fields.reasoning = { effort: reasoningEffort as NonNullable<ChatOpenAIFields["reasoning"]>["effort"] };
     }
   } else {
     fields.temperature = 0;
