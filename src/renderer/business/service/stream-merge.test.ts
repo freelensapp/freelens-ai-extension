@@ -114,6 +114,27 @@ describe("extractReasoningText", () => {
     expect(extractReasoningText("", { reasoning: "thinking..." })).toBe("thinking...");
   });
 
+  it("reads reasoning_content from response_metadata when additional_kwargs has none", () => {
+    expect(extractReasoningText("", undefined, { reasoning_content: "from metadata" })).toBe("from metadata");
+  });
+
+  it("reads reasoning_content sitting directly on the message object", () => {
+    expect(extractReasoningText("the answer", undefined, undefined, { reasoning_content: "direct reasoning" })).toBe(
+      "direct reasoning",
+    );
+  });
+
+  it("uses the first source that carries reasoning so a delta is never counted twice", () => {
+    expect(
+      extractReasoningText(
+        "",
+        { reasoning_content: "from kwargs" },
+        { reasoning_content: "from metadata" },
+        { reasoning_content: "from message" },
+      ),
+    ).toBe("from kwargs");
+  });
+
   it("reads the text of an object-shaped reasoning value", () => {
     expect(extractReasoningText("", { reasoning: { text: "nested thought" } })).toBe("nested thought");
   });

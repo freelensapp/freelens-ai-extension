@@ -80,10 +80,19 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
           // model wrote before invoking a tool. Tool-call arguments live in
           // `tool_call_chunks`, not in `content`, so they are never emitted here.
           if (message.getType() === "ai") {
-            // Surface the model's reasoning before its answer text. It streams
-            // token by token in the same message; the UI concatenates the
-            // deltas into a collapsible block.
-            const reasoning = extractReasoningText(message.content, message.additional_kwargs);
+            // Surface the model's reasoning before its answer text. Providers
+            // expose it inconsistently: in `additional_kwargs`, in
+            // `response_metadata`, or as a `reasoning_content` field sitting
+            // directly on the message next to `content`. Pass all three so the
+            // reasoning is found wherever the gateway puts it. It may stream
+            // token by token or arrive alongside the answer; the UI concatenates
+            // the deltas into a collapsible block.
+            const reasoning = extractReasoningText(
+              message.content,
+              message.additional_kwargs,
+              message.response_metadata,
+              message as unknown as Record<string, unknown>,
+            );
             if (reasoning.length > 0) {
               hasYieldedContent = true;
               yield { reasoning };

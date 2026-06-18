@@ -61,12 +61,38 @@ export const flattenContentText = (content: MessageContent): string => {
 };
 
 /**
+ * Read a `reasoning_content` / `reasoning` value out of a single metadata
+ * record (e.g. `additional_kwargs`, `response_metadata`, or the message object
+ * itself). The value is either a plain string or an object carrying `text`.
+ * Returns an empty string when the record has no reasoning.
+ */
+const extractReasoningFromMetadata = (source: Record<string, unknown> | undefined): string => {
+  if (!source) {
+    return "";
+  }
+
+  const raw = source.reasoning_content ?? source.reasoning;
+  if (typeof raw === "string") {
+    return raw;
+  }
+  if (raw && typeof raw === "object" && "text" in raw && typeof (raw as { text: unknown }).text === "string") {
+    return (raw as { text: string }).text;
+  }
+
+  return "";
+};
+
+/**
  * Extract the reasoning ("chain-of-thought") delta carried by an AI message
  * chunk, if any. Providers expose it in different shapes:
  *
  * - DeepSeek and OpenAI-compatible gateways put it in
  *   `additional_kwargs.reasoning_content` (a plain string) or
- *   `additional_kwargs.reasoning`.
+ *   `additional_kwargs.reasoning`. Some gateways instead surface it under
+ *   `response_metadata`, or as a `reasoning_content` field sitting directly on
+ *   the message object next to `content`. All of these are passed in as
+ *   `metadataSources` and checked in order; the first one carrying reasoning
+ *   wins (so the same delta is never counted twice).
  * - Some providers stream structured content parts of type `reasoning` /
  *   `thinking`, each carrying `text` (or `reasoning`).
  *
@@ -74,15 +100,17 @@ export const flattenContentText = (content: MessageContent): string => {
  * token by token, so callers concatenate the deltas as they arrive. Returns an
  * empty string when the chunk carries no reasoning.
  */
-export const extractReasoningText = (content: MessageContent, additionalKwargs?: Record<string, unknown>): string => {
+export const extractReasoningText = (
+  content: MessageContent,
+  ...metadataSources: (Record<string, unknown> | undefined)[]
+): string => {
   let reasoning = "";
 
-  if (additionalKwargs) {
-    const raw = additionalKwargs.reasoning_content ?? additionalKwargs.reasoning;
-    if (typeof raw === "string") {
-      reasoning += raw;
-    } else if (raw && typeof raw === "object" && "text" in raw && typeof (raw as { text: unknown }).text === "string") {
-      reasoning += (raw as { text: string }).text;
+  for (const source of metadataSources) {
+    const fromMetadata = extractReasoningFromMetadata(source);
+    if (fromMetadata) {
+      reasoning += fromMetadata;
+      break;
     }
   }
 
