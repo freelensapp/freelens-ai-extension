@@ -1,5 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
 import { interrupt } from "@langchain/langgraph";
+import { stringify as stringifyYaml } from "yaml";
 import { PreferencesStore } from "../../../../common/store";
 import {
   capLogOutput,
@@ -124,7 +125,9 @@ function requestApproval(action: string, payload: Record<string, unknown>): bool
     question: "Do you want to approve this action?",
     options: ["yes", "no"],
     actionToApprove,
-    requestString: "```json\n" + JSON.stringify(actionToApprove, null, 2) + "\n```",
+    // Render the payload as YAML, the native format of the Kubernetes world,
+    // so the approval prompt is highlighted as YAML rather than JSON.
+    requestString: "```yaml\n" + stringifyYaml(actionToApprove) + "```",
   };
   const review = interrupt(interruptRequest);
   console.log("Tool call review: ", review);

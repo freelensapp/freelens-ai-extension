@@ -89,6 +89,9 @@ importers:
       vitest:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@24.12.4)(vite@8.0.16(@types/node@24.12.4)(less@4.3.0)(sass-embedded@1.100.0)(sass@1.100.0)(stylus@0.62.0)(terser@5.39.1)(yaml@2.7.1))
+      yaml:
+        specifier: ^2.7.1
+        version: 2.7.1
       zod:
         specifier: ^3.25.67
         version: 3.25.67
@@ -7938,8 +7941,7 @@ snapshots:
 
   yaml@1.10.2: {}
 
-  yaml@2.7.1:
-    optional: true
+  yaml@2.7.1: {}
 
   yauzl@2.10.0:
     dependencies:
