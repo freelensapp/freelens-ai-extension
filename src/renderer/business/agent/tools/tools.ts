@@ -191,6 +191,12 @@ export const allToolFunctions = [
   deleteKubernetesResource,
 ];
 
+// The authoritative set of tool names the agent system can actually execute.
+// Used to detect hallucinated / unsupported tool calls (for example a shell
+// `runCommand`) before they reach the graph. Note the registered name of the
+// warning-events tool is `getEventsForNamespace`.
+export const allToolNames: string[] = allToolFunctions.map((tool) => tool.name);
+
 // Data structure describing each tool function: name, description, arguments, and return type
 export const toolFunctionDescriptions = [
   {
