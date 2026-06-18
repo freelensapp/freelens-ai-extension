@@ -33,6 +33,8 @@ automate complex tasks and enhance productivity.
 - [@freelensapp/ai-extension](#freelensappai-extension)
   - [Index](#index)
   - [Available Models](#available-models)
+    - [Using other providers through an OpenAI-compatible gateway](#using-other-providers-through-an-openai-compatible-gateway)
+    - [DeepSeek and other "thinking" models](#deepseek-and-other-thinking-models)
     - [Connecting a model](#connecting-a-model)
     - [Key Features](#key-features)
     - [Base Agent](#base-agent)
@@ -62,8 +64,38 @@ Model-specific behavior (for example, sending a reasoning effort instead of a
 temperature) is decided by heuristics on the model name, so adding a new model
 needs no code changes.
 
-> Currently only the OpenAI provider is enabled. Google/Gemini and Ollama
-> support is temporarily disabled and will return after further refactoring.
+> Currently the **OpenAI** provider is the only one enabled. Google/Gemini and
+> Ollama support is temporarily disabled and will return after further
+> refactoring.
+
+### Using other providers through an OpenAI-compatible gateway
+Although OpenAI is the only built-in provider, the extension talks to any
+endpoint that implements the OpenAI Chat Completions API. That means you can put
+a gateway such as [LiteLLM](https://github.com/BerriAI/litellm) in front of the
+extension and reach providers like Anthropic, Google/Gemini, DeepSeek, Qwen, and
+many others through a single OpenAI-compatible API.
+
+To do this, set the **Base URL** in the OpenAI section of the preferences to your
+gateway (for example `http://localhost:4000/v1`) and use the model names exposed
+by that gateway. Requests are routed through the extension's local proxy, so the
+custom base URL works without any code changes.
+
+### DeepSeek and other "thinking" models
+Some models reached through a gateway need extra handling, which the extension
+applies automatically based on the model name:
+
+- **DSML tool-call markup**: DeepSeek models emit native tool calls in their
+  "DSML" markup. OpenAI-compatible endpoints without a server-side tool-call
+  parser leak this markup into the assistant text instead of returning
+  structured tool calls. For these models the extension uses a client that
+  recovers the tool calls from the markup so tools still run.
+- **Forced tool choice**: DeepSeek and Qwen reasoning models reject a *forced*
+  `tool_choice` while thinking mode is on; the extension requests
+  `tool_choice: "auto"` for them instead.
+- **Disable thinking mode**: some providers (for example DeepSeek via LiteLLM)
+  expose a thinking mode that conflicts with the forced tool selection used for
+  structured output. If you hit a `Thinking mode does not support this
+  tool_choice` error, enable **Disable thinking mode** in the OpenAI preferences.
 
 ### Connecting a model
 Open the preferences page and, in the OpenAI section, set your API key and
