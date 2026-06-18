@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildServiceManifest,
   getResourceHandler,
+  isRestartableKind,
   prepareManifest,
+  RESTARTABLE_KINDS,
   resolveApiVersion,
   SUPPORTED_KINDS,
   validateManifest,
@@ -11,6 +13,26 @@ import {
 describe("SUPPORTED_KINDS", () => {
   it("lists the internally handled kinds", () => {
     expect(SUPPORTED_KINDS).toEqual(["Pod", "Deployment", "Service"]);
+  });
+});
+
+describe("RESTARTABLE_KINDS", () => {
+  it("lists the workload kinds that expose a rollout restart", () => {
+    expect(RESTARTABLE_KINDS).toEqual(["Deployment", "DaemonSet", "StatefulSet"]);
+  });
+});
+
+describe("isRestartableKind", () => {
+  it("accepts restartable workload kinds", () => {
+    expect(isRestartableKind("Deployment")).toBe(true);
+    expect(isRestartableKind("DaemonSet")).toBe(true);
+    expect(isRestartableKind("StatefulSet")).toBe(true);
+  });
+
+  it("rejects kinds without a restart endpoint", () => {
+    expect(isRestartableKind("Pod")).toBe(false);
+    expect(isRestartableKind("Service")).toBe(false);
+    expect(isRestartableKind("Gateway")).toBe(false);
   });
 });
 

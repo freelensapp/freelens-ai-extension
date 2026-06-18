@@ -9,7 +9,14 @@ import {
   type GetPodLogsInput,
   resolveContainer,
 } from "./pod-logs";
-import { type Manifest, prepareManifest, resolveApiVersion, validateManifest } from "./resource-handlers";
+import {
+  isRestartableKind,
+  type Manifest,
+  prepareManifest,
+  RESTARTABLE_KINDS,
+  resolveApiVersion,
+  validateManifest,
+} from "./resource-handlers";
 
 type KubeApi = Renderer.K8sApi.KubeApi;
 type KubeObject = Renderer.K8sApi.KubeObject;
@@ -56,6 +63,35 @@ export interface DeleteResourceInput {
   apiVersion?: string;
   name: string;
   namespace?: string;
+}
+
+export interface RestartResourceInput {
+  kind: string;
+  name: string;
+  namespace: string;
+}
+
+// Workload APIs that expose a rollout `restart()` endpoint. Their `restart`
+// signatures are identical, so the union accepts the shared call below.
+type RestartableApi =
+  | typeof Renderer.K8sApi.deploymentApi
+  | typeof Renderer.K8sApi.daemonSetApi
+  | typeof Renderer.K8sApi.statefulSetApi;
+
+/**
+ * Resolve the host KubeApi exposing `restart()` for a restartable kind.
+ */
+function getRestartableApi(kind: string): RestartableApi | undefined {
+  switch (kind) {
+    case "Deployment":
+      return Renderer.K8sApi.deploymentApi;
+    case "DaemonSet":
+      return Renderer.K8sApi.daemonSetApi;
+    case "StatefulSet":
+      return Renderer.K8sApi.statefulSetApi;
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -330,6 +366,39 @@ export async function deleteKubernetesResource({
     return `${kind} deleted successfully`;
   } catch (error) {
     console.error("[Tool invocation error: deleteKubernetesResource] - ", error);
+    return JSON.stringify(error);
+  }
+}
+
+/**
+ * Restart a workload by triggering a rollout restart through its host KubeApi
+ * (`DeploymentApi.restart()` and the equivalent DaemonSet/StatefulSet methods).
+ * This rolls the pods without deleting them directly. Only restartable kinds are
+ * accepted; a namespace is always required.
+ */
+export async function restartKubernetesResource({ kind, name, namespace }: RestartResourceInput): Promise<string> {
+  console.log("[Tool invocation: restartKubernetesResource] - kind:", kind, "name:", name, "namespace:", namespace);
+  if (!isRestartableKind(kind)) {
+    return `Restart is not supported for kind "${kind}". Supported kinds: ${RESTARTABLE_KINDS.join(", ")}.`;
+  }
+  const api = getRestartableApi(kind);
+  if (!api) {
+    return `Could not resolve a Kubernetes API for kind "${kind}".`;
+  }
+  if (!namespace) {
+    return `Kind "${kind}" is namespaced; please provide a namespace to restart "${name}".`;
+  }
+
+  if (!requestApproval(`RESTART ${kind.toUpperCase()}`, { name, namespace })) {
+    return "The user denied the action";
+  }
+
+  try {
+    await api.restart({ name, namespace });
+    console.log("[Tool invocation result: restartKubernetesResource] - ", `${kind} "${name}" restarted successfully`);
+    return `${kind} "${name}" restarted successfully`;
+  } catch (error) {
+    console.error("[Tool invocation error: restartKubernetesResource] - ", error);
     return JSON.stringify(error);
   }
 }

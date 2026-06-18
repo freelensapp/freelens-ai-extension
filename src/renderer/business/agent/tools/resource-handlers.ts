@@ -147,6 +147,21 @@ export const RESOURCE_HANDLERS: Record<string, ResourceHandler> = {
  */
 export const SUPPORTED_KINDS = Object.keys(RESOURCE_HANDLERS);
 
+/**
+ * Workload kinds whose host KubeApi exposes a rollout `restart()` endpoint. The
+ * restart tool only accepts these kinds; anything else is rejected up front.
+ */
+export const RESTARTABLE_KINDS = ["Deployment", "DaemonSet", "StatefulSet"] as const;
+
+export type RestartableKind = (typeof RESTARTABLE_KINDS)[number];
+
+/**
+ * Whether a kind supports a rollout restart via its host KubeApi.
+ */
+export function isRestartableKind(kind: string): kind is RestartableKind {
+  return (RESTARTABLE_KINDS as readonly string[]).includes(kind);
+}
+
 export function getResourceHandler(kind: string): ResourceHandler | undefined {
   return RESOURCE_HANDLERS[kind];
 }
