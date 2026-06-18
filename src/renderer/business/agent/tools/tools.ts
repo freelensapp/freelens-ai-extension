@@ -8,9 +8,10 @@ import {
   getPodLogs as getPodLogsImpl,
   listKubernetesResources as listKubernetesResourcesImpl,
   patchKubernetesResource as patchKubernetesResourceImpl,
+  restartKubernetesResource as restartKubernetesResourceImpl,
   updateKubernetesResource as updateKubernetesResourceImpl,
 } from "./kubernetes-resource";
-import { SUPPORTED_KINDS } from "./resource-handlers";
+import { RESTARTABLE_KINDS, SUPPORTED_KINDS } from "./resource-handlers";
 
 const supportedKindsHint = `Built-in kinds with extra validation: ${SUPPORTED_KINDS.join(", ")}. Any other kind (including CRDs) is also accepted and passed through as a free manifest; for those provide the apiVersion explicitly.`;
 
@@ -179,6 +180,16 @@ export const deleteKubernetesResource = tool(deleteKubernetesResourceImpl, {
   }),
 });
 
+export const restartKubernetesResource = tool(restartKubernetesResourceImpl, {
+  name: "restartKubernetesResource",
+  description: `Trigger a rollout restart of a workload (rolls its pods without deleting them directly), like "kubectl rollout restart". Namespace is required. Supported kinds: ${RESTARTABLE_KINDS.join(", ")}.`,
+  schema: z.object({
+    kind: z.string().describe(`The workload kind to restart. Supported kinds: ${RESTARTABLE_KINDS.join(", ")}.`),
+    name: z.string().describe("The name of the workload to restart"),
+    namespace: z.string().describe("The namespace of the workload"),
+  }),
+});
+
 export const allToolFunctions = [
   getNamespaces,
   getWarningEventsByNamespace,
@@ -189,6 +200,7 @@ export const allToolFunctions = [
   updateKubernetesResource,
   patchKubernetesResource,
   deleteKubernetesResource,
+  restartKubernetesResource,
 ];
 
 // The authoritative set of tool names the agent system can actually execute.
@@ -262,5 +274,14 @@ export const toolFunctionDescriptions = [
     arguments:
       "Requires the resource kind (string) and name (string), and optionally the apiVersion (string). Namespace (string) is required for namespaced kinds.",
     returnType: "Returns a message string indicating success or error after attempting to delete the resource.",
+  },
+  {
+    name: "restartKubernetesResource",
+    description: 'Trigger a rollout restart of a workload (like "kubectl rollout restart")',
+    arguments:
+      "Requires the workload kind (string), name (string) and namespace (string). Supported kinds: " +
+      RESTARTABLE_KINDS.join(", ") +
+      ".",
+    returnType: "Returns a message string indicating success or error after attempting to restart the workload.",
   },
 ];

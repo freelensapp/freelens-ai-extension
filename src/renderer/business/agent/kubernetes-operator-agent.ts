@@ -10,6 +10,7 @@ import {
   getKubernetesResource,
   listKubernetesResources,
   patchKubernetesResource,
+  restartKubernetesResource,
   updateKubernetesResource,
 } from "./tools/tools";
 
@@ -28,6 +29,7 @@ export const useAgentKubernetesOperator = () => {
       updateKubernetesResource,
       patchKubernetesResource,
       deleteKubernetesResource,
+      restartKubernetesResource,
     ];
     const toolNode = new ToolNode(tools);
     const boundModel = model.bindTools(tools, { parallel_tool_calls: false });
