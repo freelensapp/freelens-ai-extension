@@ -11,8 +11,28 @@
   font-size: 1rem;
 }
 
+.interrupt-header {
+  display: flex;
+  align-items: center;
+}
+
 .interrupt-warning-icon {
   margin-right: 6px;
+}
+
+.interrupt-status-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+}
+
+.interrupt-status-icon.interrupt-status-approved {
+  color: #28a745;
+}
+
+.interrupt-status-icon.interrupt-status-rejected {
+  color: #d93025;
 }
 
 .message-buttons-options {
