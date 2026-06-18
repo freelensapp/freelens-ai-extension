@@ -11,7 +11,7 @@ export const useConclusionsAgent = () => {
       createReactAgent({
         llm: model,
         tools: [],
-        stateModifier: CONCLUSIONS_AGENT_PROMPT_TEMPLATE,
+        prompt: CONCLUSIONS_AGENT_PROMPT_TEMPLATE,
       })
     );
   };

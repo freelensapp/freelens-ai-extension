@@ -18,7 +18,7 @@ export const useAgentAnalyzer = () => {
       createReactAgent({
         llm: model,
         tools: [getNamespaces, getWarningEventsByNamespace, listKubernetesResources, getKubernetesResource, getPodLogs],
-        stateModifier: AGENT_ANALYZER_PROMPT_TEMPLATE,
+        prompt: AGENT_ANALYZER_PROMPT_TEMPLATE,
       })
     );
   };
