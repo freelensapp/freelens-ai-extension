@@ -25,7 +25,7 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
           <span className="interrupt-warning-icon">⚠️</span>
           {header}
         </div>
-        <div className="interrupt-question">{question}</div>
+        {approved === null && <div className="interrupt-question">{question}</div>}
       </div>
       {approved === null ? (
         <>
