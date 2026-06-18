@@ -39,7 +39,9 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
           <div>
             {options.map((option) => (
               <Button
-                className="message-buttons-options"
+                className={`message-buttons-options ${
+                  option === "yes" ? "interrupt-button-yes" : option === "no" ? "interrupt-button-no" : ""
+                }`}
                 label={option}
                 onClick={() => {
                   onAction(option);

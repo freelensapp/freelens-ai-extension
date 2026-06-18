@@ -39,6 +39,14 @@
   margin-right: 10px;
 }
 
+.message-buttons-options.interrupt-button-yes {
+  background-color: var(--colorSuccess);
+}
+
+.message-buttons-options.interrupt-button-no {
+  background-color: var(--colorSoftError);
+}
+
 .interrupt-details {
   margin-bottom: 10px;
 }
