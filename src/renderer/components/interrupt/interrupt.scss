@@ -9,27 +9,40 @@
 .interrupt-header,
 .interrupt-question {
   font-size: 1rem;
-  font-weight: bold;
+}
+
+.interrupt-header {
+  display: flex;
+  align-items: center;
 }
 
 .interrupt-warning-icon {
   margin-right: 6px;
 }
 
+.interrupt-status-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+}
+
+.interrupt-status-icon.interrupt-status-approved {
+  color: #28a745;
+}
+
+.interrupt-status-icon.interrupt-status-rejected {
+  color: #d93025;
+}
+
 .message-buttons-options {
   margin-right: 10px;
 }
 
-.interrupt-details {
-  margin-bottom: 10px;
+.message-buttons-options.interrupt-button-yes {
+  background-color: var(--colorSuccess);
 }
 
-.interrupt-details-summary {
-  cursor: pointer;
-  user-select: none;
-}
-
-.interrupt-details-summary-text {
-  color: var(--blue);
-  text-decoration: underline;
+.message-buttons-options.interrupt-button-no {
+  background-color: var(--colorSoftError);
 }

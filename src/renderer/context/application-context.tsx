@@ -12,6 +12,7 @@ import { generateUuid } from "../../common/utils/uuid";
 import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
 import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
 import { getTextMessage } from "../business/objects/message-object-provider";
+import { MessageType } from "../business/objects/message-type";
 import { AIProviders } from "../business/provider/ai-models";
 
 import type { MessageObject } from "../business/objects/message-object";
@@ -135,7 +136,11 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       const messagesCopy = [...prev];
       let lastMessage = messagesCopy[lastIndex];
 
-      if (lastMessage.sent) {
+      // Start a fresh agent message when the last entry is the user's message or
+      // a resolved tool-approval interrupt. An interrupt's text holds the YAML
+      // request, so appending the streamed answer to it would glue the response
+      // into the "Show details" box.
+      if (lastMessage.sent || lastMessage.type === MessageType.INTERRUPT) {
         // Agent response does not exist, add a new empty one
         messagesCopy.push(getTextMessage(newText, false));
         window.sessionStorage.setItem("chatMessages", JSON.stringify(messagesCopy));
@@ -159,9 +164,9 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       const lastMessage = messagesCopy[messagesCopy.length - 1];
 
       // Reasoning streams before the answer text, so the last message is still
-      // the user's sent message (or there is none yet): start a fresh agent
-      // response to hold the reasoning.
-      if (!lastMessage || lastMessage.sent) {
+      // the user's sent message, a resolved interrupt, or there is none yet:
+      // start a fresh agent response to hold the reasoning.
+      if (!lastMessage || lastMessage.sent || lastMessage.type === MessageType.INTERRUPT) {
         messagesCopy.push({ ...getTextMessage("", false), reasoning: newText });
       } else {
         messagesCopy[messagesCopy.length - 1] = {

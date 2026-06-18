@@ -87,17 +87,20 @@ const useChatService = () => {
     try {
       applicationStatusStore.setLoading(true);
       log.debug("Send message to agent: ", message);
-      _sendMessage(message);
 
       if (message.sent) {
         if (MessageType.EXPLAIN === message.type) {
+          _sendMessage(message);
           analyzeEvent(message).finally(() => applicationStatusStore.setLoading(false));
         } else if (applicationStatusStore.isConversationInterrupted) {
           log.debug("Conversation is interrupted, resuming...");
+          // Do not display the resume answer (e.g. "yes"/"no") as a user message:
+          // the user picked it from the approval buttons, they did not type it.
           runAgent(new Command({ resume: message.text })).finally(() => {
             applicationStatusStore.setLoading(false);
           });
         } else {
+          _sendMessage(message);
           const agentInput = {
             modelName: applicationStatusStore.selectedModel,
             modelApiKey: applicationStatusStore.apiKey,

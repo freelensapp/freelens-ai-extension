@@ -1,7 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
+import { CheckCircle, XCircle } from "lucide-react";
 import { MarkdownViewer } from "../markdown-viewer";
 import styleInline from "./interrupt.scss?inline";
-import StatusNotice from "./status-notice/status-notice";
 
 const {
   Component: { Button },
@@ -22,18 +22,26 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
       <style>{styleInline}</style>
       <div className="interrupt-prompt">
         <div className="interrupt-header">
-          <span className="interrupt-warning-icon">⚠️</span>
+          {approved === null ? (
+            <span className="interrupt-warning-icon">⚠️</span>
+          ) : approved ? (
+            <CheckCircle className="interrupt-status-icon interrupt-status-approved" />
+          ) : (
+            <XCircle className="interrupt-status-icon interrupt-status-rejected" />
+          )}
           {header}
         </div>
-        <div className="interrupt-question">{question}</div>
+        {approved === null && <div className="interrupt-question">{question}</div>}
       </div>
-      {approved === null ? (
+      {approved === null && (
         <>
           <MarkdownViewer content={text} />
           <div>
             {options.map((option) => (
               <Button
-                className="message-buttons-options"
+                className={`message-buttons-options ${
+                  option === "yes" ? "interrupt-button-yes" : option === "no" ? "interrupt-button-no" : ""
+                }`}
                 label={option}
                 onClick={() => {
                   onAction(option);
@@ -41,16 +49,6 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
               />
             ))}
           </div>
-        </>
-      ) : (
-        <>
-          <details className="interrupt-details">
-            <summary className="interrupt-details-summary">
-              <span className="interrupt-details-summary-text">Show details</span>
-            </summary>
-            <MarkdownViewer content={text} />
-          </details>
-          <StatusNotice approved={approved} />
         </>
       )}
     </div>
