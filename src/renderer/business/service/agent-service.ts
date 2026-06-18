@@ -1,4 +1,3 @@
-import { isAIMessageChunk } from "@langchain/core/messages";
 import { Command, Interrupt } from "@langchain/langgraph";
 import { FreeLensAgent } from "../agent/freelens-agent-system";
 import { MPCAgent } from "../agent/mcp-agent";
@@ -58,15 +57,17 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
 
         // streams LLM token by token to the UI
         for await (const [message, _metadata] of streamResponse) {
-          if (isAIMessageChunk(message) && message.tool_call_chunks?.length) {
-            // console.log(`${message.getType()} MESSAGE TOOL CALL CHUNK: ${message.tool_call_chunks[0].args}`);
-          } else {
-            if (message.getType() === "ai") {
-              const text = mergeAiChunk(mergeState, message.id, String(message.content));
-              if (text.length > 0) {
-                hasYieldedContent = true;
-                yield text;
-              }
+          // Always emit the assistant's text content, even when the same chunk
+          // also carries tool calls. Some providers (e.g. DeepSeek via
+          // DsmlAwareChatOpenAI) deliver the preamble text and the tool call in
+          // a single chunk; dropping the whole chunk would hide the preamble the
+          // model wrote before invoking a tool. Tool-call arguments live in
+          // `tool_call_chunks`, not in `content`, so they are never emitted here.
+          if (message.getType() === "ai") {
+            const text = mergeAiChunk(mergeState, message.id, message.content);
+            if (text.length > 0) {
+              hasYieldedContent = true;
+              yield text;
             }
           }
         }

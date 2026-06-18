@@ -11,6 +11,8 @@
  * heading on its own block.
  */
 
+import type { MessageContent } from "@langchain/core/messages";
+
 export interface StreamMergeState {
   lastMessageId: string | undefined;
   started: boolean;
@@ -22,15 +24,45 @@ export const createStreamMergeState = (): StreamMergeState => ({
 });
 
 /**
+ * Flatten LangChain message content (a plain string, or an array of content
+ * parts) into its text. Non-text parts such as tool-call blocks are ignored so
+ * tool-call arguments are never emitted to the UI as text.
+ */
+export const flattenContentText = (content: MessageContent): string => {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content
+    .map((part) => {
+      if (typeof part === "string") {
+        return part;
+      }
+      if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+        return part.text;
+      }
+      return "";
+    })
+    .join("");
+};
+
+/**
  * Returns the text to yield for an incoming AI message chunk, updating `state`.
  *
  * Empty chunks yield nothing. When a new assistant message begins (a defined
  * `id` that differs from the previous one) a blank-line separator is prepended
  * so the following content starts a fresh Markdown block. Chunks with no id, or
  * the same id, are concatenated directly to preserve token streaming.
+ *
+ * `content` may be a plain string or LangChain's structured content array; it is
+ * flattened to text first, so a chunk that also carries `tool_call_chunks` still
+ * contributes its preamble text instead of being dropped.
  */
-export const mergeAiChunk = (state: StreamMergeState, id: string | undefined, content: string): string => {
-  if (content.length === 0) {
+export const mergeAiChunk = (state: StreamMergeState, id: string | undefined, content: MessageContent): string => {
+  const text = flattenContentText(content);
+  if (text.length === 0) {
     return "";
   }
 
@@ -38,5 +70,5 @@ export const mergeAiChunk = (state: StreamMergeState, id: string | undefined, co
   state.lastMessageId = id;
   state.started = true;
 
-  return isNewMessage ? `\n\n${content}` : content;
+  return isNewMessage ? `\n\n${text}` : text;
 };
