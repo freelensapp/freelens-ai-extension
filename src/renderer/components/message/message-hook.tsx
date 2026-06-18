@@ -15,22 +15,14 @@ const useMessageHook = ({ message }: MessageHookProps) => {
   const rafRef = useRef<number | null>(null);
 
   const reasoning = message.reasoning ?? "";
-  // Open while the model is still reasoning, then auto-fold once the answer
-  // text starts arriving. The user can re-open it afterwards; `autoFoldedRef`
-  // ensures we only force-fold once so manual re-opening is not undone.
-  const [reasoningOpen, setReasoningOpen] = useState(true);
-  const autoFoldedRef = useRef(false);
+  // Folded immediately: the reasoning arrives in the same message object as the
+  // answer, so there is no separate "thinking" phase to show it open for. The
+  // user can re-open the `Reasoning` disclosure to inspect the chain-of-thought.
+  const [reasoningOpen, setReasoningOpen] = useState(false);
 
   useEffect(() => {
     _setVisibleText(message.text);
   }, []);
-
-  useEffect(() => {
-    if (!autoFoldedRef.current && message.text.length > 0) {
-      autoFoldedRef.current = true;
-      setReasoningOpen(false);
-    }
-  }, [message.text]);
 
   useEffect(() => {
     if (lastTextRef.current === message.text) return;
