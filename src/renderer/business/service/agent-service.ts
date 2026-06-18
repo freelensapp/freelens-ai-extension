@@ -2,6 +2,7 @@ import { isAIMessageChunk } from "@langchain/core/messages";
 import { Command, Interrupt } from "@langchain/langgraph";
 import { FreeLensAgent } from "../agent/freelens-agent-system";
 import { MPCAgent } from "../agent/mcp-agent";
+import { createStreamMergeState, mergeAiChunk } from "./stream-merge";
 
 const MAX_GEMINI_STREAM_RETRIES = 3;
 const BASE_BACKOFF_MS = 700;
@@ -48,6 +49,9 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
     let config = { thread_id: conversationId };
     for (let attempt = 1; attempt <= MAX_GEMINI_STREAM_RETRIES + 1; attempt++) {
       let hasYieldedContent = false;
+      // Tracks assistant message boundaries so distinct messages emitted within a
+      // single run are separated by a blank line instead of being glued together.
+      const mergeState = createStreamMergeState();
 
       try {
         const streamResponse = await agent.stream(agentInput, { streamMode: "messages", configurable: config });
@@ -58,8 +62,11 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
             // console.log(`${message.getType()} MESSAGE TOOL CALL CHUNK: ${message.tool_call_chunks[0].args}`);
           } else {
             if (message.getType() === "ai") {
-              hasYieldedContent = true;
-              yield String(message.content);
+              const text = mergeAiChunk(mergeState, message.id, String(message.content));
+              if (text.length > 0) {
+                hasYieldedContent = true;
+                yield text;
+              }
             }
           }
         }
