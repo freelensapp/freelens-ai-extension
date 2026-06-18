@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   createKubernetesResource as createKubernetesResourceImpl,
   deleteKubernetesResource as deleteKubernetesResourceImpl,
+  deletePod as deletePodImpl,
   getKubernetesResource as getKubernetesResourceImpl,
   getPodLogs as getPodLogsImpl,
   listKubernetesResources as listKubernetesResourcesImpl,
@@ -11,7 +12,7 @@ import {
   restartKubernetesResource as restartKubernetesResourceImpl,
   updateKubernetesResource as updateKubernetesResourceImpl,
 } from "./kubernetes-resource";
-import { RESTARTABLE_KINDS, SUPPORTED_KINDS } from "./resource-handlers";
+import { DELETE_MODES, POD_DELETE_MODES, RESTARTABLE_KINDS, SUPPORTED_KINDS } from "./resource-handlers";
 
 const supportedKindsHint = `Built-in kinds with extra validation: ${SUPPORTED_KINDS.join(", ")}. Any other kind (including CRDs) is also accepted and passed through as a free manifest; for those provide the apiVersion explicitly.`;
 
@@ -171,12 +172,48 @@ export const getPodLogs = tool(getPodLogsImpl, {
 
 export const deleteKubernetesResource = tool(deleteKubernetesResourceImpl, {
   name: "deleteKubernetesResource",
-  description: "Delete a Kubernetes resource by name (namespace required for namespaced kinds)",
+  description:
+    "Delete a Kubernetes resource by name (namespace required for namespaced kinds). " +
+    'The optional "mode" selects how the deletion is performed: "delete" (default) is a normal delete; ' +
+    '"force_delete" deletes immediately with a zero grace period (use when a normal delete hangs); ' +
+    '"force_finalize" clears the resource finalizers so an object stuck in Terminating can be removed ' +
+    "(use only as a last resort, after a normal or force delete did not complete). " +
+    "For pods prefer the dedicated deletePod tool, which can also evict respecting PodDisruptionBudgets.",
   schema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     name: z.string().describe("The name of the resource to delete"),
     namespace: z.string().optional().describe("The namespace of the resource (required for namespaced kinds)"),
+    mode: z
+      .enum(DELETE_MODES)
+      .optional()
+      .describe(
+        'How to delete the resource. "delete" (default): normal delete. ' +
+          '"force_delete": immediate delete with grace period 0 when a normal delete hangs. ' +
+          '"force_finalize": clear finalizers to unstick a resource in Terminating (last resort).',
+      ),
+  }),
+});
+
+export const deletePod = tool(deletePodImpl, {
+  name: "deletePod",
+  description:
+    "Delete a single pod using a pod-specific variant. Namespace is required. " +
+    'The "mode" selects the behavior: "evict" requests a graceful eviction that honors any matching ' +
+    'PodDisruptionBudget (prefer this for draining or voluntary disruptions); "force_delete" deletes the pod ' +
+    "immediately with a zero grace period (use for pods stuck on an unreachable or NotReady node); " +
+    '"delete_with_finalizers" deletes the pod and clears its finalizers (last resort for a pod stuck in Terminating). ' +
+    "For a plain pod delete, use deleteKubernetesResource instead.",
+  schema: z.object({
+    name: z.string().describe("The name of the pod to delete"),
+    namespace: z.string().describe("The namespace of the pod"),
+    mode: z
+      .enum(POD_DELETE_MODES)
+      .describe(
+        '"evict": graceful eviction honoring PodDisruptionBudgets. ' +
+          '"force_delete": immediate delete with grace period 0 for pods stuck on an unreachable node. ' +
+          '"delete_with_finalizers": delete and clear finalizers to unstick a pod in Terminating (last resort).',
+      ),
   }),
 });
 
@@ -200,6 +237,7 @@ export const allToolFunctions = [
   updateKubernetesResource,
   patchKubernetesResource,
   deleteKubernetesResource,
+  deletePod,
   restartKubernetesResource,
 ];
 
@@ -270,10 +308,19 @@ export const toolFunctionDescriptions = [
   },
   {
     name: "deleteKubernetesResource",
-    description: "Delete a Kubernetes resource by name",
+    description: "Delete a Kubernetes resource by name, optionally with a force delete or finalize mode",
     arguments:
-      "Requires the resource kind (string) and name (string), and optionally the apiVersion (string). Namespace (string) is required for namespaced kinds.",
+      "Requires the resource kind (string) and name (string), and optionally the apiVersion (string) and a mode (string: " +
+      DELETE_MODES.join(", ") +
+      "; defaults to delete). Namespace (string) is required for namespaced kinds.",
     returnType: "Returns a message string indicating success or error after attempting to delete the resource.",
+  },
+  {
+    name: "deletePod",
+    description: "Delete a single pod via a pod-specific variant (evict, force delete, or delete with finalizers)",
+    arguments:
+      "Requires the pod name (string), namespace (string) and mode (string: " + POD_DELETE_MODES.join(", ") + ").",
+    returnType: "Returns a message string indicating success or error after attempting to delete the pod.",
   },
   {
     name: "restartKubernetesResource",

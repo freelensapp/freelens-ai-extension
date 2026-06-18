@@ -10,8 +10,11 @@ import {
   resolveContainer,
 } from "./pod-logs";
 import {
+  DEFAULT_DELETE_MODE,
+  type DeleteMode,
   isRestartableKind,
   type Manifest,
+  type PodDeleteMode,
   prepareManifest,
   RESTARTABLE_KINDS,
   resolveApiVersion,
@@ -63,6 +66,13 @@ export interface DeleteResourceInput {
   apiVersion?: string;
   name: string;
   namespace?: string;
+  mode?: DeleteMode;
+}
+
+export interface DeletePodInput {
+  name: string;
+  namespace: string;
+  mode: PodDeleteMode;
 }
 
 export interface RestartResourceInput {
@@ -146,6 +156,7 @@ function projectObject(object: KubeObject) {
 // Cast through `unknown` to the exact expected type rather than using `as any`.
 type CreateData = Parameters<KubeObjectStore["create"]>[1];
 type UpdateData = Parameters<KubeObjectStore["update"]>[1];
+type DeleteOptions = Parameters<KubeObjectStore["removeWithOptions"]>[1];
 
 /**
  * List resources of a kind, loading them from the store on demand. Namespaced
@@ -335,14 +346,22 @@ export async function patchKubernetesResource({
 
 /**
  * Delete a resource by name. For namespaced kinds a namespace is required.
+ *
+ * The `mode` mirrors the host `KubeObjectDeleteService` deletion modes:
+ * - `delete` (default): standard delete (`store.remove`).
+ * - `force_delete`: immediate delete with a zero grace period and background
+ *   propagation (`store.removeWithOptions`).
+ * - `force_finalize`: clear the object's finalizers via a merge patch so a
+ *   resource stuck in `Terminating` can be removed (`store.patch`).
  */
 export async function deleteKubernetesResource({
   kind,
   apiVersion,
   name,
   namespace,
+  mode = DEFAULT_DELETE_MODE,
 }: DeleteResourceInput): Promise<string> {
-  console.log("[Tool invocation: deleteKubernetesResource] - kind:", kind, "name:", name);
+  console.log("[Tool invocation: deleteKubernetesResource] - kind:", kind, "name:", name, "mode:", mode);
   const target = resolveTarget(kind, apiVersion);
   if (typeof target === "string") {
     return target;
@@ -352,7 +371,7 @@ export async function deleteKubernetesResource({
     return `Kind "${kind}" is namespaced; please provide a namespace to delete "${name}".`;
   }
 
-  if (!requestApproval(`DELETE ${kind.toUpperCase()}`, { name, namespace })) {
+  if (!requestApproval(`DELETE ${kind.toUpperCase()}`, { name, namespace, mode })) {
     return "The user denied the action";
   }
 
@@ -361,11 +380,68 @@ export async function deleteKubernetesResource({
     if (!item) {
       return `The ${kind} "${name}" you want to delete does not exist`;
     }
-    await store.remove(item);
-    console.log("[Tool invocation result: deleteKubernetesResource] - ", `${kind} deleted successfully`);
-    return `${kind} deleted successfully`;
+    switch (mode) {
+      case "force_delete":
+        await store.removeWithOptions(item, {
+          gracePeriodSeconds: 0,
+          propagationPolicy: "Background",
+        } as unknown as DeleteOptions);
+        break;
+      case "force_finalize":
+        await store.patch(item, { metadata: { finalizers: [] } } as unknown as UpdateData, "merge");
+        break;
+      default:
+        await store.remove(item);
+        break;
+    }
+    const resultMessage =
+      mode === "force_finalize"
+        ? `${kind} finalizers cleared successfully`
+        : `${kind} ${mode === "force_delete" ? "force-" : ""}deleted successfully`;
+    console.log("[Tool invocation result: deleteKubernetesResource] - ", resultMessage);
+    return resultMessage;
   } catch (error) {
     console.error("[Tool invocation error: deleteKubernetesResource] - ", error);
+    return JSON.stringify(error);
+  }
+}
+
+/**
+ * Delete a pod using one of the pod-specific variants exposed by the host
+ * `PodApi`:
+ * - `evict`: request a graceful eviction honoring any matching
+ *   PodDisruptionBudget (`podsApi.evict`).
+ * - `force_delete`: delete immediately with a zero grace period, useful for pods
+ *   stuck on an unreachable node (`podsApi.forceDelete`).
+ * - `delete_with_finalizers`: delete the pod and clear its finalizers so a pod
+ *   stuck in `Terminating` is removed (`podsApi.deleteWithFinalizers`).
+ */
+export async function deletePod({ name, namespace, mode }: DeletePodInput): Promise<string> {
+  console.log("[Tool invocation: deletePod] - name:", name, "namespace:", namespace, "mode:", mode);
+  if (!namespace) {
+    return `Pods are namespaced; please provide a namespace to delete "${name}".`;
+  }
+
+  const podsApi = Renderer.K8sApi.podsApi;
+
+  if (!requestApproval(`DELETE POD (${mode})`, { name, namespace, mode })) {
+    return "The user denied the action";
+  }
+
+  try {
+    switch (mode) {
+      case "evict":
+        await podsApi.evict({ name, namespace });
+        return `Pod "${name}" evicted successfully`;
+      case "force_delete":
+        await podsApi.forceDelete({ name, namespace });
+        return `Pod "${name}" force-deleted successfully`;
+      case "delete_with_finalizers":
+        await podsApi.deleteWithFinalizers({ name, namespace });
+        return `Pod "${name}" deleted and finalizers cleared successfully`;
+    }
+  } catch (error) {
+    console.error("[Tool invocation error: deletePod] - ", error);
     return JSON.stringify(error);
   }
 }

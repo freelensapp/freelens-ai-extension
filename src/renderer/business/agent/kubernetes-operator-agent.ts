@@ -7,6 +7,7 @@ import { KUBERNETES_OPERATOR_PROMPT_TEMPLATE } from "../provider/prompt-template
 import {
   createKubernetesResource,
   deleteKubernetesResource,
+  deletePod,
   getKubernetesResource,
   listKubernetesResources,
   patchKubernetesResource,
@@ -29,6 +30,7 @@ export const useAgentKubernetesOperator = () => {
       updateKubernetesResource,
       patchKubernetesResource,
       deleteKubernetesResource,
+      deletePod,
       restartKubernetesResource,
     ];
     const toolNode = new ToolNode(tools);

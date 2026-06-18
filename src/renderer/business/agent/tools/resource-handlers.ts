@@ -162,6 +162,56 @@ export function isRestartableKind(kind: string): kind is RestartableKind {
   return (RESTARTABLE_KINDS as readonly string[]).includes(kind);
 }
 
+/**
+ * Deletion modes accepted by the generic delete tool. They mirror the Freelens
+ * host `KubeObjectDeleteService` (`delete`, `force_delete`, `force_finalize`):
+ *
+ * - `delete`: the standard delete, honoring the resource's default grace period
+ *   and finalizers (`store.remove`).
+ * - `force_delete`: delete immediately with a zero grace period and background
+ *   propagation, skipping graceful termination
+ *   (`store.removeWithOptions({ gracePeriodSeconds: 0, propagationPolicy: "Background" })`).
+ * - `force_finalize`: clear the object's finalizers via a merge patch so a
+ *   resource stuck in `Terminating` can be removed (`store.patch`).
+ */
+export const DELETE_MODES = ["delete", "force_delete", "force_finalize"] as const;
+
+export type DeleteMode = (typeof DELETE_MODES)[number];
+
+/**
+ * The default deletion mode when the model does not specify one.
+ */
+export const DEFAULT_DELETE_MODE: DeleteMode = "delete";
+
+/**
+ * Whether a string is one of the supported generic deletion modes.
+ */
+export function isDeleteMode(mode: string): mode is DeleteMode {
+  return (DELETE_MODES as readonly string[]).includes(mode);
+}
+
+/**
+ * Pod-specific deletion modes exposed by the dedicated pod delete tool. They map
+ * to the extra methods on the host `PodApi`:
+ *
+ * - `evict`: request a graceful eviction through the Eviction subresource,
+ *   honoring any matching PodDisruptionBudget (`podsApi.evict`).
+ * - `force_delete`: delete the pod immediately with a zero grace period, useful
+ *   for pods stuck on an unreachable node (`podsApi.forceDelete`).
+ * - `delete_with_finalizers`: delete the pod and clear its finalizers so a pod
+ *   stuck in `Terminating` is removed (`podsApi.deleteWithFinalizers`).
+ */
+export const POD_DELETE_MODES = ["evict", "force_delete", "delete_with_finalizers"] as const;
+
+export type PodDeleteMode = (typeof POD_DELETE_MODES)[number];
+
+/**
+ * Whether a string is one of the supported pod deletion modes.
+ */
+export function isPodDeleteMode(mode: string): mode is PodDeleteMode {
+  return (POD_DELETE_MODES as readonly string[]).includes(mode);
+}
+
 export function getResourceHandler(kind: string): ResourceHandler | undefined {
   return RESOURCE_HANDLERS[kind];
 }
