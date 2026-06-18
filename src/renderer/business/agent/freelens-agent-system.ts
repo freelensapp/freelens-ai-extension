@@ -89,7 +89,27 @@ export const useFreeLensAgentSystem = () => {
     if (!agentKubernetesOperator) {
       return;
     }
-    const result = await agentKubernetesOperator.invoke(state);
+    // DIAGNOSTIC: pin down where a tool `interrupt()` goes. If the operator runs
+    // a write tool, the sub-agent invoke should throw a GraphInterrupt. Logging
+    // here tells us whether it bubbles out of the detached `.invoke()`:
+    //   - "...invoke threw" with a GraphInterrupt-named error -> it bubbles; the
+    //     parent must record it.
+    //   - "...invoke returned normally" -> the interrupt was swallowed inside the
+    //     sub-agent and never reached the parent.
+    // The error MUST be re-thrown so a real GraphInterrupt can still propagate to
+    // the parent graph.
+    let result: Awaited<ReturnType<typeof agentKubernetesOperator.invoke>>;
+    try {
+      result = await agentKubernetesOperator.invoke(state);
+      log.debug("Kubernetes Operator - sub-agent invoke returned normally");
+    } catch (error) {
+      log.debug(
+        "Kubernetes Operator - sub-agent invoke threw: ",
+        error instanceof Error ? error.name : typeof error,
+        error,
+      );
+      throw error;
+    }
     const lastMessage = result.messages[result.messages.length - 1];
     log.debug("Kubernetes Operator - k8s operator result: ", result);
     const operatorUnknownTools = findUnknownToolCalls(result.messages, allToolNames);

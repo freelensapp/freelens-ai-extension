@@ -70,6 +70,11 @@ export class DsmlAwareChatOpenAI extends ChatOpenAI {
       }
     }
 
+    // DIAGNOSTIC: confirms the upstream stream closed and aggregation finished.
+    // If this never prints, the hang is in the stream aggregation above; if it
+    // prints, aggregation completed and the hang is downstream (tool/interrupt).
+    console.log("DSML stream aggregation done. Has aggregated chunk: ", aggregated !== undefined);
+
     if (aggregated === undefined) {
       return; // empty stream — let the caller handle it
     }

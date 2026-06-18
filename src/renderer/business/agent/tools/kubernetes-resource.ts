@@ -139,6 +139,10 @@ function requestApproval(action: string, payload: Record<string, unknown>): bool
     // so the approval prompt is highlighted as YAML rather than JSON.
     requestString: "```yaml\n" + stringifyYaml(actionToApprove) + "```",
   };
+  // DIAGNOSTIC: the line below should appear right before the approval prompt is
+  // raised. `interrupt()` throws a GraphInterrupt (no value returned) the first
+  // time through, so "Tool call review:" only prints after the user resumes.
+  console.log("Requesting approval (about to call interrupt): ", actionToApprove);
   const review = interrupt(interruptRequest);
   console.log("Tool call review: ", review);
   return review === "yes";
