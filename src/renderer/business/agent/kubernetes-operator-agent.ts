@@ -57,13 +57,25 @@ export const useAgentKubernetesOperator = () => {
       return { messages: [response] };
     };
 
+    // Loop back to the model after each tool run so the operator can issue
+    // sequential tool calls (e.g. list a resource to discover its namespace,
+    // then mutate it). With `parallel_tool_calls: false` the model emits one
+    // tool call per turn, so a straight `agent -> tools -> finish` line could
+    // only ever run a single tool and any "discover, then act" task stalled
+    // after the discovery step. Only fall through to `finish` once the model
+    // stops requesting tools.
+    const shouldContinue = (state: { messages: AIMessage[] }) => {
+      const lastMessage = state.messages[state.messages.length - 1];
+      return lastMessage?.tool_calls && lastMessage.tool_calls.length > 0 ? "tools" : "finish";
+    };
+
     return new StateGraph(MessagesAnnotation)
       .addNode("agent", callModel)
       .addNode("tools", toolNode)
       .addNode("finish", finish)
       .addEdge("__start__", "agent")
-      .addEdge("agent", "tools")
-      .addEdge("tools", "finish")
+      .addConditionalEdges("agent", shouldContinue, { tools: "tools", finish: "finish" })
+      .addEdge("tools", "agent")
       .compile();
   };
 
