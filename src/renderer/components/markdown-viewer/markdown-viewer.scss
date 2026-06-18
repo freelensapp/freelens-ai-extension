@@ -18,6 +18,41 @@
   color: var(--textColorAccent);
 }
 
+.markdown-viewer-container-theme h1 {
+  font-size: 1.5em;
+}
+
+.markdown-viewer-container-theme h2 {
+  font-size: 1.3em;
+}
+
+.markdown-viewer-container-theme h3 {
+  font-size: 1.15em;
+}
+
+.markdown-viewer-container-theme h4 {
+  font-size: 1.05em;
+}
+
+.markdown-viewer-container-theme h5,
+.markdown-viewer-container-theme h6 {
+  font-size: 1em;
+}
+
+.markdown-viewer-container-theme h1,
+.markdown-viewer-container-theme h2,
+.markdown-viewer-container-theme h3,
+.markdown-viewer-container-theme h4,
+.markdown-viewer-container-theme h5,
+.markdown-viewer-container-theme h6,
+.markdown-viewer-container-theme p,
+.markdown-viewer-container-theme ul,
+.markdown-viewer-container-theme ol,
+.markdown-viewer-container-theme blockquote {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
 .markdown-viewer-container-theme table {
   border-collapse: collapse;
   display: block;

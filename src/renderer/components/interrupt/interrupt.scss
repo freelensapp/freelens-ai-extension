@@ -1,3 +1,20 @@
+.interrupt-prompt {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background-color: var(--inputControlBackground);
+}
+
+.interrupt-header,
+.interrupt-question {
+  font-size: 1rem;
+  font-weight: bold;
+}
+
+.interrupt-warning-icon {
+  margin-right: 6px;
+}
+
 .message-buttons-options {
   margin-right: 10px;
 }
@@ -9,9 +26,9 @@
 .interrupt-details-summary {
   cursor: pointer;
   user-select: none;
-  opacity: 0.8;
 }
 
-.interrupt-details-summary:hover {
-  opacity: 1;
+.interrupt-details-summary-text {
+  color: var(--blue);
+  text-decoration: underline;
 }

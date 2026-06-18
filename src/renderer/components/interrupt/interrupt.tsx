@@ -20,8 +20,13 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
   return (
     <div>
       <style>{styleInline}</style>
-      <h1>{header}</h1>
-      <h2>{question}</h2>
+      <div className="interrupt-prompt">
+        <div className="interrupt-header">
+          <span className="interrupt-warning-icon">⚠️</span>
+          {header}
+        </div>
+        <div className="interrupt-question">{question}</div>
+      </div>
       {approved === null ? (
         <>
           <MarkdownViewer content={text} />
@@ -40,7 +45,9 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
       ) : (
         <>
           <details className="interrupt-details">
-            <summary className="interrupt-details-summary">Show details</summary>
+            <summary className="interrupt-details-summary">
+              <span className="interrupt-details-summary-text">Show details</span>
+            </summary>
             <MarkdownViewer content={text} />
           </details>
           <StatusNotice approved={approved} />
