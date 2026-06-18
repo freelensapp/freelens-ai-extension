@@ -1,6 +1,12 @@
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
-import { containsLeakedToolCallMarkup, parseDsmlToolCalls, recoverDsmlToolCalls } from "./leaked-tool-calls";
+import {
+  buildUnsupportedToolCallMessage,
+  containsLeakedToolCallMarkup,
+  findUnknownToolCalls,
+  parseDsmlToolCalls,
+  recoverDsmlToolCalls,
+} from "./leaked-tool-calls";
 
 describe("containsLeakedToolCallMarkup", () => {
   it("detects leaked DSML tool_calls markup", () => {
@@ -122,5 +128,61 @@ describe("recoverDsmlToolCalls", () => {
   it("leaves non-AI messages unchanged", () => {
     const message = new HumanMessage({ content: '<｜｜DSML｜｜invoke name="getNamespaces"></｜｜DSML｜｜invoke>' });
     expect(recoverDsmlToolCalls(message)).toBe(message);
+  });
+});
+
+describe("findUnknownToolCalls", () => {
+  const knownToolNames = ["getNamespaces", "listKubernetesResources"];
+
+  it("flags a hallucinated tool such as runCommand", () => {
+    const message = new AIMessage({
+      content: "",
+      tool_calls: [{ name: "runCommand", args: { command: "kubectl get pods" }, id: "0", type: "tool_call" }],
+    });
+    expect(findUnknownToolCalls([message], knownToolNames)).toEqual(["runCommand"]);
+  });
+
+  it("returns nothing when every tool call is known", () => {
+    const message = new AIMessage({
+      content: "",
+      tool_calls: [
+        { name: "getNamespaces", args: {}, id: "0", type: "tool_call" },
+        { name: "listKubernetesResources", args: { kind: "Pod" }, id: "1", type: "tool_call" },
+      ],
+    });
+    expect(findUnknownToolCalls([message], knownToolNames)).toEqual([]);
+  });
+
+  it("de-duplicates and collects unknown names across messages", () => {
+    const messages = [
+      new AIMessage({ content: "", tool_calls: [{ name: "runCommand", args: {}, id: "0", type: "tool_call" }] }),
+      new AIMessage({ content: "", tool_calls: [{ name: "getNamespaces", args: {}, id: "1", type: "tool_call" }] }),
+      new AIMessage({ content: "", tool_calls: [{ name: "execShell", args: {}, id: "2", type: "tool_call" }] }),
+      new AIMessage({ content: "", tool_calls: [{ name: "runCommand", args: {}, id: "3", type: "tool_call" }] }),
+    ];
+    expect(findUnknownToolCalls(messages, knownToolNames)).toEqual(["runCommand", "execShell"]);
+  });
+
+  it("ignores messages without tool calls and non-AI messages", () => {
+    const messages = [
+      new HumanMessage({ content: "redeploy the helm chart" }),
+      new AIMessage({ content: "Sure, I can help." }),
+    ];
+    expect(findUnknownToolCalls(messages, knownToolNames)).toEqual([]);
+  });
+});
+
+describe("buildUnsupportedToolCallMessage", () => {
+  it("names a single unsupported tool", () => {
+    const message = buildUnsupportedToolCallMessage(["runCommand"]);
+    expect(message).toContain("an unsupported tool");
+    expect(message).toContain("`runCommand`");
+    expect(message).toContain("not supported yet");
+  });
+
+  it("names multiple unsupported tools", () => {
+    const message = buildUnsupportedToolCallMessage(["runCommand", "execShell"]);
+    expect(message).toContain("unsupported tools");
+    expect(message).toContain("`runCommand`, `execShell`");
   });
 });

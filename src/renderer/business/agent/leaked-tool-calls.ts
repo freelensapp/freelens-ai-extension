@@ -190,3 +190,47 @@ export const recoverDsmlToolCalls = (message: BaseMessage): BaseMessage => {
     name: message.name,
   });
 };
+
+// ---------------------------------------------------------------------------
+// Unsupported / hallucinated tool calls
+// ---------------------------------------------------------------------------
+//
+// The model may request a tool that does not exist in the extension, for
+// example a shell-style `runCommand` (no command-execution capability is
+// implemented). Such a call can arrive as a structured `tool_calls` entry or be
+// recovered from DSML markup; either way `ToolNode` only answers with a generic
+// "Tool not found" message that the agent then summarizes into a confusing
+// result. Detecting unknown tool names lets the agent fail with an actionable
+// explanation instead.
+
+// Shared, user-facing explanation for an unsupported tool call.
+export const UNSUPPORTED_TOOL_CALL_MESSAGE =
+  "Running shell commands or other CLI tools (kubectl, helm, etc.) is not supported yet; " +
+  "only the built-in Kubernetes tools are available.";
+
+// Build the actionable message naming the unsupported tool(s) the model tried
+// to use.
+export const buildUnsupportedToolCallMessage = (toolNames: string[]): string => {
+  const names = toolNames.map((name) => `\`${name}\``).join(", ");
+  const subject = toolNames.length === 1 ? "an unsupported tool" : "unsupported tools";
+  return `The model tried to use ${subject} (${names}). ${UNSUPPORTED_TOOL_CALL_MESSAGE}`;
+};
+
+// Return the de-duplicated names of any tool calls in the given messages whose
+// name is not part of `knownToolNames`. Empty when every requested tool is known
+// (or no tool calls are present).
+export const findUnknownToolCalls = (messages: BaseMessage[], knownToolNames: Iterable<string>): string[] => {
+  const known = new Set(knownToolNames);
+  const unknown = new Set<string>();
+  for (const message of messages) {
+    if (!isAIMessage(message) || !message.tool_calls) {
+      continue;
+    }
+    for (const toolCall of message.tool_calls) {
+      if (toolCall.name && !known.has(toolCall.name)) {
+        unknown.add(toolCall.name);
+      }
+    }
+  }
+  return [...unknown];
+};

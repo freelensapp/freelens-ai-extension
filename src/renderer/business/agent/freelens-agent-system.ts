@@ -6,11 +6,16 @@ import { useAgentAnalyzer } from "./analyzer-agent";
 import { useConclusionsAgent } from "./conclusions-agent";
 import { useGeneralPurposeAgent } from "./general-purpose-agent";
 import { useAgentKubernetesOperator } from "./kubernetes-operator-agent";
-import { containsLeakedToolCallMarkup, LEAKED_TOOL_CALL_MESSAGE } from "./leaked-tool-calls";
+import {
+  buildUnsupportedToolCallMessage,
+  containsLeakedToolCallMarkup,
+  findUnknownToolCalls,
+  LEAKED_TOOL_CALL_MESSAGE,
+} from "./leaked-tool-calls";
 import { teardownNode } from "./nodes/teardown";
 import { GraphState } from "./state/graph-state";
 import { useAgentSupervisor } from "./supervisor-agent";
-import { toolFunctionDescriptions } from "./tools/tools";
+import { allToolNames, toolFunctionDescriptions } from "./tools/tools";
 
 export type FreeLensAgent = ReturnType<ReturnType<typeof useFreeLensAgentSystem>["buildAgentSystem"]>;
 
@@ -64,6 +69,11 @@ export const useFreeLensAgentSystem = () => {
     const result = await agentAnalyzer.invoke(state);
     const lastMessage = result.messages[result.messages.length - 1];
     log.debug("Analyzer Agent - analysis result: ", result);
+    const analyzerUnknownTools = findUnknownToolCalls(result.messages, allToolNames);
+    if (analyzerUnknownTools.length > 0) {
+      log.error("Analyzer Agent - unsupported tool call requested", analyzerUnknownTools);
+      throw new Error(buildUnsupportedToolCallMessage(analyzerUnknownTools));
+    }
     if (containsLeakedToolCallMarkup(lastMessage.content)) {
       log.error("Analyzer Agent - leaked tool-call markup in response", lastMessage.content);
       throw new Error(LEAKED_TOOL_CALL_MESSAGE);
@@ -82,6 +92,11 @@ export const useFreeLensAgentSystem = () => {
     const result = await agentKubernetesOperator.invoke(state);
     const lastMessage = result.messages[result.messages.length - 1];
     log.debug("Kubernetes Operator - k8s operator result: ", result);
+    const operatorUnknownTools = findUnknownToolCalls(result.messages, allToolNames);
+    if (operatorUnknownTools.length > 0) {
+      log.error("Kubernetes Operator - unsupported tool call requested", operatorUnknownTools);
+      throw new Error(buildUnsupportedToolCallMessage(operatorUnknownTools));
+    }
     if (containsLeakedToolCallMarkup(lastMessage.content)) {
       log.error("Kubernetes Operator - leaked tool-call markup in response", lastMessage.content);
       throw new Error(LEAKED_TOOL_CALL_MESSAGE);
