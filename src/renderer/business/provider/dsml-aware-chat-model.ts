@@ -43,18 +43,19 @@ export class DsmlAwareChatOpenAI extends ChatOpenAI {
   // ChatOpenAI constructor (`this.streaming = fields?.streaming ?? false`).
 
   /**
-   * Aggregate all streamed chunks into a single result without forwarding
-   * per-token callbacks to the UI. When the agent has a streaming handler,
-   * `_generateUncached` calls `_streamResponseChunks` directly — bypassing
-   * `_generate`. This override ensures no raw DSML markup leaks and recovers
-   * tool calls from the aggregated content.
+   * Aggregate all streamed chunks into a single result without forwarding raw
+   * per-token callbacks to the UI, then forward only the final cleaned chunk to
+   * the run manager. When the agent has a streaming handler, `_generateUncached`
+   * calls `_streamResponseChunks` directly — bypassing `_generate`. This
+   * override ensures no raw DSML markup leaks and recovers tool calls from the
+   * aggregated content.
    *
    * @ignore
    */
   async *_streamResponseChunks(
     messages: BaseMessage[],
     options: this["ParsedCallOptions"],
-    _runManager?: CallbackManagerForLLMRun,
+    runManager?: CallbackManagerForLLMRun,
   ): AsyncGenerator<ChatGenerationChunk> {
     // Drop the run manager so `ChatOpenAI._streamResponseChunks` does not
     // forward per-token callbacks (raw DSML markup would leak). The upstream
@@ -84,6 +85,26 @@ export class DsmlAwareChatOpenAI extends ChatOpenAI {
         generationInfo: aggregated.generationInfo,
       });
     }
+
+    // Forward the single cleaned chunk to the run manager before yielding.
+    //
+    // Suppressing per-token callbacks above (the run manager was dropped from
+    // the `super` call) means LangGraph's
+    // `StreamMessagesHandler.handleLLMNewToken` never fires, so it never marks
+    // this run as "emitted". For a run tagged `nostream` (the supervisor) it
+    // then has no stored metadata, and its `handleLLMEnd` tries to emit the
+    // final message with `undefined` metadata, crashing with "Cannot read
+    // properties of undefined (reading '0')". Sending the final chunk here marks
+    // the run as emitted and forwards only the recovered text (never the raw
+    // per-token markup we suppressed).
+    await runManager?.handleLLMNewToken(
+      aggregated.text ?? "",
+      { prompt: 0, completion: 0 },
+      undefined,
+      undefined,
+      undefined,
+      { chunk: aggregated },
+    );
 
     yield aggregated;
   }
