@@ -13,3 +13,22 @@
     background-color: var(--blue);
   }
 }
+
+.reasoning-details {
+  margin: 8px 0;
+  color: var(--textColorDimmed);
+  font-size: 0.9em;
+
+  .reasoning-summary {
+    cursor: pointer;
+    user-select: none;
+    color: var(--textColorDimmed);
+  }
+
+  .reasoning-content {
+    margin-top: 6px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: var(--textColorDimmed);
+  }
+}

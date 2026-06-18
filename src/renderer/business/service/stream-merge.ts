@@ -18,6 +18,11 @@ export interface StreamMergeState {
   started: boolean;
 }
 
+// Content-part types that carry the model's chain-of-thought rather than the
+// answer text. They must be kept out of the visible answer and surfaced
+// separately as reasoning.
+const REASONING_PART_TYPES = new Set(["reasoning", "thinking"]);
+
 export const createStreamMergeState = (): StreamMergeState => ({
   lastMessageId: undefined,
   started: false,
@@ -40,12 +45,91 @@ export const flattenContentText = (content: MessageContent): string => {
       if (typeof part === "string") {
         return part;
       }
-      if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
-        return part.text;
+      if (part && typeof part === "object") {
+        // Reasoning parts carry their own `text`; skip them here so the model's
+        // chain-of-thought never leaks into the visible answer.
+        if ("type" in part && typeof part.type === "string" && REASONING_PART_TYPES.has(part.type)) {
+          return "";
+        }
+        if ("text" in part && typeof part.text === "string") {
+          return part.text;
+        }
       }
       return "";
     })
     .join("");
+};
+
+/**
+ * Read a `reasoning_content` / `reasoning` value out of a single metadata
+ * record (e.g. `additional_kwargs`, `response_metadata`, or the message object
+ * itself). The value is either a plain string or an object carrying `text`.
+ * Returns an empty string when the record has no reasoning.
+ */
+const extractReasoningFromMetadata = (source: Record<string, unknown> | undefined): string => {
+  if (!source) {
+    return "";
+  }
+
+  const raw = source.reasoning_content ?? source.reasoning;
+  if (typeof raw === "string") {
+    return raw;
+  }
+  if (raw && typeof raw === "object" && "text" in raw && typeof (raw as { text: unknown }).text === "string") {
+    return (raw as { text: string }).text;
+  }
+
+  return "";
+};
+
+/**
+ * Extract the reasoning ("chain-of-thought") delta carried by an AI message
+ * chunk, if any. Providers expose it in different shapes:
+ *
+ * - DeepSeek and OpenAI-compatible gateways put it in
+ *   `additional_kwargs.reasoning_content` (a plain string) or
+ *   `additional_kwargs.reasoning`. Some gateways instead surface it under
+ *   `response_metadata`, or as a `reasoning_content` field sitting directly on
+ *   the message object next to `content`. All of these are passed in as
+ *   `metadataSources` and checked in order; the first one carrying reasoning
+ *   wins (so the same delta is never counted twice).
+ * - Some providers stream structured content parts of type `reasoning` /
+ *   `thinking`, each carrying `text` (or `reasoning`).
+ *
+ * The returned string is the reasoning text for this chunk only; chunks stream
+ * token by token, so callers concatenate the deltas as they arrive. Returns an
+ * empty string when the chunk carries no reasoning.
+ */
+export const extractReasoningText = (
+  content: MessageContent,
+  ...metadataSources: (Record<string, unknown> | undefined)[]
+): string => {
+  let reasoning = "";
+
+  for (const source of metadataSources) {
+    const fromMetadata = extractReasoningFromMetadata(source);
+    if (fromMetadata) {
+      reasoning += fromMetadata;
+      break;
+    }
+  }
+
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      if (part && typeof part === "object" && "type" in part && typeof part.type === "string") {
+        if (!REASONING_PART_TYPES.has(part.type)) {
+          continue;
+        }
+        if ("text" in part && typeof part.text === "string") {
+          reasoning += part.text;
+        } else if ("reasoning" in part && typeof (part as { reasoning: unknown }).reasoning === "string") {
+          reasoning += (part as { reasoning: string }).reasoning;
+        }
+      }
+    }
+  }
+
+  return reasoning;
 };
 
 /**

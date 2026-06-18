@@ -14,6 +14,12 @@ const useMessageHook = ({ message }: MessageHookProps) => {
   const lastTextRef = useRef(message.text);
   const rafRef = useRef<number | null>(null);
 
+  const reasoning = message.reasoning ?? "";
+  // Folded immediately: the reasoning arrives in the same message object as the
+  // answer, so there is no separate "thinking" phase to show it open for. The
+  // user can re-open the `Reasoning` disclosure to inspect the chain-of-thought.
+  const [reasoningOpen, setReasoningOpen] = useState(false);
+
   useEffect(() => {
     _setVisibleText(message.text);
   }, []);
@@ -39,7 +45,7 @@ const useMessageHook = ({ message }: MessageHookProps) => {
     };
   }, [message.text]);
 
-  return { sentMessageClassName, visibleText };
+  return { sentMessageClassName, visibleText, reasoning, reasoningOpen, setReasoningOpen };
 };
 
 export default useMessageHook;

@@ -49,6 +49,16 @@ export const Message = ({ message }: MessageProps) => {
       return (
         <div>
           <style>{styleInline}</style>
+          {chatHook.reasoning && (
+            <details
+              className="reasoning-details"
+              open={chatHook.reasoningOpen}
+              onToggle={(event) => chatHook.setReasoningOpen((event.target as HTMLDetailsElement).open)}
+            >
+              <summary className="reasoning-summary">Reasoning</summary>
+              <div className="reasoning-content">{chatHook.reasoning}</div>
+            </details>
+          )}
           <MarkdownViewer content={chatHook.visibleText} />
         </div>
       );
