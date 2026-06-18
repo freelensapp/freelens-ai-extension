@@ -1,7 +1,7 @@
 import { Command, Interrupt } from "@langchain/langgraph";
 import { FreeLensAgent } from "../agent/freelens-agent-system";
 import { MPCAgent } from "../agent/mcp-agent";
-import { createStreamMergeState, mergeAiChunk } from "./stream-merge";
+import { createStreamMergeState, extractReasoningText, mergeAiChunk } from "./stream-merge";
 
 const MAX_GEMINI_STREAM_RETRIES = 3;
 const BASE_BACKOFF_MS = 700;
@@ -31,8 +31,24 @@ const getRetryDelay = (attempt: number) => {
   return BASE_BACKOFF_MS * 2 ** (attempt - 1) + jitter;
 };
 
+// A streamed chunk carrying the model's reasoning ("chain-of-thought"). Kept
+// distinct from the plain-string answer chunks so the UI can render it in a
+// separate, dimmed, collapsible block.
+export interface ReasoningChunk {
+  reasoning: string;
+}
+
+export const isReasoningChunk = (chunk: unknown): chunk is ReasoningChunk =>
+  typeof chunk === "object" &&
+  chunk !== null &&
+  "reasoning" in chunk &&
+  typeof (chunk as ReasoningChunk).reasoning === "string";
+
 export interface AgentService {
-  run(agentInput: object | Command, conversationId: string): AsyncGenerator<string | Interrupt, void, unknown>;
+  run(
+    agentInput: object | Command,
+    conversationId: string,
+  ): AsyncGenerator<string | ReasoningChunk | Interrupt, void, unknown>;
 }
 
 /**
@@ -64,6 +80,24 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
           // model wrote before invoking a tool. Tool-call arguments live in
           // `tool_call_chunks`, not in `content`, so they are never emitted here.
           if (message.getType() === "ai") {
+            // Surface the model's reasoning before its answer text. Providers
+            // expose it inconsistently: in `additional_kwargs`, in
+            // `response_metadata`, or as a `reasoning_content` field sitting
+            // directly on the message next to `content`. Pass all three so the
+            // reasoning is found wherever the gateway puts it. It may stream
+            // token by token or arrive alongside the answer; the UI concatenates
+            // the deltas into a collapsible block.
+            const reasoning = extractReasoningText(
+              message.content,
+              message.additional_kwargs,
+              message.response_metadata,
+              message as unknown as Record<string, unknown>,
+            );
+            if (reasoning.length > 0) {
+              hasYieldedContent = true;
+              yield { reasoning };
+            }
+
             const text = mergeAiChunk(mergeState, message.id, message.content);
             if (text.length > 0) {
               hasYieldedContent = true;
