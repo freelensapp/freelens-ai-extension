@@ -33,7 +33,7 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
         </div>
         {approved === null && <div className="interrupt-question">{question}</div>}
       </div>
-      {approved === null ? (
+      {approved === null && (
         <>
           <MarkdownViewer content={text} />
           <div>
@@ -50,13 +50,6 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
             ))}
           </div>
         </>
-      ) : (
-        <details className="interrupt-details">
-          <summary className="interrupt-details-summary">
-            <span className="interrupt-details-summary-text">Show details</span>
-          </summary>
-          <MarkdownViewer content={text} />
-        </details>
       )}
     </div>
   );

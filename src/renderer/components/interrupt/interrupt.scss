@@ -46,18 +46,3 @@
 .message-buttons-options.interrupt-button-no {
   background-color: var(--colorSoftError);
 }
-
-.interrupt-details {
-  margin-bottom: 10px;
-}
-
-.interrupt-details-summary {
-  cursor: pointer;
-  user-select: none;
-  color: var(--textColorAccent);
-}
-
-.interrupt-details-summary-text {
-  color: var(--blue);
-  text-decoration: underline;
-}
