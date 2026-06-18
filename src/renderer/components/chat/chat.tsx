@@ -15,32 +15,6 @@ export const Chat = () => {
   return (
     <>
       <style>{styleInline}</style>
-      {/* MCP mode indicator */}
-      <div
-        style={{
-          position: "absolute",
-          top: 18,
-          zIndex: 10,
-          background: applicationStatusStore.mcpEnabled ? "linear-gradient(90deg,#00A7A0 60%,#00C2B2 100%)" : "none",
-          color: applicationStatusStore.mcpEnabled ? "#fff" : "#888",
-          borderRadius: 16,
-          padding: "8px 20px",
-          fontWeight: 700,
-          fontSize: 16,
-          boxShadow: applicationStatusStore.mcpEnabled
-            ? "0 2px 12px rgba(0,167,160,0.18)"
-            : "0 2px 12px rgba(180,180,180,0.10)",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          letterSpacing: 1,
-          border: applicationStatusStore.mcpEnabled ? "2px solid #00A7A0" : "2px solid rgb(87 87 87)",
-          animation: applicationStatusStore.mcpEnabled ? "mcpPulse 1.2s infinite alternate" : "none",
-        }}
-      >
-        <span style={{ fontSize: 22, marginRight: 8, opacity: applicationStatusStore.mcpEnabled ? 1 : 0.5 }}>🧠</span>
-        MCP Mode {applicationStatusStore.mcpEnabled ? "Enabled" : "Disabled"}
-      </div>
       {/* Bypass approvals mode indicator */}
       {applicationStatusStore.bypassApprovals && (
         <div
