@@ -2,11 +2,22 @@ import { AIMessageChunk } from "@langchain/core/messages";
 import { ChatGenerationChunk } from "@langchain/core/outputs";
 import { ChatOpenAI } from "@langchain/openai";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DsmlAwareChatOpenAI } from "./dsml-aware-chat-model";
+import { DsmlAwareChatOpenAI, extractReasoningFromRawResponse } from "./dsml-aware-chat-model";
 
-// Build a streamed chunk carrying the given assistant text.
-const makeChunk = (content: string) =>
-  new ChatGenerationChunk({ message: new AIMessageChunk({ content }), text: content });
+// Build a streamed chunk carrying the given assistant text, optionally with the
+// raw OpenAI delta `__includeRawResponse` would attach (used to carry the
+// DeepSeek-style `reasoning_content` that `@langchain/openai` otherwise drops).
+const makeChunk = (content: string, reasoning?: string) =>
+  new ChatGenerationChunk({
+    message: new AIMessageChunk({
+      content,
+      additional_kwargs:
+        reasoning === undefined
+          ? undefined
+          : { __raw_response: { choices: [{ delta: { reasoning_content: reasoning } }] } },
+    }),
+    text: content,
+  });
 
 // Drain an async generator into an array.
 const collect = async (gen: AsyncGenerator<ChatGenerationChunk>) => {
@@ -82,5 +93,65 @@ describe("DsmlAwareChatOpenAI._streamResponseChunks", () => {
 
     expect(chunks).toHaveLength(0);
     expect(handleLLMNewToken).not.toHaveBeenCalled();
+  });
+
+  it("salvages reasoning_content from the raw deltas onto the aggregated message", async () => {
+    // `@langchain/openai` discards `reasoning_content` while converting deltas,
+    // so the only copy survives on the raw response. The override must read it
+    // back and re-attach it where the streaming consumer looks for it.
+    stubUpstream([makeChunk("Restarting ", "I need to "), makeChunk("now.", "find the namespace.")]);
+    const { runManager } = newRunManager();
+
+    const chunks = await run(newModel(), runManager);
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].message.additional_kwargs.reasoning_content).toBe("I need to find the namespace.");
+    // The raw envelope is stripped so it never leaks downstream.
+    expect(chunks[0].message.additional_kwargs.__raw_response).toBeUndefined();
+  });
+
+  it("leaves messages without reasoning untouched", async () => {
+    stubUpstream([makeChunk("Plain answer")]);
+    const { runManager } = newRunManager();
+
+    const chunks = await run(newModel(), runManager);
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].message.additional_kwargs.reasoning_content).toBeUndefined();
+  });
+});
+
+describe("extractReasoningFromRawResponse", () => {
+  it("reads reasoning_content from a streamed delta", () => {
+    expect(
+      extractReasoningFromRawResponse({ __raw_response: { choices: [{ delta: { reasoning_content: "thinking" } }] } }),
+    ).toBe("thinking");
+  });
+
+  it("reads reasoning_content from a non-streamed message", () => {
+    expect(
+      extractReasoningFromRawResponse({ __raw_response: { choices: [{ message: { reasoning_content: "done" } }] } }),
+    ).toBe("done");
+  });
+
+  it("falls back to the reasoning key when reasoning_content is absent", () => {
+    expect(extractReasoningFromRawResponse({ __raw_response: { choices: [{ delta: { reasoning: "alt" } }] } })).toBe(
+      "alt",
+    );
+  });
+
+  it("returns an empty string when there is no raw response or no reasoning", () => {
+    expect(extractReasoningFromRawResponse(undefined)).toBe("");
+    expect(extractReasoningFromRawResponse({})).toBe("");
+    expect(extractReasoningFromRawResponse({ __raw_response: { choices: [{ delta: {} }] } })).toBe("");
+    expect(extractReasoningFromRawResponse({ __raw_response: { choices: [] } })).toBe("");
+  });
+
+  it("ignores non-string reasoning values", () => {
+    expect(
+      extractReasoningFromRawResponse({
+        __raw_response: { choices: [{ delta: { reasoning_content: { text: "x" } } }] },
+      }),
+    ).toBe("");
   });
 });
