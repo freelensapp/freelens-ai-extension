@@ -22,21 +22,30 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
       <style>{styleInline}</style>
       <h1>{header}</h1>
       <h2>{question}</h2>
-      <MarkdownViewer content={text} />
-      {approved === null && (
-        <div>
-          {options.map((option) => (
-            <Button
-              className="message-buttons-options"
-              label={option}
-              onClick={() => {
-                onAction(option);
-              }}
-            />
-          ))}
-        </div>
+      {approved === null ? (
+        <>
+          <MarkdownViewer content={text} />
+          <div>
+            {options.map((option) => (
+              <Button
+                className="message-buttons-options"
+                label={option}
+                onClick={() => {
+                  onAction(option);
+                }}
+              />
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <details className="interrupt-details">
+            <summary className="interrupt-details-summary">Show details</summary>
+            <MarkdownViewer content={text} />
+          </details>
+          <StatusNotice approved={approved} />
+        </>
       )}
-      {approved !== null && <StatusNotice approved={approved} />}
     </div>
   );
 };
