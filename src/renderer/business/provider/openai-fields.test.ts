@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildOpenAIChatFields, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
+import { buildOpenAIChatFields, PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
 
 const baseOptions = {
   apiKey: "sk-test",
@@ -16,6 +16,18 @@ describe("buildOpenAIChatFields", () => {
     expect(fields.configuration?.defaultHeaders).toMatchObject({
       [UPSTREAM_BASE_URL_HEADER]: "https://api.openai.com/v1",
     });
+  });
+
+  it("sends the proxy token header when a token is provided", () => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-4.1", proxyToken: "secret-token" });
+    expect(fields.configuration?.defaultHeaders).toMatchObject({
+      [PROXY_TOKEN_HEADER]: "secret-token",
+    });
+  });
+
+  it("omits the proxy token header when no token is provided", () => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-4.1" });
+    expect(fields.configuration?.defaultHeaders).not.toHaveProperty(PROXY_TOKEN_HEADER);
   });
 
   it("sets temperature 0 and no reasoning effort for non-reasoning models", () => {

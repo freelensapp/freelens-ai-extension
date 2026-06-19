@@ -48,6 +48,7 @@ export const useModelProvider = () => {
           apiKey: PROXY_MANAGED_API_KEY,
           upstreamBaseUrl: openAIBaseUrl,
           proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
+          proxyToken: preferencesStore.aiProxyToken,
           reasoningEffort: preferencesStore.openAIReasoningEffort,
           disableThinking: preferencesStore.disableThinking,
         });

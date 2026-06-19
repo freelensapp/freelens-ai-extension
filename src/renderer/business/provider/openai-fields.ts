@@ -11,6 +11,10 @@ import type { ChatOpenAIFields } from "@langchain/openai";
 // letting the user configure a custom base URL without changing the proxy code.
 export const UPSTREAM_BASE_URL_HEADER = "x-upstream-base-url";
 
+// Header carrying the per-launch shared secret the proxy requires on every
+// request.
+export const PROXY_TOKEN_HEADER = "x-ai-proxy-token";
+
 export interface OpenAIChatFieldsOptions {
   // Model id sent to the OpenAI API (e.g. "gpt-5.5").
   modelName: string;
@@ -20,6 +24,8 @@ export interface OpenAIChatFieldsOptions {
   upstreamBaseUrl: string;
   // Local proxy origin (e.g. http://127.0.0.1:<port>); the "/openai" prefix is appended.
   proxyBaseUrl: string;
+  // Per-launch shared secret sent to the proxy so it accepts the request.
+  proxyToken?: string | null;
   // Optional reasoning effort; applied only to reasoning-capable models.
   reasoningEffort?: string;
   // When true, request the upstream to disable its "thinking" mode. Some
@@ -35,6 +41,7 @@ export const buildOpenAIChatFields = ({
   apiKey,
   upstreamBaseUrl,
   proxyBaseUrl,
+  proxyToken,
   reasoningEffort,
   disableThinking,
 }: OpenAIChatFieldsOptions): ChatOpenAIFields => {
@@ -47,6 +54,7 @@ export const buildOpenAIChatFields = ({
       baseURL: `${proxyBaseUrl}/openai`,
       defaultHeaders: {
         [UPSTREAM_BASE_URL_HEADER]: upstreamBaseUrl,
+        ...(proxyToken ? { [PROXY_TOKEN_HEADER]: proxyToken } : {}),
       },
     },
   };

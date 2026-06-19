@@ -10,6 +10,11 @@ const AI_PROXY_HOST = "127.0.0.1";
 // base URL without changing the proxy.
 const UPSTREAM_BASE_URL_HEADER = "x-upstream-base-url";
 
+// Header carrying the per-launch shared secret. The renderer (see
+// model-provider.ts) sends it on every request; the proxy rejects any request
+// whose token does not match the one generated for this launch.
+const PROXY_TOKEN_HEADER = "x-ai-proxy-token";
+
 const UPSTREAM_BY_PREFIX: Record<string, string> = {
   openai: "https://api.openai.com/v1",
 };
@@ -21,12 +26,17 @@ let proxyServerPort: number | null = null;
 // changed in preferences takes effect immediately.
 let resolveApiKey: () => string | undefined = () => undefined;
 
+// Per-launch shared secret. The renderer (see model-provider.ts) sends it on
+// every request; the proxy rejects any request whose token does not match the
+// one generated for this launch.
+let proxyAuthToken: string | null = null;
+
 // Only the methods and headers the LLM SDKs actually use. The wildcard origin
 // is replaced by reflecting the caller's Origin (see applyCorsHeaders) so the
 // proxy never advertises itself as open to every origin.
 const CORS_ALLOW_METHODS = "GET,POST,OPTIONS";
 const CORS_ALLOW_HEADERS =
-  "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,accept,user-agent,x-upstream-base-url";
+  "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,accept,user-agent,x-upstream-base-url,x-ai-proxy-token";
 
 const hopByHopHeaders = new Set([
   "connection",
@@ -86,7 +96,12 @@ const createUpstreamHeaders = (request: IncomingMessage) => {
   const headers = new Headers();
 
   for (const [key, value] of Object.entries(request.headers)) {
-    if (hopByHopHeaders.has(key) || key === UPSTREAM_BASE_URL_HEADER || value === undefined) {
+    if (
+      hopByHopHeaders.has(key) ||
+      key === UPSTREAM_BASE_URL_HEADER ||
+      key === PROXY_TOKEN_HEADER ||
+      value === undefined
+    ) {
       continue;
     }
 
@@ -152,7 +167,11 @@ const proxyRequest = async (request: IncomingMessage, response: ServerResponse) 
   Readable.fromWeb(upstreamResponse.body as any).pipe(response);
 };
 
-export const startAiProxyServer = async (apiKeyResolver: () => string | undefined = () => undefined) => {
+export const startAiProxyServer = async (
+  authToken: string,
+  apiKeyResolver: () => string | undefined = () => undefined,
+) => {
+  proxyAuthToken = authToken;
   resolveApiKey = apiKeyResolver;
 
   if (proxyServerStarted && proxyServerPort !== null) {
@@ -165,6 +184,17 @@ export const startAiProxyServer = async (apiKeyResolver: () => string | undefine
     if (request.method === "OPTIONS") {
       response.statusCode = 204;
       response.end();
+      return;
+    }
+
+    // Reject any request that does not carry the per-launch shared secret. This
+    // stops other local processes (or pages) that learn the port from using the
+    // user's API key.
+    const requestToken = request.headers[PROXY_TOKEN_HEADER];
+    if (!proxyAuthToken || requestToken !== proxyAuthToken) {
+      response.statusCode = 401;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ error: "Unauthorized" }));
       return;
     }
 
