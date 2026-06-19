@@ -10,6 +10,11 @@ import { buildOpenAIChatFields } from "./openai-fields";
 // definition now lives next to the field builder.
 export { UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
 
+// Placeholder key sent to the SDK so it populates the Authorization header; the
+// AI proxy overrides it with the real key resolved in the main process, so the
+// secret never travels through the renderer.
+const PROXY_MANAGED_API_KEY = "freelens-proxy-managed";
+
 const getAiProxyBaseUrl = (aiProxyPort: number | null) => {
   if (aiProxyPort === null) {
     throw new Error("AI proxy is not ready yet. Retry in a moment.");
@@ -36,12 +41,11 @@ export const useModelProvider = () => {
 
     switch (provider) {
       case AIProviders.OPEN_AI: {
-        const openAiApiKey = process.env.OPENAI_API_KEY || preferencesStore.openAIKey;
         const openAIBaseUrl = preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
 
         const fields = buildOpenAIChatFields({
           modelName,
-          apiKey: openAiApiKey,
+          apiKey: PROXY_MANAGED_API_KEY,
           upstreamBaseUrl: openAIBaseUrl,
           proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
           reasoningEffort: preferencesStore.openAIReasoningEffort,

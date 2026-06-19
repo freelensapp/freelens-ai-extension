@@ -16,6 +16,10 @@ const UPSTREAM_BY_PREFIX: Record<string, string> = {
 
 let proxyServerStarted = false;
 let proxyServerPort: number | null = null;
+// Resolves the upstream API key inside the main process so the secret never has
+// to be sent from (or stored in) the renderer. Evaluated per request so a key
+// changed in preferences takes effect immediately.
+let resolveApiKey: () => string | undefined = () => undefined;
 
 // Only the methods and headers the LLM SDKs actually use. The wildcard origin
 // is replaced by reflecting the caller's Origin (see applyCorsHeaders) so the
@@ -66,6 +70,18 @@ const readRequestBody = async (request: IncomingMessage) => {
   return chunks.length > 0 ? Buffer.concat(chunks) : undefined;
 };
 
+// Override the Authorization header with the API key resolved in the main
+// process. The renderer sends only a placeholder, so the real key never travels
+// through (or is exposed to) the renderer / DevTools. No-op when no key is set,
+// letting the upstream reject the request with its own 401.
+export const applyManagedAuthorization = (headers: Headers, apiKey: string | undefined): Headers => {
+  if (apiKey) {
+    headers.set("authorization", `Bearer ${apiKey}`);
+  }
+
+  return headers;
+};
+
 const createUpstreamHeaders = (request: IncomingMessage) => {
   const headers = new Headers();
 
@@ -81,7 +97,7 @@ const createUpstreamHeaders = (request: IncomingMessage) => {
     }
   }
 
-  return headers;
+  return applyManagedAuthorization(headers, resolveApiKey());
 };
 
 const proxyRequest = async (request: IncomingMessage, response: ServerResponse) => {
@@ -136,7 +152,9 @@ const proxyRequest = async (request: IncomingMessage, response: ServerResponse) 
   Readable.fromWeb(upstreamResponse.body as any).pipe(response);
 };
 
-export const startAiProxyServer = async () => {
+export const startAiProxyServer = async (apiKeyResolver: () => string | undefined = () => undefined) => {
+  resolveApiKey = apiKeyResolver;
+
   if (proxyServerStarted && proxyServerPort !== null) {
     return proxyServerPort;
   }
