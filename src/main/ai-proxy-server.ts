@@ -17,12 +17,12 @@ const UPSTREAM_BY_PREFIX: Record<string, string> = {
 let proxyServerStarted = false;
 let proxyServerPort: number | null = null;
 
-const corsHeaders = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-  "access-control-allow-headers":
-    "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,accept,user-agent,x-upstream-base-url",
-} as const;
+// Only the methods and headers the LLM SDKs actually use. The wildcard origin
+// is replaced by reflecting the caller's Origin (see applyCorsHeaders) so the
+// proxy never advertises itself as open to every origin.
+const CORS_ALLOW_METHODS = "GET,POST,OPTIONS";
+const CORS_ALLOW_HEADERS =
+  "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,accept,user-agent,x-upstream-base-url";
 
 const hopByHopHeaders = new Set([
   "connection",
@@ -37,10 +37,23 @@ const hopByHopHeaders = new Set([
   "upgrade",
 ]);
 
-const applyCorsHeaders = (response: ServerResponse) => {
-  for (const [header, value] of Object.entries(corsHeaders)) {
-    response.setHeader(header, value);
+// Normalize the possibly-array Origin header to a single value.
+const getRequestOrigin = (request: IncomingMessage): string | undefined => {
+  const origin = request.headers.origin;
+  return Array.isArray(origin) ? origin[0] : origin;
+};
+
+export const applyCorsHeaders = (response: ServerResponse, requestOrigin: string | undefined) => {
+  // Reflect the caller's origin instead of "*". The renderer (the only intended
+  // caller) always sends an Origin header; requests without one are not
+  // browser-originated and need no CORS grant.
+  if (requestOrigin) {
+    response.setHeader("access-control-allow-origin", requestOrigin);
+    response.setHeader("vary", "Origin");
   }
+
+  response.setHeader("access-control-allow-methods", CORS_ALLOW_METHODS);
+  response.setHeader("access-control-allow-headers", CORS_ALLOW_HEADERS);
 };
 
 const readRequestBody = async (request: IncomingMessage) => {
@@ -107,7 +120,7 @@ const proxyRequest = async (request: IncomingMessage, response: ServerResponse) 
 
   response.statusCode = upstreamResponse.status;
   response.statusMessage = upstreamResponse.statusText;
-  applyCorsHeaders(response);
+  applyCorsHeaders(response, getRequestOrigin(request));
 
   upstreamResponse.headers.forEach((value, key) => {
     if (!hopByHopHeaders.has(key)) {
@@ -129,7 +142,7 @@ export const startAiProxyServer = async () => {
   }
 
   const server = createServer(async (request, response) => {
-    applyCorsHeaders(response);
+    applyCorsHeaders(response, getRequestOrigin(request));
 
     if (request.method === "OPTIONS") {
       response.statusCode = 204;
