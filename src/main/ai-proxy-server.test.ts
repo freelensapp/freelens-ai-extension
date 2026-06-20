@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyCorsHeaders } from "./ai-proxy-server";
+import { applyCorsHeaders, applyManagedAuthorization } from "./ai-proxy-server";
 import type { ServerResponse } from "node:http";
 
 // Minimal ServerResponse stand-in that records setHeader calls.
@@ -32,5 +32,25 @@ describe("applyCorsHeaders", () => {
     const response = createResponseStub();
     applyCorsHeaders(response, "lens://extension");
     expect(response.headers["access-control-allow-methods"]).toBe("GET,POST,OPTIONS");
+  });
+});
+
+describe("applyManagedAuthorization", () => {
+  it("sets the Authorization header from the resolved key", () => {
+    const headers = new Headers();
+    applyManagedAuthorization(headers, "sk-secret");
+    expect(headers.get("authorization")).toBe("Bearer sk-secret");
+  });
+
+  it("overrides any Authorization sent by the renderer placeholder", () => {
+    const headers = new Headers({ authorization: "Bearer freelens-proxy-managed" });
+    applyManagedAuthorization(headers, "sk-real");
+    expect(headers.get("authorization")).toBe("Bearer sk-real");
+  });
+
+  it("leaves the headers untouched when no key is resolved", () => {
+    const headers = new Headers({ authorization: "Bearer placeholder" });
+    applyManagedAuthorization(headers, undefined);
+    expect(headers.get("authorization")).toBe("Bearer placeholder");
   });
 });
