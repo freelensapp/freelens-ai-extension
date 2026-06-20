@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - name: Checkout plugin
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup node
         uses: actions/setup-node@v6
@@ -94,7 +94,7 @@ jobs:
 
       - name: Checkout app
         if: matrix.freelens_version != 'latest'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: freelensapp/freelens
           ref: ${{ matrix.freelens_version }}
