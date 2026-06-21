@@ -7,6 +7,7 @@ import {
   isDeleteMode,
   isPodDeleteMode,
   isRestartableKind,
+  normalizeSubresource,
   POD_DELETE_MODES,
   prepareManifest,
   RESTARTABLE_KINDS,
@@ -83,6 +84,27 @@ describe("isPodDeleteMode", () => {
     expect(isPodDeleteMode("force_finalize")).toBe(false);
     expect(isPodDeleteMode("delete")).toBe(false);
     expect(isPodDeleteMode("")).toBe(false);
+  });
+});
+
+describe("normalizeSubresource", () => {
+  it("returns undefined when no subresource is given", () => {
+    expect(normalizeSubresource(undefined)).toBeUndefined();
+    expect(normalizeSubresource("")).toBeUndefined();
+    expect(normalizeSubresource("   ")).toBeUndefined();
+  });
+
+  it("trims whitespace and surrounding slashes", () => {
+    expect(normalizeSubresource("resize")).toBe("resize");
+    expect(normalizeSubresource("  resize  ")).toBe("resize");
+    expect(normalizeSubresource("/resize")).toBe("resize");
+    expect(normalizeSubresource("resize/")).toBe("resize");
+    expect(normalizeSubresource("/resize/")).toBe("resize");
+  });
+
+  it("keeps an inner path intact", () => {
+    expect(normalizeSubresource("status")).toBe("status");
+    expect(normalizeSubresource("scale")).toBe("scale");
   });
 });
 

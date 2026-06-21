@@ -212,6 +212,20 @@ export function isPodDeleteMode(mode: string): mode is PodDeleteMode {
   return (POD_DELETE_MODES as readonly string[]).includes(mode);
 }
 
+/**
+ * Normalize a subresource name supplied by the model. Trims surrounding
+ * whitespace and any leading/trailing slashes (so both "resize" and "/resize"
+ * work), returning `undefined` when nothing is left so callers can treat it as
+ * "no subresource" and fall back to a normal patch.
+ */
+export function normalizeSubresource(subresource?: string): string | undefined {
+  if (typeof subresource !== "string") {
+    return undefined;
+  }
+  const trimmed = subresource.trim().replace(/^\/+|\/+$/g, "");
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 export function getResourceHandler(kind: string): ResourceHandler | undefined {
   return RESOURCE_HANDLERS[kind];
 }
