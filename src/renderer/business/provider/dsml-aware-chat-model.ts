@@ -30,8 +30,8 @@
 
 import { ChatGenerationChunk } from "@langchain/core/outputs";
 import { concat } from "@langchain/core/utils/stream";
-import { ChatOpenAI } from "@langchain/openai";
 import { recoverDsmlToolCalls } from "../agent/leaked-tool-calls";
+import { OfflineTokenChatOpenAI } from "./offline-token-chat-model";
 
 import type { CallbackManagerForLLMRun } from "@langchain/core/callbacks/manager";
 import type { BaseMessage } from "@langchain/core/messages";
@@ -81,12 +81,12 @@ const deleteRawResponse = (message: { additional_kwargs?: Record<string, unknown
   }
 };
 
-export class DsmlAwareChatOpenAI extends ChatOpenAI {
+export class DsmlAwareChatOpenAI extends OfflineTokenChatOpenAI {
   // `streaming` is set via `ChatOpenAIFields.streaming = true` by the caller
   // (`model-provider.ts`) — a class property would be overridden by the
   // ChatOpenAI constructor (`this.streaming = fields?.streaming ?? false`).
 
-  constructor(fields?: ConstructorParameters<typeof ChatOpenAI>[0]) {
+  constructor(fields?: ConstructorParameters<typeof OfflineTokenChatOpenAI>[0]) {
     // Ask the OpenAI client to attach the raw response to every message.
     // `@langchain/openai` drops the model's `reasoning_content`, so reading it
     // back off the raw response (see `extractReasoningFromRawResponse`) is the
