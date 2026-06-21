@@ -6,6 +6,7 @@ const { observer } = MobxReact;
 const { createContext, useContext, useEffect, useRef, useState } = React;
 
 import { PreferencesStore } from "../../common/store";
+import { AgentStateStore } from "../../common/store/agent-state-store";
 import { AgentsStore } from "../../common/store/agents-store";
 import useLog from "../../common/utils/logger/logger-service";
 import { generateUuid } from "../../common/utils/uuid";
@@ -206,6 +207,9 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         saveChatMessages(window.localStorage, []);
       });
     }
+    // Wipe the durable LangGraph checkpointer state so a restart right after a
+    // clear does not restore the model-side conversation context.
+    AgentStateStore.getInstanceOrCreate<AgentStateStore>().clear();
   };
 
   const cleanAgentMessageHistory = async (agent: FreeLensAgent | MPCAgent) => {

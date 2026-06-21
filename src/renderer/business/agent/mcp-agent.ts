@@ -1,10 +1,11 @@
 import { AIMessage, ToolMessage } from "@langchain/core/messages";
-import { Command, interrupt, MemorySaver, StateGraph } from "@langchain/langgraph";
+import { Command, interrupt, StateGraph } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { MultiServerMCPClient } from "@langchain/mcp-adapters";
 import useLog from "../../../common/utils/logger/logger-service";
 import { useModelProvider } from "../provider/model-provider";
 import { teardownNode } from "./nodes/teardown";
+import { PersistentMemorySaver } from "./persistent-memory-saver";
 import { GraphState } from "./state/graph-state";
 
 export type MPCAgent = Awaited<ReturnType<ReturnType<typeof useMcpAgent>["buildAgentSystem"]>>;
@@ -107,7 +108,7 @@ export const useMcpAgent = (mcpConfiguration: string) => {
       .addEdge("tools", "agent")
       .addEdge("agent", "shouldContinue")
       .addEdge("teardownNode", "__end__")
-      .compile({ checkpointer: new MemorySaver() });
+      .compile({ checkpointer: new PersistentMemorySaver("mcp") });
   };
 
   return { buildAgentSystem, loadMcpTools };
