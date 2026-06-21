@@ -13,6 +13,7 @@ export interface PreferencesModel {
   openAIReasoningEffort: string;
   disableThinking: boolean;
   aiProxyPort: number | null;
+  aiProxyToken: string | null;
   selectedModel: string;
   models: CustomModel[];
   mcpEnabled: boolean;
@@ -30,6 +31,10 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   openAIReasoningEffort: string = "";
   disableThinking: boolean = false;
   aiProxyPort: number | null = null;
+  // Per-launch shared secret required on every request to the local AI proxy.
+  // Generated in the main process on activation and synced to the renderer via
+  // this store; blocks other local processes that learn the port from using it.
+  aiProxyToken: string | null = null;
   selectedModel: string = DEFAULT_SELECTED_MODEL;
   models: CustomModel[] = [...DEFAULT_MODELS];
   mcpEnabled: boolean = false;
@@ -54,6 +59,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         openAIReasoningEffort: "",
         disableThinking: false,
         aiProxyPort: null,
+        aiProxyToken: null,
         selectedModel: DEFAULT_SELECTED_MODEL,
         models: [...DEFAULT_MODELS],
         mcpEnabled: false,
@@ -84,6 +90,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       openAIReasoningEffort: observable,
       disableThinking: observable,
       aiProxyPort: observable,
+      aiProxyToken: observable,
       selectedModel: observable,
       models: observable,
       mcpEnabled: observable,
@@ -105,6 +112,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this.openAIReasoningEffort = preferencesModel.openAIReasoningEffort ?? "";
     this.disableThinking = preferencesModel.disableThinking ?? false;
     this.aiProxyPort = preferencesModel.aiProxyPort ?? null;
+    this.aiProxyToken = preferencesModel.aiProxyToken ?? null;
     this.models = preferencesModel.models?.length ? preferencesModel.models : [...DEFAULT_MODELS];
     // Validate the selection against the available models; fall back to the
     // first entry (replaces the old enum validation).
@@ -130,6 +138,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       openAIReasoningEffort: this.openAIReasoningEffort,
       disableThinking: this.disableThinking,
       aiProxyPort: this.aiProxyPort,
+      aiProxyToken: this.aiProxyToken,
       selectedModel: this.selectedModel,
       models: toJS(this.models),
       mcpEnabled: this.mcpEnabled,
