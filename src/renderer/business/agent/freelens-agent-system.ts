@@ -34,13 +34,21 @@ export const useFreeLensAgentSystem = () => {
   ];
   const availableTools = toolFunctionDescriptions;
 
-  const supervisorAgentNode = async (state: typeof GraphState.State) => {
+  // Forward the node `config` into every inner agent `.invoke()`. In `messages`
+  // stream mode LangGraph captures LLM tokens through callbacks carried on the
+  // run config; in the renderer there is no Node `AsyncLocalStorage` to
+  // propagate that context implicitly, so an inner `createReactAgent` invoked
+  // without the config runs detached and its tokens never reach the parent
+  // stream - the graph finishes cleanly but the UI renders nothing. The
+  // supervisor keeps streaming suppressed via its `nostream` tag (carried on the
+  // same config).
+  const supervisorAgentNode = async (state: typeof GraphState.State, config?: RunnableConfig) => {
     log.debug("Supervisor agent - calling agent supervisor with input: ", state);
     const agentSupervisor = await useAgentSupervisor().getAgent(subAgents, subAgentResponsibilities);
     if (!agentSupervisor) {
       return;
     }
-    const response: any = await agentSupervisor.invoke({ messages: state.messages });
+    const response: any = await agentSupervisor.invoke({ messages: state.messages }, config);
     log.debug("Supervisor agent - supervisor response", response);
 
     // The supervisor must return a structured routing decision ({ reflection,
@@ -60,13 +68,13 @@ export const useFreeLensAgentSystem = () => {
     return new Command({ goto });
   };
 
-  const agentAnalyzerNode = async (state: typeof GraphState.State) => {
+  const agentAnalyzerNode = async (state: typeof GraphState.State, config?: RunnableConfig) => {
     log.debug("Analyzer Agent - calling agent analyzer with input: ", state);
     const agentAnalyzer = useAgentAnalyzer().getAgent();
     if (!agentAnalyzer) {
       return;
     }
-    const result = await agentAnalyzer.invoke(state);
+    const result = await agentAnalyzer.invoke(state, config);
     const lastMessage = result.messages[result.messages.length - 1];
     log.debug("Analyzer Agent - analysis result: ", result);
     const analyzerUnknownTools = findUnknownToolCalls(result.messages, allToolNames);
@@ -114,13 +122,13 @@ export const useFreeLensAgentSystem = () => {
     };
   };
 
-  const generalPurposeAgentNode = async (state: typeof GraphState.State) => {
+  const generalPurposeAgentNode = async (state: typeof GraphState.State, config?: RunnableConfig) => {
     log.debug("General Purpose Agent - called with input: ", state);
     const generalPurposeAgent = useGeneralPurposeAgent().getAgent();
     if (!generalPurposeAgent) {
       return;
     }
-    const result = await generalPurposeAgent.invoke(state);
+    const result = await generalPurposeAgent.invoke(state, config);
     const lastMessage = result.messages[result.messages.length - 1];
     log.debug("General Purpose Agent - response: ", result);
     if (containsLeakedToolCallMarkup(lastMessage.content)) {
@@ -132,13 +140,13 @@ export const useFreeLensAgentSystem = () => {
     };
   };
 
-  const conclusionsAgentNode = async (state: typeof GraphState.State) => {
+  const conclusionsAgentNode = async (state: typeof GraphState.State, config?: RunnableConfig) => {
     log.debug("Conclusions Agent - called with input: ", state);
     const conclusionsAgent = useConclusionsAgent().getAgent();
     if (!conclusionsAgent) {
       return;
     }
-    const result = await conclusionsAgent.invoke(state);
+    const result = await conclusionsAgent.invoke(state, config);
     const lastMessage = result.messages[result.messages.length - 1];
     log.debug("Conclusions Agent - conclusions: ", result);
     return {
