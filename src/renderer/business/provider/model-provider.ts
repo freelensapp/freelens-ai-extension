@@ -1,9 +1,9 @@
-import { ChatOpenAI } from "@langchain/openai";
 import { PreferencesStore } from "../../../common/store";
 import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "./ai-models";
 import { DsmlAwareChatOpenAI } from "./dsml-aware-chat-model";
 import { emitsDsmlToolCalls } from "./model-capabilities";
 import { findProvider } from "./model-list";
+import { OfflineTokenChatOpenAI } from "./offline-token-chat-model";
 import { buildOpenAIChatFields } from "./openai-fields";
 
 // Re-exported for callers that imported it from here previously; the canonical
@@ -60,7 +60,7 @@ export const useModelProvider = () => {
           return new DsmlAwareChatOpenAI({ ...fields, streaming: true });
         }
 
-        return new ChatOpenAI(fields);
+        return new OfflineTokenChatOpenAI(fields);
       }
       default:
         throw new Error(`Unsupported provider: ${provider}`);
