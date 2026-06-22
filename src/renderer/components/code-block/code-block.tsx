@@ -1,10 +1,14 @@
+import { Renderer } from "@freelensapp/extensions";
 import { ChevronDown, ChevronRight, Copy, Play } from "lucide-react";
 import { useState } from "react";
-import SyntaxHighlighter from "react-syntax-highlighter";
 import styleInline from "./code-block.scss?inline";
 import { useCodeBlockHook } from "./code-block-hook";
 
 import type { ReactNode } from "react";
+
+const {
+  Component: { MonacoEditor },
+} = Renderer;
 
 type CodeBlockProps = {
   inline?: boolean;
@@ -62,20 +66,19 @@ export const CodeBlock = ({
             </button>
           </div>
           {!bodyHidden && (
-            <SyntaxHighlighter
-              PreTag="div"
-              language={language}
-              style={codeBlockHook.getTheme()}
-              customStyle={{
-                margin: 0,
-                borderBottomLeftRadius: "0.5rem",
-                borderBottomRightRadius: "0.5rem",
+            <MonacoEditor
+              readOnly
+              className="code-block-editor"
+              language={codeBlockHook.getMonacoLanguage(language)}
+              value={codeBlockHook.text}
+              setInitialHeight
+              style={{ minHeight: codeBlockHook.getEditorMinHeight() }}
+              options={{
+                scrollbar: {
+                  alwaysConsumeMouseWheel: false,
+                },
               }}
-              showLineNumbers={codeBlockHook.hasMultipleLines}
-              showInlineLineNumbers={codeBlockHook.hasMultipleLines}
-            >
-              {codeBlockHook.text}
-            </SyntaxHighlighter>
+            />
           )}
         </div>
       </>

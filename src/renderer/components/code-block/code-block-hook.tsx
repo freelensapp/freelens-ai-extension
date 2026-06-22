@@ -3,22 +3,30 @@ import * as React from "react";
 
 const { useState } = React;
 
-import { atomOneDark, atomOneLight } from "react-syntax-highlighter/dist/esm/styles/hljs";
-
 const {
   Component: { createTerminalTab, terminalStore },
 } = Renderer;
-
-const { Theme } = Renderer;
 
 type useCodeBlockHookProps = {
   children: React.ReactNode;
 };
 
+// The Freelens host only registers the YAML and JSON tokenizers for Monaco; any
+// other language is rendered as plain text in the editor.
+const MONACO_LANGUAGES = ["yaml", "json"] as const;
+type MonacoLanguage = (typeof MONACO_LANGUAGES)[number];
+
+// Monaco is sized to the content but kept within a sensible window so short
+// snippets stay compact and long ones scroll instead of taking over the chat.
+const LINE_HEIGHT = 18;
+const MIN_LINES = 5;
+const MAX_LINES = 20;
+
 export const useCodeBlockHook = ({ children }: useCodeBlockHookProps) => {
   const [copied, setCopied] = useState(false);
   const text = String(children).replace(/\n$/, "");
-  const hasMultipleLines = text.split("\n").length > 1;
+  const lineCount = text.split("\n").length;
+  const hasMultipleLines = lineCount > 1;
   const shellId = "FreeLensAI-tabid";
 
   const handleCopy = () => {
@@ -52,10 +60,19 @@ export const useCodeBlockHook = ({ children }: useCodeBlockHookProps) => {
     });
   };
 
-  const getTheme = () => {
-    const themeInfo = Theme.activeTheme.get();
-    return themeInfo.name.toLowerCase() === "dark" ? atomOneDark : atomOneLight;
-  };
+  const getMonacoLanguage = (language?: string): MonacoLanguage | undefined =>
+    MONACO_LANGUAGES.includes(language as MonacoLanguage) ? (language as MonacoLanguage) : undefined;
 
-  return { copied, text, hasMultipleLines, handleCopy, executeCommand, isExecutable, getTheme };
+  const getEditorMinHeight = () => `${Math.min(Math.max(lineCount, MIN_LINES), MAX_LINES) * LINE_HEIGHT}px`;
+
+  return {
+    copied,
+    text,
+    hasMultipleLines,
+    handleCopy,
+    executeCommand,
+    isExecutable,
+    getMonacoLanguage,
+    getEditorMinHeight,
+  };
 };
