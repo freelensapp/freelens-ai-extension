@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { addTokenUsage, emptyTokenUsage, extractTokenUsage, formatTokenUsage } from "./token-usage";
+import {
+  addTokenUsage,
+  emptyTokenUsage,
+  extractTokenUsage,
+  extractTokenUsageFromLLMResult,
+  formatTokenUsage,
+} from "./token-usage";
 
 describe("extractTokenUsage", () => {
   it("returns null for missing or non-object metadata", () => {
@@ -33,6 +39,72 @@ describe("extractTokenUsage", () => {
       cached: 0,
       output: 7,
     });
+  });
+});
+
+describe("extractTokenUsageFromLLMResult", () => {
+  it("returns null for missing or non-object results", () => {
+    expect(extractTokenUsageFromLLMResult(undefined)).toBeNull();
+    expect(extractTokenUsageFromLLMResult(null)).toBeNull();
+    expect(extractTokenUsageFromLLMResult("nope")).toBeNull();
+  });
+
+  it("reads per-message usage_metadata from a single generation", () => {
+    expect(
+      extractTokenUsageFromLLMResult({
+        generations: [
+          [
+            {
+              message: {
+                usage_metadata: { input_tokens: 100, output_tokens: 40, input_token_details: { cache_read: 30 } },
+              },
+            },
+          ],
+        ],
+      }),
+    ).toEqual({ input: 100, cached: 30, output: 40 });
+  });
+
+  it("sums usage_metadata across multiple generations", () => {
+    expect(
+      extractTokenUsageFromLLMResult({
+        generations: [
+          [{ message: { usage_metadata: { input_tokens: 100, output_tokens: 40 } } }],
+          [
+            {
+              message: {
+                usage_metadata: { input_tokens: 10, output_tokens: 5, input_token_details: { cache_read: 4 } },
+              },
+            },
+          ],
+        ],
+      }),
+    ).toEqual({ input: 110, cached: 4, output: 45 });
+  });
+
+  it("falls back to flat llmOutput.tokenUsage when no message carries usage_metadata", () => {
+    expect(
+      extractTokenUsageFromLLMResult({
+        generations: [[{ message: {} }]],
+        llmOutput: { tokenUsage: { promptTokens: 70, completionTokens: 12 } },
+      }),
+    ).toEqual({ input: 70, cached: 0, output: 12 });
+  });
+
+  it("returns null when neither source carries positive counts", () => {
+    expect(extractTokenUsageFromLLMResult({ generations: [[{ message: {} }]] })).toBeNull();
+    expect(
+      extractTokenUsageFromLLMResult({ llmOutput: { tokenUsage: { promptTokens: 0, completionTokens: 0 } } }),
+    ).toBeNull();
+  });
+
+  it("prefers usage_metadata over the flat fallback", () => {
+    expect(
+      extractTokenUsageFromLLMResult({
+        generations: [[{ message: { usage_metadata: { input_tokens: 5, output_tokens: 6 } } }]],
+        llmOutput: { tokenUsage: { promptTokens: 999, completionTokens: 999 } },
+      }),
+    ).toEqual({ input: 5, cached: 0, output: 6 });
   });
 });
 

@@ -49,6 +49,74 @@ export const extractTokenUsage = (usageMetadata: unknown): TokenUsage | null => 
   return { input, cached, output };
 };
 
+// A single generation in a LangChain `LLMResult`. For chat models the rich
+// usage lives on the generation's `message.usage_metadata`.
+interface GenerationLike {
+  message?: { usage_metadata?: unknown };
+}
+
+// The `LLMResult` shape passed to the `handleLLMEnd` callback. Only the fields
+// we read are described.
+interface LLMResultLike {
+  generations?: GenerationLike[][];
+  llmOutput?: {
+    // Flat OpenAI-style usage some providers report instead of per-message
+    // `usage_metadata` (no cache breakdown).
+    tokenUsage?: { promptTokens?: number; completionTokens?: number };
+  };
+}
+
+/**
+ * Pull the token usage out of a LangChain `LLMResult` (the value passed to the
+ * `handleLLMEnd` callback). Sums the per-message `usage_metadata` across every
+ * generation, falling back to the flat `llmOutput.tokenUsage` when no message
+ * carries `usage_metadata`. Returns `null` when no positive counts are found.
+ *
+ * Counting from the callback rather than the streamed chunks is what lets the
+ * supervisor and analyzer turns - suppressed from the `messages` stream by the
+ * `nostream` tag - be included in the per-session counter.
+ */
+export const extractTokenUsageFromLLMResult = (result: unknown): TokenUsage | null => {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+
+  const { generations, llmOutput } = result as LLMResultLike;
+
+  let total = emptyTokenUsage();
+  let found = false;
+
+  if (Array.isArray(generations)) {
+    for (const batch of generations) {
+      if (!Array.isArray(batch)) {
+        continue;
+      }
+      for (const generation of batch) {
+        const usage = extractTokenUsage(generation?.message?.usage_metadata);
+        if (usage) {
+          total = addTokenUsage(total, usage);
+          found = true;
+        }
+      }
+    }
+  }
+
+  if (found) {
+    return total;
+  }
+
+  const tokenUsage = llmOutput?.tokenUsage;
+  if (tokenUsage) {
+    const input = toCount(tokenUsage.promptTokens);
+    const output = toCount(tokenUsage.completionTokens);
+    if (input !== 0 || output !== 0) {
+      return { input, cached: 0, output };
+    }
+  }
+
+  return null;
+};
+
 // Add a single model turn's usage onto the running session totals.
 export const addTokenUsage = (total: TokenUsage, delta: TokenUsage): TokenUsage => ({
   input: total.input + delta.input,
