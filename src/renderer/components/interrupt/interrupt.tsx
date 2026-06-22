@@ -60,7 +60,6 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
       )}
       {!pending && detailsOpen && (
         <div className="interrupt-details">
-          {question && <div className="interrupt-question">{question}</div>}
           <MarkdownViewer content={text} />
         </div>
       )}
