@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Main } from "@freelensapp/extensions";
-import { PreferencesStore } from "../common/store";
+import { AgentStateStore, PreferencesStore } from "../common/store";
 import { startAiProxyServer } from "./ai-proxy-server";
 
 export default class LensExtensionAiMain extends Main.LensExtension {
@@ -9,6 +9,12 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
     preferencesStore.loadExtension(this);
+
+    // Owns the on-disk file for the persisted LangGraph checkpointer state. The
+    // main process must load it so the renderer receives the persisted value
+    // over IPC and the agent can restore its conversation after a restart.
+    // @ts-ignore
+    AgentStateStore.getInstanceOrCreate<AgentStateStore>().loadExtension(this);
 
     // Generate a fresh shared secret for this launch and require it on every
     // proxy request, so a local process that learns the port cannot reuse the

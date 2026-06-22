@@ -4,7 +4,7 @@
  */
 
 import { Renderer } from "@freelensapp/extensions";
-import { PreferencesStore } from "../common/store";
+import { AgentStateStore, PreferencesStore } from "../common/store";
 import { ensureRunnableContextStorage } from "./business/agent/runnable-context";
 import { FreeLensAiIcon } from "./components/freelens-ai-icon";
 import { MenuEntry } from "./components/menu-entry";
@@ -27,6 +27,10 @@ export default class FreeLensAIRenderer extends Renderer.LensExtension {
     setExtensionPreferencesPath(this.sanitizedExtensionId);
     // @ts-ignore
     PreferencesStore.getInstanceOrCreate<PreferencesStore>().loadExtension(this);
+    // Durable, host-managed storage for the agents' LangGraph checkpointer
+    // state, so the conversation context survives an application restart.
+    // @ts-ignore
+    AgentStateStore.getInstanceOrCreate<AgentStateStore>().loadExtension(this);
   }
 
   clusterPages = [

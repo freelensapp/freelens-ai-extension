@@ -6,6 +6,7 @@ const { observer } = MobxReact;
 const { createContext, useContext, useEffect, useRef, useState } = React;
 
 import { PreferencesStore } from "../../common/store";
+import { AgentStateStore } from "../../common/store/agent-state-store";
 import { AgentsStore } from "../../common/store/agents-store";
 import useLog from "../../common/utils/logger/logger-service";
 import { generateUuid } from "../../common/utils/uuid";
@@ -14,6 +15,14 @@ import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
 import { AIProviders } from "../business/provider/ai-models";
+import {
+  IS_CONVERSATION_INTERRUPTED_KEY,
+  IS_LOADING_KEY,
+  loadChatMessages,
+  loadConversationId,
+  saveChatMessages,
+  saveConversationId,
+} from "./chat-session-storage";
 
 import type { MessageObject } from "../business/objects/message-object";
 
@@ -66,8 +75,8 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
 
   // Init variables
   useEffect(() => {
-    _setLoading(window.sessionStorage.getItem("isLoading") === "true");
-    _setConversationInterrupted(window.sessionStorage.getItem("isConversationInterrupted") === "true");
+    _setLoading(window.sessionStorage.getItem(IS_LOADING_KEY) === "true");
+    _setConversationInterrupted(window.sessionStorage.getItem(IS_CONVERSATION_INTERRUPTED_KEY) === "true");
     _getConversationId();
     _loadChatMessages();
     _initFreeLensAgent();
@@ -89,12 +98,14 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   }, [freeLensAgent]);
 
   const _loadChatMessages = () => {
-    const stringMessages = window.sessionStorage.getItem("chatMessages");
-    stringMessages ? _setChatMessages(JSON.parse(stringMessages)) : _setChatMessages([]);
+    // Durable: persisted in localStorage so the transcript survives an app restart.
+    _setChatMessages(loadChatMessages(window.localStorage));
   };
 
   const _getConversationId = () => {
-    const storedConversationId = window.sessionStorage.getItem("conversationId");
+    // Durable: persisted in localStorage so the conversation thread stays stable
+    // across an app restart, matching the restored transcript.
+    const storedConversationId = loadConversationId(window.localStorage);
     if (storedConversationId) {
       _setConversationId(storedConversationId);
       log.debug("Using stored conversation ID: ", storedConversationId);
@@ -102,19 +113,22 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       log.debug("Generating conversation ID");
       const newConverstionId = generateUuid();
       _setConversationId(newConverstionId);
-      window.sessionStorage.setItem("conversationId", newConverstionId);
+      saveConversationId(window.localStorage, newConverstionId);
       log.debug("No stored conversation ID found, generating a new one.");
     }
   };
 
   const setLoading = (isLoading: boolean) => {
     _setLoading(isLoading);
-    window.sessionStorage.setItem("isLoading", String(isLoading));
+    // Transient: kept in sessionStorage so a fresh app start never restores a
+    // spinner for a run that is no longer active.
+    window.sessionStorage.setItem(IS_LOADING_KEY, String(isLoading));
   };
 
   const setConversationInterrupted = (isConversationInterrupted: boolean) => {
     _setConversationInterrupted(isConversationInterrupted);
-    window.sessionStorage.setItem("isConversationInterrupted", String(isConversationInterrupted));
+    // Transient: see setLoading above.
+    window.sessionStorage.setItem(IS_CONVERSATION_INTERRUPTED_KEY, String(isConversationInterrupted));
   };
 
   const addMessage = (message: MessageObject) => {
@@ -123,7 +137,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         prev = [];
       }
       const updated = [...prev, message];
-      window.sessionStorage.setItem("chatMessages", JSON.stringify(updated));
+      saveChatMessages(window.localStorage, updated);
       return updated;
     });
   };
@@ -143,7 +157,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       if (lastMessage.sent || lastMessage.type === MessageType.INTERRUPT) {
         // Agent response does not exist, add a new empty one
         messagesCopy.push(getTextMessage(newText, false));
-        window.sessionStorage.setItem("chatMessages", JSON.stringify(messagesCopy));
+        saveChatMessages(window.localStorage, messagesCopy);
         return messagesCopy;
       }
 
@@ -153,7 +167,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         text: lastMessage.text + newText,
       };
 
-      window.sessionStorage.setItem("chatMessages", JSON.stringify(messagesCopy));
+      saveChatMessages(window.localStorage, messagesCopy);
       return messagesCopy;
     });
   };
@@ -175,7 +189,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         };
       }
 
-      window.sessionStorage.setItem("chatMessages", JSON.stringify(messagesCopy));
+      saveChatMessages(window.localStorage, messagesCopy);
       return messagesCopy;
     });
   };
@@ -184,15 +198,18 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     if (freeLensAgent) {
       cleanAgentMessageHistory(freeLensAgent).finally(() => {
         _setChatMessages([]);
-        window.sessionStorage.setItem("chatMessages", JSON.stringify([]));
+        saveChatMessages(window.localStorage, []);
       });
     }
     if (mcpAgent) {
       await cleanAgentMessageHistory(mcpAgent).finally(() => {
         _setChatMessages([]);
-        window.sessionStorage.setItem("chatMessages", JSON.stringify([]));
+        saveChatMessages(window.localStorage, []);
       });
     }
+    // Wipe the durable LangGraph checkpointer state so a restart right after a
+    // clear does not restore the model-side conversation context.
+    AgentStateStore.getInstanceOrCreate<AgentStateStore>().clear();
   };
 
   const cleanAgentMessageHistory = async (agent: FreeLensAgent | MPCAgent) => {

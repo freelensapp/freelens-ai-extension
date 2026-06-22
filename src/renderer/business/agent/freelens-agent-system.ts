@@ -1,6 +1,6 @@
 import { HumanMessage } from "@langchain/core/messages";
 import { RunnableConfig, RunnableLambda, RunnableLike } from "@langchain/core/runnables";
-import { Command, MemorySaver, StateGraph } from "@langchain/langgraph";
+import { Command, StateGraph } from "@langchain/langgraph";
 import useLog from "../../../common/utils/logger/logger-service";
 import { useAgentAnalyzer } from "./analyzer-agent";
 import { useConclusionsAgent } from "./conclusions-agent";
@@ -13,6 +13,7 @@ import {
   LEAKED_TOOL_CALL_MESSAGE,
 } from "./leaked-tool-calls";
 import { teardownNode } from "./nodes/teardown";
+import { PersistentMemorySaver } from "./persistent-memory-saver";
 import { GraphState } from "./state/graph-state";
 import { useAgentSupervisor } from "./supervisor-agent";
 import { allToolNames, toolFunctionDescriptions } from "./tools/tools";
@@ -174,7 +175,7 @@ export const useFreeLensAgentSystem = () => {
       .addEdge("generalPurposeAgent", "teardownNode")
       .addEdge(conclusionsAgentName, "teardownNode")
       .addEdge("teardownNode", "__end__")
-      .compile({ checkpointer: new MemorySaver() });
+      .compile({ checkpointer: new PersistentMemorySaver("freelens") });
   };
 
   return { buildAgentSystem, availableTools };
