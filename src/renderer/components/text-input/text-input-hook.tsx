@@ -7,7 +7,7 @@ import { navigateToExtensionPreferences } from "../../navigation/navigate-to-ext
 
 import type { SingleValue } from "react-select";
 
-const { useEffect, useRef, useState } = React;
+const { useCallback, useEffect, useRef, useState } = React;
 
 type TextInputHookProps = {
   onSend: (message: string) => void;
@@ -15,9 +15,18 @@ type TextInputHookProps = {
 
 const MAX_ROWS = 5;
 
+// Persist the unsent draft so switching to another view (e.g. the Pods list)
+// and back does not discard what the user has typed.
+const DRAFT_STORAGE_KEY = "chatInputDraft";
+
 export const useTextInput = ({ onSend }: TextInputHookProps) => {
-  const [message, setMessage] = useState("");
+  const [message, _setMessage] = useState(() => window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? "");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const setMessage = useCallback((value: string) => {
+    _setMessage(value);
+    window.sessionStorage.setItem(DRAFT_STORAGE_KEY, value);
+  }, []);
   const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
   const applicationStatusStore = useApplicationStatusStore();
 
