@@ -7,9 +7,49 @@ import { addModel, removeModelAt, resolveSelectedModel } from "../../business/pr
 import type { SingleValue } from "react-select";
 
 const { observer } = MobxReact;
-const { useState } = React;
+const { useCallback, useEffect, useMemo, useRef, useState } = React;
 
 import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore } from "../../../common/store";
+import { debounce } from "../../../common/utils/debounce";
+
+/** Writes are throttled while typing stays responsive. */
+const STORE_WRITE_DEBOUNCE_MS = 500;
+
+/**
+ * Binds a controlled text field to a store value while throttling writes.
+ *
+ * The returned draft updates immediately so typing stays responsive, but the
+ * `commit` callback fires at most once per {@link STORE_WRITE_DEBOUNCE_MS}
+ * (trailing edge), avoiding an expensive store/disk write on every keystroke.
+ */
+function useDebouncedStoreValue(value: string, commit: (next: string) => void): [string, (next: string) => void] {
+  const [draft, setDraft] = useState<string>(value);
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+
+  const debouncedCommit = useMemo(
+    () => debounce((next: string) => commitRef.current(next), STORE_WRITE_DEBOUNCE_MS),
+    [],
+  );
+
+  // Reflect external changes (e.g. when the store is loaded or reset elsewhere).
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  // Flush any pending write so the last edit is not lost on unmount.
+  useEffect(() => () => debouncedCommit.flush(), [debouncedCommit]);
+
+  const onChange = useCallback(
+    (next: string) => {
+      setDraft(next);
+      debouncedCommit(next);
+    },
+    [debouncedCommit],
+  );
+
+  return [draft, onChange];
+}
 
 const {
   Component: { Button, Icon, Input, Select, Switch, HorizontalLine },
@@ -34,6 +74,15 @@ export const PreferencesPage = observer(() => {
 
   const [newModelProvider, setNewModelProvider] = useState<AIProviders>(AIProviders.OPEN_AI);
   const [newModelName, setNewModelName] = useState<string>("");
+
+  const [customAgentRules, setCustomAgentRules] = useDebouncedStoreValue(
+    preferencesStore.customAgentRules,
+    (next) => (preferencesStore.customAgentRules = next),
+  );
+  const [mcpConfiguration, setMcpConfiguration] = useDebouncedStoreValue(
+    preferencesStore.mcpConfiguration,
+    (next) => void preferencesStore.updateMcpConfiguration(next),
+  );
 
   const handleAddModel = () => {
     // `addModel` trims the name and ignores empty/duplicate entries.
@@ -154,8 +203,8 @@ export const PreferencesPage = observer(() => {
           color: "#fff",
         }}
         placeholder="e.g. Always answer in English. Prefer kubectl examples over Helm."
-        value={preferencesStore.customAgentRules}
-        onChange={(e) => (preferencesStore.customAgentRules = e.target.value)}
+        value={customAgentRules}
+        onChange={(e) => setCustomAgentRules(e.target.value)}
       />
 
       <HorizontalLine />
@@ -182,8 +231,8 @@ export const PreferencesPage = observer(() => {
               color: "#fff",
             }}
             placeholder="Paste or edit your MCP JSON configuration here"
-            value={preferencesStore.mcpConfiguration}
-            onChange={async (e) => preferencesStore.updateMcpConfiguration(e.target.value).then(() => {})}
+            value={mcpConfiguration}
+            onChange={(e) => setMcpConfiguration(e.target.value)}
           />
         </div>
       </div>
