@@ -6,7 +6,12 @@ import {
 } from "../../renderer/business/objects/message-object-provider";
 import { MessageType } from "../../renderer/business/objects/message-type";
 import { DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
-import { AgentService, isReasoningChunk, useAgentService } from "../../renderer/business/service/agent-service";
+import {
+  AgentService,
+  isReasoningChunk,
+  isTokenUsageChunk,
+  useAgentService,
+} from "../../renderer/business/service/agent-service";
 import { AiAnalysisService, useAiAnalysisService } from "../../renderer/business/service/ai-analysis-service";
 import { ActionToApprove } from "../../renderer/components/chat";
 import { useApplicationStatusStore } from "../../renderer/context/application-context";
@@ -223,6 +228,13 @@ const useChatService = () => {
         // than its visible answer text.
         if (isReasoningChunk(chunk)) {
           applicationStatusStore.updateLastMessageReasoning(chunk.reasoning);
+          continue;
+        }
+
+        // Token usage reported for a model turn is summed into the per-session
+        // counter shown next to the model list.
+        if (isTokenUsageChunk(chunk)) {
+          applicationStatusStore.addTokenUsage(chunk.tokenUsage);
           continue;
         }
 

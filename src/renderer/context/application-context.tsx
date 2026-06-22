@@ -17,6 +17,7 @@ import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
 import { AIProviders } from "../business/provider/ai-models";
+import { emptyTokenUsage, addTokenUsage as sumTokenUsage, type TokenUsage } from "../business/service/token-usage";
 import { IS_CONVERSATION_INTERRUPTED_KEY, IS_LOADING_KEY } from "./chat-session-storage";
 
 import type { MessageObject } from "../business/objects/message-object";
@@ -32,9 +33,11 @@ export interface AppContextType {
   isLoading: boolean;
   isConversationInterrupted: boolean;
   chatMessages: MessageObject[] | null;
+  tokenUsage: TokenUsage;
   freeLensAgent: FreeLensAgent | null;
   mcpAgent: MPCAgent | null;
   setSelectedModel: (selectedModel: string) => void;
+  addTokenUsage: (usage: TokenUsage) => void;
   setExplainEvent: (messageObject: MessageObject) => void;
   setBypassApprovals: (bypassApprovals: boolean) => void;
   setLoading: (isLoading: boolean) => void;
@@ -69,6 +72,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const [isLoading, _setLoading] = useState(false);
   const [isConversationInterrupted, _setConversationInterrupted] = useState(false);
   const [chatMessages, _setChatMessages] = useState<MessageObject[] | null>(null);
+  const [tokenUsage, _setTokenUsage] = useState<TokenUsage>(emptyTokenUsage());
   const [freeLensAgent, _setFreeLensAgent] = useState<FreeLensAgent | null>(agentsStore.freeLensAgent);
   const [mcpAgent, _setMcpAgent] = useState<MPCAgent | null>(agentsStore.mcpAgent);
 
@@ -83,6 +87,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     _setConversationInterrupted(window.sessionStorage.getItem(IS_CONVERSATION_INTERRUPTED_KEY) === "true");
     _getConversationId();
     _loadChatMessages();
+    _setTokenUsage(chatSessionStore.getTokenUsage(clusterId));
     _initFreeLensAgent();
   }, []);
 
@@ -221,7 +226,19 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     });
   };
 
+  const addTokenUsage = (usage: TokenUsage) => {
+    _setTokenUsage((prev) => {
+      const updated = sumTokenUsage(prev, usage);
+      // Durable: persisted alongside the transcript so the counter survives an
+      // app restart and stays in sync with the restored session.
+      chatSessionStore.setTokenUsage(clusterId, updated);
+      return updated;
+    });
+  };
+
   const clearChat = async () => {
+    // Zero the per-session token counter alongside the transcript.
+    _setTokenUsage(emptyTokenUsage());
     if (freeLensAgent) {
       cleanAgentMessageHistory(freeLensAgent).finally(() => {
         _setChatMessages([]);
@@ -370,9 +387,11 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         isLoading,
         isConversationInterrupted,
         chatMessages,
+        tokenUsage,
         mcpAgent,
         freeLensAgent,
         setSelectedModel,
+        addTokenUsage,
         setExplainEvent,
         setBypassApprovals,
         setLoading,

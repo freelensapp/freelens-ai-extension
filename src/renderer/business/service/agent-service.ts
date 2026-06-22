@@ -1,7 +1,11 @@
+import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { Command, Interrupt } from "@langchain/langgraph";
 import { FreeLensAgent } from "../agent/freelens-agent-system";
 import { MPCAgent } from "../agent/mcp-agent";
 import { createStreamMergeState, extractReasoningText, mergeAiChunk } from "./stream-merge";
+import { addTokenUsage, emptyTokenUsage, extractTokenUsageFromLLMResult, type TokenUsage } from "./token-usage";
+
+import type { LLMResult } from "@langchain/core/outputs";
 
 const MAX_GEMINI_STREAM_RETRIES = 3;
 const BASE_BACKOFF_MS = 700;
@@ -44,11 +48,40 @@ export const isReasoningChunk = (chunk: unknown): chunk is ReasoningChunk =>
   "reasoning" in chunk &&
   typeof (chunk as ReasoningChunk).reasoning === "string";
 
+// A streamed chunk carrying the token usage reported for a single model turn.
+// The chat service sums these into the per-session counter shown in the UI.
+export interface TokenUsageChunk {
+  tokenUsage: TokenUsage;
+}
+
+export const isTokenUsageChunk = (chunk: unknown): chunk is TokenUsageChunk =>
+  typeof chunk === "object" && chunk !== null && "tokenUsage" in chunk;
+
+/**
+ * Accumulates the token usage reported by every model turn in a run via the
+ * `handleLLMEnd` callback. The callback fires for each LLM call - including the
+ * supervisor and analyzer turns the graph suppresses from the `messages` stream
+ * with the `nostream` tag - so the counter reflects the whole run, not just the
+ * single visible (conclusions / operator) turn. Config callbacks propagate to
+ * the sub-agents through the forwarded run config, so their turns are caught too.
+ */
+class TokenUsageCollector extends BaseCallbackHandler {
+  name = "freelens-token-usage-collector";
+  total: TokenUsage = emptyTokenUsage();
+
+  handleLLMEnd(output: LLMResult): void {
+    const usage = extractTokenUsageFromLLMResult(output);
+    if (usage) {
+      this.total = addTokenUsage(this.total, usage);
+    }
+  }
+}
+
 export interface AgentService {
   run(
     agentInput: object | Command,
     conversationId: string,
-  ): AsyncGenerator<string | ReasoningChunk | Interrupt, void, unknown>;
+  ): AsyncGenerator<string | ReasoningChunk | TokenUsageChunk | Interrupt, void, unknown>;
 }
 
 /**
@@ -67,9 +100,16 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
       // Tracks assistant message boundaries so distinct messages emitted within a
       // single run are separated by a blank line instead of being glued together.
       const mergeState = createStreamMergeState();
+      // Fresh per attempt so a transient-error retry discards the usage counted
+      // for the failed attempt rather than double counting it.
+      const tokenUsageCollector = new TokenUsageCollector();
 
       try {
-        const streamResponse = await agent.stream(agentInput, { streamMode: "messages", configurable: config });
+        const streamResponse = await agent.stream(agentInput, {
+          streamMode: "messages",
+          configurable: config,
+          callbacks: [tokenUsageCollector],
+        });
 
         // streams LLM token by token to the UI
         for await (const [message, _metadata] of streamResponse) {
@@ -107,6 +147,16 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
         }
 
         yield "\n";
+
+        // Emit the token usage accumulated across every model turn in this run
+        // (collected from the `handleLLMEnd` callback above). Reading it from the
+        // callback rather than the streamed chunks is what lets the supervisor
+        // and analyzer turns - suppressed from the `messages` stream by the
+        // `nostream` tag - be counted, not just the single visible turn.
+        const tokenUsage = tokenUsageCollector.total;
+        if (tokenUsage.input !== 0 || tokenUsage.cached !== 0 || tokenUsage.output !== 0) {
+          yield { tokenUsage };
+        }
 
         // checks the agent state for any interrupts
         const agentState = await agent.getState({ configurable: config });

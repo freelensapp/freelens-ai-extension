@@ -2,6 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { Eraser, SendHorizonal, ShieldOff } from "lucide-react";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
+import { formatTokenUsage } from "../../business/service/token-usage";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { AvailableTools } from "../available-tools/available-tools";
 import styleInline from "./text-input.scss?inline";
@@ -108,6 +109,14 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               </button>
             </div>
             <div style={{ display: "flex", alignItems: "center" }}>
+              {textInputHook.agentConfigured && (
+                <span
+                  className="text-input-token-counter"
+                  title="Tokens used this session (input, cached input, output). Resets when the chat is cleared."
+                >
+                  {formatTokenUsage(applicationStatusStore.tokenUsage)}
+                </span>
+              )}
               {textInputHook.agentConfigured ? (
                 <Select
                   id="update-channel-input"
