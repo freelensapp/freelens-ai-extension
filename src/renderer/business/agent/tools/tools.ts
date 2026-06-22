@@ -5,6 +5,7 @@ import {
   createKubernetesResource as createKubernetesResourceImpl,
   deleteKubernetesResource as deleteKubernetesResourceImpl,
   deletePod as deletePodImpl,
+  getClusterVersion as getClusterVersionImpl,
   getKubernetesResource as getKubernetesResourceImpl,
   getPodLogs as getPodLogsImpl,
   listKubernetesResources as listKubernetesResourcesImpl,
@@ -57,6 +58,14 @@ export const getNamespaces = tool(
     description: "Get all namespaces of the Kubernetes cluster",
   },
 );
+
+export const getClusterVersion = tool(getClusterVersionImpl, {
+  name: "getClusterVersion",
+  description:
+    "Get the Kubernetes version of the currently connected cluster by querying the API server's /version endpoint " +
+    "directly (the same server version that 'kubectl version' reports). Prefer this over inspecting node " +
+    "kubeletVersions or other heuristics. Takes no arguments.",
+});
 
 export const getWarningEventsByNamespace = tool(
   ({ namespace }: { namespace: string }): string => {
@@ -243,6 +252,7 @@ export const restartKubernetesResource = tool(restartKubernetesResourceImpl, {
 
 export const allToolFunctions = [
   getNamespaces,
+  getClusterVersion,
   getWarningEventsByNamespace,
   listKubernetesResources,
   getKubernetesResource,
@@ -268,6 +278,13 @@ export const toolFunctionDescriptions = [
     description: "Get all namespaces of the Kubernetes cluster",
     arguments: "No arguments. The function does not require any input.",
     returnType: "Returns a list of all namespace names as strings.",
+  },
+  {
+    name: "getClusterVersion",
+    description: "Get the Kubernetes server version of the currently connected cluster",
+    arguments: "No arguments. The function does not require any input.",
+    returnType:
+      'Returns a JSON string with the cluster version (the gitVersion, e.g. "v1.29.2") and related details such as major, minor, gitCommit, buildDate, goVersion and platform.',
   },
   {
     name: "getWarningEventsByNamespace",
