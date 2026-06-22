@@ -8,6 +8,7 @@ const { createContext, useContext, useEffect, useRef, useState } = React;
 import { PreferencesStore } from "../../common/store";
 import { AgentStateStore } from "../../common/store/agent-state-store";
 import { AgentsStore } from "../../common/store/agents-store";
+import { ChatSessionStore } from "../../common/store/chat-session-store";
 import useLog from "../../common/utils/logger/logger-service";
 import { generateUuid } from "../../common/utils/uuid";
 import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
@@ -15,14 +16,7 @@ import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
 import { AIProviders } from "../business/provider/ai-models";
-import {
-  IS_CONVERSATION_INTERRUPTED_KEY,
-  IS_LOADING_KEY,
-  loadChatMessages,
-  loadConversationId,
-  saveChatMessages,
-  saveConversationId,
-} from "./chat-session-storage";
+import { IS_CONVERSATION_INTERRUPTED_KEY, IS_LOADING_KEY } from "./chat-session-storage";
 
 import type { MessageObject } from "../business/objects/message-object";
 
@@ -61,6 +55,9 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     PreferencesStore.getInstanceOrCreate<PreferencesStore>(),
   );
   const [agentsStore, _setAgentsStore] = useState<AgentsStore>(AgentsStore.getInstanceOrCreate<AgentsStore>());
+  const [chatSessionStore, _setChatSessionStore] = useState<ChatSessionStore>(
+    ChatSessionStore.getInstanceOrCreate<ChatSessionStore>(),
+  );
   const [conversationId, _setConversationId] = useState("");
   const [isLoading, _setLoading] = useState(false);
   const [isConversationInterrupted, _setConversationInterrupted] = useState(false);
@@ -98,14 +95,15 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   }, [freeLensAgent]);
 
   const _loadChatMessages = () => {
-    // Durable: persisted in localStorage so the transcript survives an app restart.
-    _setChatMessages(loadChatMessages(window.localStorage));
+    // Durable: persisted in the host-managed ChatSessionStore so the transcript
+    // survives an app restart (window.localStorage is not durable here).
+    _setChatMessages(chatSessionStore.messages);
   };
 
   const _getConversationId = () => {
-    // Durable: persisted in localStorage so the conversation thread stays stable
-    // across an app restart, matching the restored transcript.
-    const storedConversationId = loadConversationId(window.localStorage);
+    // Durable: persisted in the host-managed ChatSessionStore so the conversation
+    // thread stays stable across an app restart, matching the restored transcript.
+    const storedConversationId = chatSessionStore.conversationId;
     if (storedConversationId) {
       _setConversationId(storedConversationId);
       log.debug("Using stored conversation ID: ", storedConversationId);
@@ -113,7 +111,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       log.debug("Generating conversation ID");
       const newConverstionId = generateUuid();
       _setConversationId(newConverstionId);
-      saveConversationId(window.localStorage, newConverstionId);
+      chatSessionStore.setConversationId(newConverstionId);
       log.debug("No stored conversation ID found, generating a new one.");
     }
   };
@@ -137,7 +135,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         prev = [];
       }
       const updated = [...prev, message];
-      saveChatMessages(window.localStorage, updated);
+      chatSessionStore.setMessages(updated);
       return updated;
     });
   };
@@ -157,7 +155,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       if (lastMessage.sent || lastMessage.type === MessageType.INTERRUPT) {
         // Agent response does not exist, add a new empty one
         messagesCopy.push(getTextMessage(newText, false));
-        saveChatMessages(window.localStorage, messagesCopy);
+        chatSessionStore.setMessages(messagesCopy);
         return messagesCopy;
       }
 
@@ -167,7 +165,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         text: lastMessage.text + newText,
       };
 
-      saveChatMessages(window.localStorage, messagesCopy);
+      chatSessionStore.setMessages(messagesCopy);
       return messagesCopy;
     });
   };
@@ -189,7 +187,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         };
       }
 
-      saveChatMessages(window.localStorage, messagesCopy);
+      chatSessionStore.setMessages(messagesCopy);
       return messagesCopy;
     });
   };
@@ -198,13 +196,13 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     if (freeLensAgent) {
       cleanAgentMessageHistory(freeLensAgent).finally(() => {
         _setChatMessages([]);
-        saveChatMessages(window.localStorage, []);
+        chatSessionStore.clear();
       });
     }
     if (mcpAgent) {
       await cleanAgentMessageHistory(mcpAgent).finally(() => {
         _setChatMessages([]);
-        saveChatMessages(window.localStorage, []);
+        chatSessionStore.clear();
       });
     }
     // Wipe the durable LangGraph checkpointer state so a restart right after a
@@ -322,9 +320,11 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   };
 
   const changeInterruptStatus = (id: string, status: boolean) => {
-    _setChatMessages((prevMessages) =>
-      prevMessages!.map((msg) => (msg.messageId === id ? { ...msg, approved: status } : msg)),
-    );
+    _setChatMessages((prevMessages) => {
+      const updated = prevMessages!.map((msg) => (msg.messageId === id ? { ...msg, approved: status } : msg));
+      chatSessionStore.setMessages(updated);
+      return updated;
+    });
   };
 
   return (

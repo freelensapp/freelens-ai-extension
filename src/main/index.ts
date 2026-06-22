@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Main } from "@freelensapp/extensions";
-import { AgentStateStore, PreferencesStore } from "../common/store";
+import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
 import { startAiProxyServer } from "./ai-proxy-server";
 
 export default class LensExtensionAiMain extends Main.LensExtension {
@@ -15,6 +15,12 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     // over IPC and the agent can restore its conversation after a restart.
     // @ts-ignore
     AgentStateStore.getInstanceOrCreate<AgentStateStore>().loadExtension(this);
+
+    // Owns the on-disk file for the persisted chat transcript and conversation
+    // id. The main process must load it so the renderer receives the persisted
+    // value over IPC and the chat HTML can be restored after a restart.
+    // @ts-ignore
+    ChatSessionStore.getInstanceOrCreate<ChatSessionStore>().loadExtension(this);
 
     // Generate a fresh shared secret for this launch and require it on every
     // proxy request, so a local process that learns the port cannot reuse the
