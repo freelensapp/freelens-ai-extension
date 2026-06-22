@@ -4,7 +4,7 @@
  */
 
 import { Renderer } from "@freelensapp/extensions";
-import { AgentStateStore, PreferencesStore } from "../common/store";
+import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
 import { ensureRunnableContextStorage } from "./business/agent/runnable-context";
 import { FreeLensAiIcon } from "./components/freelens-ai-icon";
 import { MenuEntry } from "./components/menu-entry";
@@ -31,6 +31,10 @@ export default class FreeLensAIRenderer extends Renderer.LensExtension {
     // state, so the conversation context survives an application restart.
     // @ts-ignore
     AgentStateStore.getInstanceOrCreate<AgentStateStore>().loadExtension(this);
+    // Durable, host-managed storage for the rendered chat transcript and
+    // conversation id, so the chat HTML survives an application restart.
+    // @ts-ignore
+    ChatSessionStore.getInstanceOrCreate<ChatSessionStore>().loadExtension(this);
   }
 
   clusterPages = [
