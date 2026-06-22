@@ -1,5 +1,6 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
+import { emptyTokenUsage, type TokenUsage } from "../../renderer/business/service/token-usage";
 
 import type { MessageObject } from "../../renderer/business/objects/message-object";
 
@@ -8,6 +9,9 @@ export interface ChatSession {
   // agent's LangGraph thread. Both make up the durable "session".
   messages: MessageObject[];
   conversationId: string;
+  // Running token totals for this session, summed across every model turn.
+  // Reset when the session is cleared.
+  tokenUsage: TokenUsage;
 }
 
 export interface ChatSessionModel {
@@ -18,7 +22,7 @@ export interface ChatSessionModel {
   sessions: Record<string, ChatSession>;
 }
 
-const emptySession = (): ChatSession => ({ messages: [], conversationId: "" });
+const emptySession = (): ChatSession => ({ messages: [], conversationId: "", tokenUsage: emptyTokenUsage() });
 
 /**
  * Durable, host-managed persistence for the rendered chat sessions (the
@@ -78,8 +82,17 @@ export class ChatSessionStore extends Common.Store.ExtensionStore<ChatSessionMod
     this.patch(clusterId, { conversationId });
   }
 
+  getTokenUsage(clusterId: string): TokenUsage {
+    return this.session(clusterId).tokenUsage ?? emptyTokenUsage();
+  }
+
+  setTokenUsage(clusterId: string, tokenUsage: TokenUsage): void {
+    this.patch(clusterId, { tokenUsage });
+  }
+
   clear(clusterId: string): void {
-    this.patch(clusterId, { messages: [] });
+    // Clearing the session also zeroes the token counter.
+    this.patch(clusterId, { messages: [], tokenUsage: emptyTokenUsage() });
   }
 
   fromStore(model: ChatSessionModel): void {
@@ -96,6 +109,7 @@ export class ChatSessionStore extends Common.Store.ExtensionStore<ChatSessionMod
       sessions[clusterId] = {
         messages: toJS(session.messages),
         conversationId: session.conversationId,
+        tokenUsage: toJS(session.tokenUsage) ?? emptyTokenUsage(),
       };
     }
     return { sessions };

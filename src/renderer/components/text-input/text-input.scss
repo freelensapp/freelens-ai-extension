@@ -47,6 +47,16 @@
   cursor: default;
 }
 
+// Per-session token counter shown next to the model list. Matches the dimmed,
+// smaller styling of the chat's "Reasoning" summary.
+.text-input-token-counter {
+  margin-right: 0.5rem;
+  color: var(--textColorDimmed);
+  font-size: 0.9em;
+  white-space: nowrap;
+  user-select: none;
+}
+
 .text-input-select-box {
   min-width: 70px !important;
 }
