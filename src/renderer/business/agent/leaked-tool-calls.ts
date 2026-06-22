@@ -51,6 +51,10 @@ const toText = (content: MessageContent): string => {
     .join("");
 };
 
+// Public alias: flatten LangChain message content to plain text. Reused by the
+// supervisor routing recovery to scan assistant text for a routing decision.
+export const messageContentToText = (content: MessageContent): string => toText(content);
+
 // True when the assistant content contains tool-call tokens that leaked as text.
 export const containsLeakedToolCallMarkup = (content: MessageContent): boolean => {
   const text = toText(content);
