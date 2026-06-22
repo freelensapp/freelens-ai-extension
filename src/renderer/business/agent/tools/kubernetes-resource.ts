@@ -2,6 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { interrupt } from "@langchain/langgraph";
 import { stringify as stringifyYaml } from "yaml";
 import { PreferencesStore } from "../../../../common/store";
+import { type KubernetesVersionInfo, summarizeClusterVersion } from "./cluster-version";
 import {
   capLogOutput,
   capTailLines,
@@ -178,6 +179,17 @@ interface SubresourcePatchApi {
   };
 }
 
+// The host KubeApi exposes the shared cluster `KubeJsonApi` client through a
+// protected `request` property with no public accessor. Describe the minimal
+// surface we rely on (a typed GET) and reach it through a structural cast via
+// `unknown`, mirroring the `SubresourcePatchApi` pattern above (the project
+// forbids `as any`).
+interface VersionRequestApi {
+  request: {
+    get<T>(path: string): Promise<T>;
+  };
+}
+
 // Kubernetes content-type for a strategic merge patch. Subresource patches such
 // as in-place Pod resize update entries inside arrays (spec.containers) that are
 // merged by their `name` key, so a strategic merge is required; a plain JSON
@@ -229,6 +241,31 @@ export async function getKubernetesResource({ kind, apiVersion, name, namespace 
     return JSON.stringify(projectObject(object));
   } catch (error) {
     console.error("[Tool invocation error: getKubernetesResource] - ", error);
+    return JSON.stringify(error);
+  }
+}
+
+/**
+ * Read the Kubernetes version of the currently connected cluster by querying
+ * the API server's `/version` endpoint directly (the same `version.Info` that
+ * `kubectl version` reports). This is the authoritative source for the server
+ * version and avoids heuristics such as inspecting node `kubeletVersion`s. Any
+ * registered KubeApi shares the cluster `KubeJsonApi` client, so the pods API
+ * is used to reach it.
+ */
+export async function getClusterVersion(): Promise<string> {
+  console.log("[Tool invocation: getClusterVersion]");
+  const api = Renderer.K8sApi.podsApi as unknown as VersionRequestApi;
+  try {
+    const info = await api.request.get<KubernetesVersionInfo>("/version");
+    if (!info || typeof info !== "object") {
+      return "Could not determine the Kubernetes cluster version.";
+    }
+    const summary = summarizeClusterVersion(info);
+    console.log("[Tool invocation result: getClusterVersion] - ", summary);
+    return JSON.stringify(summary);
+  } catch (error) {
+    console.error("[Tool invocation error: getClusterVersion] - ", error);
     return JSON.stringify(error);
   }
 }
