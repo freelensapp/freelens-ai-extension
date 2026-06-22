@@ -15,6 +15,7 @@ import {
   type DeleteMode,
   isRestartableKind,
   type Manifest,
+  normalizeSubresource,
   type PodDeleteMode,
   prepareManifest,
   RESTARTABLE_KINDS,
@@ -60,6 +61,10 @@ export interface WriteResourceInput {
   name: string;
   namespace?: string;
   data: Manifest;
+  // Only consumed by patchKubernetesResource: the subresource to patch instead
+  // of the main resource (for example "resize" to change a running Pod's
+  // CPU/memory in place, or "scale").
+  subresource?: string;
 }
 
 export interface DeleteResourceInput {
@@ -160,6 +165,24 @@ function projectObject(object: KubeObject) {
 type CreateData = Parameters<KubeObjectStore["create"]>[1];
 type UpdateData = Parameters<KubeObjectStore["update"]>[1];
 type DeleteOptions = Parameters<KubeObjectStore["removeWithOptions"]>[1];
+
+// The host KubeApi has no public method to patch a subresource: its `patch`
+// builds the URL from `formatUrlForNotListing` and never appends a subresource,
+// and the underlying KubeJsonApi `request` client is protected. Describe the
+// minimal surface we rely on and reach it through a structural cast (the
+// project forbids `as any`, so we go through `unknown` to a precise shape).
+interface SubresourcePatchApi {
+  formatUrlForNotListing(desc: { name?: string; namespace?: string }): string;
+  request: {
+    patch(path: string, params: { data: unknown }, reqInit: { headers: Record<string, string> }): Promise<unknown>;
+  };
+}
+
+// Kubernetes content-type for a strategic merge patch. Subresource patches such
+// as in-place Pod resize update entries inside arrays (spec.containers) that are
+// merged by their `name` key, so a strategic merge is required; a plain JSON
+// merge patch would replace the whole array.
+const STRATEGIC_MERGE_PATCH_CONTENT_TYPE = "application/strategic-merge-patch+json";
 
 /**
  * List resources of a kind, loading them from the store on demand. Namespaced
@@ -318,8 +341,17 @@ export async function patchKubernetesResource({
   name,
   namespace,
   data,
+  subresource,
 }: WriteResourceInput): Promise<string> {
-  console.log("[Tool invocation: patchKubernetesResource] - kind:", kind, "name:", name);
+  const normalizedSubresource = normalizeSubresource(subresource);
+  console.log(
+    "[Tool invocation: patchKubernetesResource] - kind:",
+    kind,
+    "name:",
+    name,
+    "subresource:",
+    normalizedSubresource,
+  );
   const target = resolveTarget(kind, apiVersion);
   if (typeof target === "string") {
     return target;
@@ -329,7 +361,7 @@ export async function patchKubernetesResource({
     return `Kind "${kind}" is namespaced; please provide a namespace to patch "${name}".`;
   }
 
-  if (!requestApproval(`PATCH ${kind.toUpperCase()}`, { name, namespace, data })) {
+  if (!requestApproval(`PATCH ${kind.toUpperCase()}`, { name, namespace, subresource: normalizedSubresource, data })) {
     return "The user denied the action";
   }
 
@@ -337,6 +369,24 @@ export async function patchKubernetesResource({
     const item = await store.load({ name, namespace: api.isNamespaced ? namespace : undefined });
     if (!item) {
       return `The ${kind} "${name}" you want to patch does not exist`;
+    }
+    if (normalizedSubresource) {
+      // The host store/api cannot target a subresource, so build the resource
+      // URL, append the subresource and PATCH it directly through the KubeApi
+      // request client. This is how an in-place Pod resize reaches
+      // `pods/{name}/resize`.
+      const patchApi = api as unknown as SubresourcePatchApi;
+      const baseUrl = patchApi.formatUrlForNotListing({
+        name,
+        namespace: api.isNamespaced ? namespace : undefined,
+      });
+      const result = await patchApi.request.patch(
+        `${baseUrl}/${normalizedSubresource}`,
+        { data },
+        { headers: { "content-type": STRATEGIC_MERGE_PATCH_CONTENT_TYPE } },
+      );
+      console.log("[Tool invocation result: patchKubernetesResource] - ", result);
+      return `${kind} "${name}" ${normalizedSubresource} subresource patched successfully`;
     }
     const result = await store.patch(item, data as unknown as UpdateData, "merge");
     console.log("[Tool invocation result: patchKubernetesResource] - ", result);

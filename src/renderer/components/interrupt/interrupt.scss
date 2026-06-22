@@ -16,6 +16,15 @@
   align-items: center;
 }
 
+.interrupt-header-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+
+.interrupt-details {
+  margin-bottom: 10px;
+}
+
 .interrupt-warning-icon {
   margin-right: 6px;
 }
