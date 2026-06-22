@@ -1,5 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as React from "react";
+import { hasManagedFields as detectManagedFields, stripManagedFields } from "./managed-fields";
 
 const { useState } = React;
 
@@ -9,6 +10,7 @@ const {
 
 type useCodeBlockHookProps = {
   children: React.ReactNode;
+  language?: string;
 };
 
 // The Freelens host only registers the YAML and JSON tokenizers for Monaco; any
@@ -22,12 +24,18 @@ const LINE_HEIGHT = 18;
 const MIN_LINES = 5;
 const MAX_LINES = 20;
 
-export const useCodeBlockHook = ({ children }: useCodeBlockHookProps) => {
+export const useCodeBlockHook = ({ children, language }: useCodeBlockHookProps) => {
   const [copied, setCopied] = useState(false);
-  const text = String(children).replace(/\n$/, "");
+  // managedFields is hidden by default; the toolbar gadget toggles it back on.
+  const [managedFieldsHidden, setManagedFieldsHidden] = useState(true);
+  const fullText = String(children).replace(/\n$/, "");
+  const hasManagedFields = language === "yaml" && detectManagedFields(fullText);
+  const text = hasManagedFields && managedFieldsHidden ? stripManagedFields(fullText) : fullText;
   const lineCount = text.split("\n").length;
   const hasMultipleLines = lineCount > 1;
   const shellId = "FreeLensAI-tabid";
+
+  const toggleManagedFields = () => setManagedFieldsHidden((value) => !value);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(text).then(() => {
@@ -69,6 +77,9 @@ export const useCodeBlockHook = ({ children }: useCodeBlockHookProps) => {
     copied,
     text,
     hasMultipleLines,
+    hasManagedFields,
+    managedFieldsHidden,
+    toggleManagedFields,
     handleCopy,
     executeCommand,
     isExecutable,

@@ -1,5 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
-import { ChevronDown, ChevronRight, Copy, Play } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, Play } from "lucide-react";
 import { useState } from "react";
 import styleInline from "./code-block.scss?inline";
 import { useCodeBlockHook } from "./code-block-hook";
@@ -32,7 +32,7 @@ export const CodeBlock = ({
   defaultCollapsed,
   props,
 }: CodeBlockProps) => {
-  const codeBlockHook = useCodeBlockHook({ children });
+  const codeBlockHook = useCodeBlockHook({ children, language });
   const [collapsed, setCollapsed] = useState(defaultCollapsed ?? false);
 
   if (!inline) {
@@ -60,10 +60,23 @@ export const CodeBlock = ({
               <div className={"code-block-toolbar-language"}>{label}</div>
             )}
 
-            <button onClick={codeBlockHook.handleCopy} className={"code-block-button code-block-copy-button"}>
-              {codeBlockHook.copied && <span className="code-block-copied-text">Copied!</span>}
-              <Copy size={16} />
-            </button>
+            <div className="code-block-toolbar-actions">
+              {codeBlockHook.hasManagedFields && (
+                <button
+                  type="button"
+                  onClick={codeBlockHook.toggleManagedFields}
+                  className={"code-block-button code-block-managed-fields-button"}
+                  title={codeBlockHook.managedFieldsHidden ? "Show managedFields" : "Hide managedFields"}
+                >
+                  {codeBlockHook.managedFieldsHidden ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              )}
+
+              <button onClick={codeBlockHook.handleCopy} className={"code-block-button code-block-copy-button"}>
+                {codeBlockHook.copied && <span className="code-block-copied-text">Copied!</span>}
+                <Copy size={16} />
+              </button>
+            </div>
           </div>
           {!bodyHidden && (
             <MonacoEditor

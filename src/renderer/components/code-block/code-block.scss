@@ -47,6 +47,16 @@
   user-select: none;
 }
 
+.code-block-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.code-block-managed-fields-button {
+  color: white;
+}
+
 .code-block-copy-button {
   color: white;
 }
