@@ -226,6 +226,42 @@ export function normalizeSubresource(subresource?: string): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/**
+ * Kubernetes content-type for a strategic merge patch. Used for subresources
+ * whose payload updates entries inside arrays merged by a key (for example the
+ * Pod `resize` subresource, which merges `spec.containers` by `name`); a plain
+ * JSON merge patch would replace the whole array.
+ */
+export const STRATEGIC_MERGE_PATCH_CONTENT_TYPE = "application/strategic-merge-patch+json";
+
+/**
+ * Kubernetes content-type for a plain JSON merge patch (RFC 7386). Used for
+ * subresources that do not register a strategic merge strategy, such as `scale`
+ * (a Scale object) and `status`, where the apiserver rejects a strategic merge
+ * patch.
+ */
+export const MERGE_PATCH_CONTENT_TYPE = "application/merge-patch+json";
+
+/**
+ * Subresources whose patch payload requires a strategic merge patch (array
+ * entries merged by key). Only the Pod `resize` subresource needs this today;
+ * every other subresource (`scale`, `status`, ...) uses a plain merge patch.
+ */
+const STRATEGIC_MERGE_PATCH_SUBRESOURCES = new Set<string>(["resize"]);
+
+/**
+ * Pick the PATCH content-type for a subresource. The Pod `resize` subresource
+ * merges `spec.containers` by name and needs a strategic merge patch; `scale`
+ * (a Scale object) and `status` have no strategic merge strategy registered, so
+ * they require a plain JSON merge patch (the apiserver rejects a strategic merge
+ * there). Unknown subresources default to the safer plain merge patch.
+ */
+export function subresourcePatchContentType(subresource: string): string {
+  return STRATEGIC_MERGE_PATCH_SUBRESOURCES.has(subresource)
+    ? STRATEGIC_MERGE_PATCH_CONTENT_TYPE
+    : MERGE_PATCH_CONTENT_TYPE;
+}
+
 export function getResourceHandler(kind: string): ResourceHandler | undefined {
   return RESOURCE_HANDLERS[kind];
 }

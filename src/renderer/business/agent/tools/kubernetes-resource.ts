@@ -20,6 +20,7 @@ import {
   prepareManifest,
   RESTARTABLE_KINDS,
   resolveApiVersion,
+  subresourcePatchContentType,
   validateManifest,
 } from "./resource-handlers";
 
@@ -177,12 +178,6 @@ interface SubresourcePatchApi {
     patch(path: string, params: { data: unknown }, reqInit: { headers: Record<string, string> }): Promise<unknown>;
   };
 }
-
-// Kubernetes content-type for a strategic merge patch. Subresource patches such
-// as in-place Pod resize update entries inside arrays (spec.containers) that are
-// merged by their `name` key, so a strategic merge is required; a plain JSON
-// merge patch would replace the whole array.
-const STRATEGIC_MERGE_PATCH_CONTENT_TYPE = "application/strategic-merge-patch+json";
 
 /**
  * List resources of a kind, loading them from the store on demand. Namespaced
@@ -374,7 +369,9 @@ export async function patchKubernetesResource({
       // The host store/api cannot target a subresource, so build the resource
       // URL, append the subresource and PATCH it directly through the KubeApi
       // request client. This is how an in-place Pod resize reaches
-      // `pods/{name}/resize`.
+      // `pods/{name}/resize`. The content-type depends on the subresource:
+      // `resize` merges `spec.containers` by name and needs a strategic merge
+      // patch, while `scale`/`status` require a plain JSON merge patch.
       const patchApi = api as unknown as SubresourcePatchApi;
       const baseUrl = patchApi.formatUrlForNotListing({
         name,
@@ -383,7 +380,7 @@ export async function patchKubernetesResource({
       const result = await patchApi.request.patch(
         `${baseUrl}/${normalizedSubresource}`,
         { data },
-        { headers: { "content-type": STRATEGIC_MERGE_PATCH_CONTENT_TYPE } },
+        { headers: { "content-type": subresourcePatchContentType(normalizedSubresource) } },
       );
       console.log("[Tool invocation result: patchKubernetesResource] - ", result);
       return `${kind} "${name}" ${normalizedSubresource} subresource patched successfully`;

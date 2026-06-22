@@ -7,12 +7,15 @@ import {
   isDeleteMode,
   isPodDeleteMode,
   isRestartableKind,
+  MERGE_PATCH_CONTENT_TYPE,
   normalizeSubresource,
   POD_DELETE_MODES,
   prepareManifest,
   RESTARTABLE_KINDS,
   resolveApiVersion,
+  STRATEGIC_MERGE_PATCH_CONTENT_TYPE,
   SUPPORTED_KINDS,
+  subresourcePatchContentType,
   validateManifest,
 } from "./resource-handlers";
 
@@ -105,6 +108,24 @@ describe("normalizeSubresource", () => {
   it("keeps an inner path intact", () => {
     expect(normalizeSubresource("status")).toBe("status");
     expect(normalizeSubresource("scale")).toBe("scale");
+  });
+});
+
+describe("subresourcePatchContentType", () => {
+  it("uses a strategic merge patch for resize (array-by-name merge)", () => {
+    expect(subresourcePatchContentType("resize")).toBe(STRATEGIC_MERGE_PATCH_CONTENT_TYPE);
+    expect(STRATEGIC_MERGE_PATCH_CONTENT_TYPE).toBe("application/strategic-merge-patch+json");
+  });
+
+  it("uses a plain merge patch for scale and status", () => {
+    expect(subresourcePatchContentType("scale")).toBe(MERGE_PATCH_CONTENT_TYPE);
+    expect(subresourcePatchContentType("status")).toBe(MERGE_PATCH_CONTENT_TYPE);
+    expect(MERGE_PATCH_CONTENT_TYPE).toBe("application/merge-patch+json");
+  });
+
+  it("defaults unknown subresources to the safer plain merge patch", () => {
+    expect(subresourcePatchContentType("ephemeralcontainers")).toBe(MERGE_PATCH_CONTENT_TYPE);
+    expect(subresourcePatchContentType("")).toBe(MERGE_PATCH_CONTENT_TYPE);
   });
 });
 
