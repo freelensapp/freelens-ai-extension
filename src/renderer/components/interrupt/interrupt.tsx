@@ -1,6 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import { CheckCircle, XCircle } from "lucide-react";
 import * as React from "react";
+import { CodeBlock } from "../code-block";
 import { MarkdownViewer } from "../markdown-viewer";
 import styleInline from "./interrupt.scss?inline";
 
@@ -12,14 +13,43 @@ export type InterruptProps = {
   header: string;
   question: string;
   text: string;
+  actionDetails?: string;
+  resources?: string;
   options: string[];
   approved: boolean | null;
   onAction: (option) => void;
 };
 
-const Interrupt = ({ header, question, text, options, approved, onAction }: InterruptProps) => {
+const Interrupt = ({
+  header,
+  question,
+  text,
+  actionDetails,
+  resources,
+  options,
+  approved,
+  onAction,
+}: InterruptProps) => {
   const pending = approved === null;
   const [detailsOpen, setDetailsOpen] = React.useState(false);
+
+  // Structured Kubernetes approvals carry the action payload and a backup of the
+  // resources to be changed as YAML; other interrupts fall back to markdown text.
+  const renderBody = () =>
+    actionDetails ? (
+      <>
+        <CodeBlock language="yaml" title="Action details" collapsible props={{}}>
+          {actionDetails}
+        </CodeBlock>
+        {resources && (
+          <CodeBlock language="yaml" title="Resources that will be changed" collapsible defaultCollapsed props={{}}>
+            {resources}
+          </CodeBlock>
+        )}
+      </>
+    ) : (
+      <MarkdownViewer content={text} />
+    );
 
   return (
     <div>
@@ -42,7 +72,7 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
       </div>
       {pending && (
         <>
-          <MarkdownViewer content={text} />
+          {renderBody()}
           <div>
             {options.map((option) => (
               <Button
@@ -58,12 +88,7 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
           </div>
         </>
       )}
-      {!pending && detailsOpen && (
-        <div className="interrupt-details">
-          {question && <div className="interrupt-question">{question}</div>}
-          <MarkdownViewer content={text} />
-        </div>
-      )}
+      {!pending && detailsOpen && <div className="interrupt-details">{renderBody()}</div>}
     </div>
   );
 };

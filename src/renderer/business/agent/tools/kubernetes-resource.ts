@@ -2,6 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { interrupt } from "@langchain/langgraph";
 import { stringify as stringifyYaml } from "yaml";
 import { PreferencesStore } from "../../../../common/store";
+import { type KubernetesVersionInfo, summarizeClusterVersion } from "./cluster-version";
 import {
   capLogOutput,
   capTailLines,
@@ -132,21 +133,76 @@ function resolveTarget(kind: string, apiVersion?: string): ResolvedTarget | stri
 }
 
 /**
- * Run the human-in-the-loop approval gate for a write operation.
+ * Run the human-in-the-loop approval gate for a write operation. When
+ * `resourcesYaml` is provided it carries the current full YAML of the resources
+ * the action will change, presented as a folded backup so the change can be
+ * reverted.
  */
-function requestApproval(action: string, payload: Record<string, unknown>): boolean {
+function requestApproval(action: string, payload: Record<string, unknown>, resourcesYaml?: string): boolean {
   const actionToApprove = { action, ...payload };
+  // Render the payload as YAML, the native format of the Kubernetes world,
+  // so the approval prompt is highlighted as YAML rather than JSON.
+  const actionString = stringifyYaml(actionToApprove);
   const interruptRequest = {
     question: "Do you want to approve this action?",
     options: ["yes", "no"],
     actionToApprove,
-    // Render the payload as YAML, the native format of the Kubernetes world,
-    // so the approval prompt is highlighted as YAML rather than JSON.
-    requestString: "```yaml\n" + stringifyYaml(actionToApprove) + "```",
+    // Structured fields consumed by the Interrupt component to render foldable
+    // "Action details" and "Resources that will be changed" sections.
+    actionString,
+    resourcesString: resourcesYaml,
+    // Markdown fallback for renderers that do not understand the structured
+    // fields (for example the MCP tool approval prompt).
+    requestString: "```yaml\n" + actionString + "```",
   };
   const review = interrupt(interruptRequest);
   console.log("Tool call review: ", review);
   return review === "yes";
+}
+
+/**
+ * Build a restorable manifest from a loaded host object: the full resource as it
+ * exists now, used as the backup presented before a destructive change.
+ */
+function toBackupManifest(object: KubeObject) {
+  return {
+    apiVersion: object.apiVersion,
+    kind: object.kind,
+    metadata: object.metadata,
+    spec: object.spec,
+    status: object.status,
+  };
+}
+
+// Minimal structural view of a store used only to load a resource for the
+// backup. The host's concrete stores (PodStore, DeploymentStore, ...) are more
+// specific than the generic `KubeObjectStore` alias and not mutually
+// assignable, so the capture helper depends on `load` alone.
+interface LoadableStore {
+  load(params: { name: string; namespace?: string }): Promise<KubeObject | null | undefined>;
+}
+
+/**
+ * Best-effort capture of the current YAML of a resource before it is changed.
+ * Returns `undefined` (rather than throwing) when the resource cannot be loaded,
+ * so a missing backup never blocks the approval prompt.
+ */
+async function captureResourceYaml(
+  store: LoadableStore,
+  namespaced: boolean,
+  name: string,
+  namespace?: string,
+): Promise<string | undefined> {
+  try {
+    const object = await store.load({ name, namespace: namespaced ? namespace : undefined });
+    if (!object) {
+      return undefined;
+    }
+    return stringifyYaml(toBackupManifest(object));
+  } catch (error) {
+    console.error("[Backup capture error] - ", error);
+    return undefined;
+  }
 }
 
 function projectObject(object: KubeObject) {
@@ -175,6 +231,17 @@ interface SubresourcePatchApi {
   formatUrlForNotListing(desc: { name?: string; namespace?: string }): string;
   request: {
     patch(path: string, params: { data: unknown }, reqInit: { headers: Record<string, string> }): Promise<unknown>;
+  };
+}
+
+// The host KubeApi exposes the shared cluster `KubeJsonApi` client through a
+// protected `request` property with no public accessor. Describe the minimal
+// surface we rely on (a typed GET) and reach it through a structural cast via
+// `unknown`, mirroring the `SubresourcePatchApi` pattern above (the project
+// forbids `as any`).
+interface VersionRequestApi {
+  request: {
+    get<T>(path: string): Promise<T>;
   };
 }
 
@@ -229,6 +296,31 @@ export async function getKubernetesResource({ kind, apiVersion, name, namespace 
     return JSON.stringify(projectObject(object));
   } catch (error) {
     console.error("[Tool invocation error: getKubernetesResource] - ", error);
+    return JSON.stringify(error);
+  }
+}
+
+/**
+ * Read the Kubernetes version of the currently connected cluster by querying
+ * the API server's `/version` endpoint directly (the same `version.Info` that
+ * `kubectl version` reports). This is the authoritative source for the server
+ * version and avoids heuristics such as inspecting node `kubeletVersion`s. Any
+ * registered KubeApi shares the cluster `KubeJsonApi` client, so the pods API
+ * is used to reach it.
+ */
+export async function getClusterVersion(): Promise<string> {
+  console.log("[Tool invocation: getClusterVersion]");
+  const api = Renderer.K8sApi.podsApi as unknown as VersionRequestApi;
+  try {
+    const info = await api.request.get<KubernetesVersionInfo>("/version");
+    if (!info || typeof info !== "object") {
+      return "Could not determine the Kubernetes cluster version.";
+    }
+    const summary = summarizeClusterVersion(info);
+    console.log("[Tool invocation result: getClusterVersion] - ", summary);
+    return JSON.stringify(summary);
+  } catch (error) {
+    console.error("[Tool invocation error: getClusterVersion] - ", error);
     return JSON.stringify(error);
   }
 }
@@ -313,7 +405,8 @@ export async function updateKubernetesResource({
   }
   const manifest = prepareManifest(kind, validation.data);
 
-  if (!requestApproval(`UPDATE ${kind.toUpperCase()}`, { name, namespace, data: manifest })) {
+  const backup = await captureResourceYaml(store, api.isNamespaced, name, namespace);
+  if (!requestApproval(`UPDATE ${kind.toUpperCase()}`, { name, namespace, data: manifest }, backup)) {
     return "The user denied the action";
   }
 
@@ -361,7 +454,14 @@ export async function patchKubernetesResource({
     return `Kind "${kind}" is namespaced; please provide a namespace to patch "${name}".`;
   }
 
-  if (!requestApproval(`PATCH ${kind.toUpperCase()}`, { name, namespace, subresource: normalizedSubresource, data })) {
+  const backup = await captureResourceYaml(store, api.isNamespaced, name, namespace);
+  if (
+    !requestApproval(
+      `PATCH ${kind.toUpperCase()}`,
+      { name, namespace, subresource: normalizedSubresource, data },
+      backup,
+    )
+  ) {
     return "The user denied the action";
   }
 
@@ -424,7 +524,8 @@ export async function deleteKubernetesResource({
     return `Kind "${kind}" is namespaced; please provide a namespace to delete "${name}".`;
   }
 
-  if (!requestApproval(`DELETE ${kind.toUpperCase()}`, { name, namespace, mode })) {
+  const backup = await captureResourceYaml(store, api.isNamespaced, name, namespace);
+  if (!requestApproval(`DELETE ${kind.toUpperCase()}`, { name, namespace, mode }, backup)) {
     return "The user denied the action";
   }
 
@@ -476,8 +577,10 @@ export async function deletePod({ name, namespace, mode }: DeletePodInput): Prom
   }
 
   const podsApi = Renderer.K8sApi.podsApi;
+  const podsStore = Renderer.K8sApi.apiManager.getStore(podsApi);
+  const backup = podsStore ? await captureResourceYaml(podsStore, podsApi.isNamespaced, name, namespace) : undefined;
 
-  if (!requestApproval(`DELETE POD (${mode})`, { name, namespace, mode })) {
+  if (!requestApproval(`DELETE POD (${mode})`, { name, namespace, mode }, backup)) {
     return "The user denied the action";
   }
 
@@ -518,7 +621,9 @@ export async function restartKubernetesResource({ kind, name, namespace }: Resta
     return `Kind "${kind}" is namespaced; please provide a namespace to restart "${name}".`;
   }
 
-  if (!requestApproval(`RESTART ${kind.toUpperCase()}`, { name, namespace })) {
+  const store = Renderer.K8sApi.apiManager.getStore(api);
+  const backup = store ? await captureResourceYaml(store, api.isNamespaced, name, namespace) : undefined;
+  if (!requestApproval(`RESTART ${kind.toUpperCase()}`, { name, namespace }, backup)) {
     return "The user denied the action";
   }
 

@@ -2,6 +2,7 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { useModelProvider } from "../provider/model-provider";
 import { AGENT_ANALYZER_PROMPT_TEMPLATE } from "../provider/prompt-template-provider";
 import {
+  getClusterVersion,
   getKubernetesResource,
   getNamespaces,
   getPodLogs,
@@ -17,7 +18,14 @@ export const useAgentAnalyzer = () => {
       model &&
       createReactAgent({
         llm: model,
-        tools: [getNamespaces, getWarningEventsByNamespace, listKubernetesResources, getKubernetesResource, getPodLogs],
+        tools: [
+          getNamespaces,
+          getClusterVersion,
+          getWarningEventsByNamespace,
+          listKubernetesResources,
+          getKubernetesResource,
+          getPodLogs,
+        ],
         prompt: AGENT_ANALYZER_PROMPT_TEMPLATE,
       })
     );
