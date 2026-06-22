@@ -1,42 +1,40 @@
-import { JsonOutputKeyToolsParser } from "@langchain/core/output_parsers/openai_tools";
 import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
+import { RunnableLambda } from "@langchain/core/runnables";
 import { toJsonSchema } from "@langchain/core/utils/json_schema";
 import { z } from "zod";
 import { requiresAutoToolChoice } from "../provider/model-capabilities";
 import { useModelProvider } from "../provider/model-provider";
 import { SUPERVISOR_PROMPT_TEMPLATE } from "../provider/prompt-template-provider";
+import { recoverSupervisorRouting, SUPERVISOR_TOOL_NAME, type SupervisorRouting } from "./supervisor-routing";
 
 import type { BaseLanguageModelInput } from "@langchain/core/language_models/base";
+import type { BaseMessage } from "@langchain/core/messages";
 import type { Runnable } from "@langchain/core/runnables";
 import type { ChatOpenAI } from "@langchain/openai";
 
-// Name of the single structured-output tool bound for the supervisor. Matches
-// the default `withStructuredOutput` function-calling tool name so the parser
-// behaves identically across the forced and "auto" tool_choice paths.
-const SUPERVISOR_TOOL_NAME = "extract";
-
 // Build the supervisor's structured-output runnable.
 //
-// By default we force function calling: `withStructuredOutput(..., { method:
-// "functionCalling" })` binds a single tool and sets a forced `tool_choice`.
-// This is deliberate: some models (e.g. gpt-5.4) occasionally emit the JSON
-// object twice in a row with `response_format=json_schema` during streaming,
-// which breaks the parser with "Unexpected non-whitespace character after JSON".
-// Function calling avoids that because the payload is returned in a dedicated
-// tool_call argument instead of being concatenated into the assistant text.
+// We bind a single `extract` tool that carries the routing decision instead of
+// using `response_format=json_schema`. This is deliberate: some models (e.g.
+// gpt-5.4) occasionally emit the JSON object twice in a row with
+// `response_format=json_schema` during streaming, which breaks the parser with
+// "Unexpected non-whitespace character after JSON". Function calling avoids that
+// because the payload is returned in a dedicated tool_call argument instead of
+// being concatenated into the assistant text.
 //
-// Some thinking models (DeepSeek, Qwen) reject a forced `tool_choice` while
-// thinking mode is on (`Thinking mode does not support this tool_choice`). For
-// those we bind the same single tool but with `tool_choice: "auto"`, which they
-// accept, and parse the tool call exactly like the function-calling path does.
+// The tool is normally forced via `tool_choice`. Some thinking models (DeepSeek,
+// Qwen) reject a forced `tool_choice` while thinking mode is on (`Thinking mode
+// does not support this tool_choice`), so for those we request `tool_choice:
+// "auto"`, which they accept. With `auto` the model may answer in plain text
+// instead of calling the tool once it considers the query resolved, so the
+// routing decision is recovered from either the tool call or the text by
+// `recoverSupervisorRouting`.
 const buildSupervisorRunnable = <T extends z.ZodTypeAny>(
   model: ChatOpenAI,
   schema: T,
-): Runnable<BaseLanguageModelInput, z.infer<T>> => {
-  if (!requiresAutoToolChoice(model.model)) {
-    return model.withStructuredOutput(schema, { method: "functionCalling" });
-  }
-
+  destinations: readonly string[],
+  subAgents: readonly string[],
+): Runnable<BaseLanguageModelInput, SupervisorRouting | undefined> => {
   const asJsonSchema = toJsonSchema(schema);
   const llm = model.bindTools(
     [
@@ -49,14 +47,11 @@ const buildSupervisorRunnable = <T extends z.ZodTypeAny>(
         },
       },
     ],
-    { tool_choice: "auto" },
+    { tool_choice: requiresAutoToolChoice(model.model) ? "auto" : SUPERVISOR_TOOL_NAME },
   );
-  const parser = new JsonOutputKeyToolsParser<z.infer<T>>({
-    returnSingle: true,
-    keyName: SUPERVISOR_TOOL_NAME,
-    zodSchema: schema,
-  });
-  return llm.pipe(parser);
+  return llm.pipe(
+    RunnableLambda.from((message: BaseMessage) => recoverSupervisorRouting(message, destinations, subAgents)),
+  );
 };
 
 export const useAgentSupervisor = () => {
@@ -88,7 +83,7 @@ export const useAgentSupervisor = () => {
       workerResponsibilities: subAgentResponsibilities.join(", "),
       members: subAgents.join(", "),
     });
-    return formattedPrompt.pipe(buildSupervisorRunnable(model, supervisorResponseSchema));
+    return formattedPrompt.pipe(buildSupervisorRunnable(model, supervisorResponseSchema, destinations, subAgents));
   };
 
   return { getAgent };
