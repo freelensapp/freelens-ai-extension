@@ -2,6 +2,7 @@ import { Command, Interrupt } from "@langchain/langgraph";
 import { FreeLensAgent } from "../agent/freelens-agent-system";
 import { MPCAgent } from "../agent/mcp-agent";
 import { createStreamMergeState, extractReasoningText, mergeAiChunk } from "./stream-merge";
+import { extractTokenUsage, type TokenUsage } from "./token-usage";
 
 const MAX_GEMINI_STREAM_RETRIES = 3;
 const BASE_BACKOFF_MS = 700;
@@ -44,11 +45,20 @@ export const isReasoningChunk = (chunk: unknown): chunk is ReasoningChunk =>
   "reasoning" in chunk &&
   typeof (chunk as ReasoningChunk).reasoning === "string";
 
+// A streamed chunk carrying the token usage reported for a single model turn.
+// The chat service sums these into the per-session counter shown in the UI.
+export interface TokenUsageChunk {
+  tokenUsage: TokenUsage;
+}
+
+export const isTokenUsageChunk = (chunk: unknown): chunk is TokenUsageChunk =>
+  typeof chunk === "object" && chunk !== null && "tokenUsage" in chunk;
+
 export interface AgentService {
   run(
     agentInput: object | Command,
     conversationId: string,
-  ): AsyncGenerator<string | ReasoningChunk | Interrupt, void, unknown>;
+  ): AsyncGenerator<string | ReasoningChunk | TokenUsageChunk | Interrupt, void, unknown>;
 }
 
 /**
@@ -102,6 +112,16 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
             if (text.length > 0) {
               hasYieldedContent = true;
               yield text;
+            }
+
+            // Token usage is reported once per model turn, on the final chunk
+            // of that turn (the others carry no `usage_metadata`). Forward it so
+            // the chat service can accumulate the per-session counter. Not
+            // treated as "yielded content" so it never blocks a transient-error
+            // retry on its own.
+            const tokenUsage = extractTokenUsage((message as { usage_metadata?: unknown }).usage_metadata);
+            if (tokenUsage) {
+              yield { tokenUsage };
             }
           }
         }
