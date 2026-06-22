@@ -20,6 +20,7 @@ export interface PreferencesModel {
   mcpConfiguration: string;
   podLogsRequireApproval: boolean;
   podLogsTailLines: number;
+  customAgentRules: string;
 }
 
 export const DEFAULT_POD_LOGS_TAIL_LINES = 1000;
@@ -44,6 +45,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   podLogsRequireApproval: boolean = true;
   // Default number of tail lines fetched when reading pod logs.
   podLogsTailLines: number = DEFAULT_POD_LOGS_TAIL_LINES;
+  // User-provided extra agent rules appended to every agent's system message.
+  customAgentRules: string = "";
 
   // Not persistent
   explainEvent: MessageObject = {} as MessageObject;
@@ -65,6 +68,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         mcpEnabled: false,
         podLogsRequireApproval: true,
         podLogsTailLines: DEFAULT_POD_LOGS_TAIL_LINES,
+        customAgentRules: "",
         mcpConfiguration: JSON.stringify(
           {
             mcpServers: {
@@ -97,6 +101,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       mcpConfiguration: observable,
       podLogsRequireApproval: observable,
       podLogsTailLines: observable,
+      customAgentRules: observable,
       explainEvent: observable,
       bypassApprovals: observable,
     });
@@ -124,6 +129,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       typeof preferencesModel.podLogsTailLines === "number" && preferencesModel.podLogsTailLines > 0
         ? preferencesModel.podLogsTailLines
         : DEFAULT_POD_LOGS_TAIL_LINES;
+    this.customAgentRules = preferencesModel.customAgentRules ?? "";
   }
 
   toJSON(): PreferencesModel {
@@ -145,6 +151,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       mcpConfiguration: this.mcpConfiguration,
       podLogsRequireApproval: this.podLogsRequireApproval,
       podLogsTailLines: this.podLogsTailLines,
+      customAgentRules: this.customAgentRules,
     };
   }
 }

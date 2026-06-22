@@ -2,6 +2,7 @@ import { AIMessage, SystemMessage } from "@langchain/core/messages";
 import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
 import { MessagesAnnotation, StateGraph } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
+import { withCustomAgentRules } from "../provider/agent-rules-provider";
 import { useModelProvider } from "../provider/model-provider";
 import { KUBERNETES_OPERATOR_PROMPT_TEMPLATE } from "../provider/prompt-template-provider";
 import {
@@ -38,7 +39,7 @@ export const useAgentKubernetesOperator = () => {
 
     const callModel = async (state: typeof MessagesAnnotation.State) => {
       const prompt = ChatPromptTemplate.fromMessages([
-        new SystemMessage(KUBERNETES_OPERATOR_PROMPT_TEMPLATE),
+        new SystemMessage(withCustomAgentRules(KUBERNETES_OPERATOR_PROMPT_TEMPLATE)),
         new MessagesPlaceholder("messages"),
       ]);
       const response = await prompt.pipe(boundModel).invoke({ messages: state.messages });

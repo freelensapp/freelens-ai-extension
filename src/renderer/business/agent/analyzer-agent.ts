@@ -1,4 +1,5 @@
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { withCustomAgentRules } from "../provider/agent-rules-provider";
 import { useModelProvider } from "../provider/model-provider";
 import { AGENT_ANALYZER_PROMPT_TEMPLATE } from "../provider/prompt-template-provider";
 import {
@@ -26,7 +27,7 @@ export const useAgentAnalyzer = () => {
           getKubernetesResource,
           getPodLogs,
         ],
-        prompt: AGENT_ANALYZER_PROMPT_TEMPLATE,
+        prompt: withCustomAgentRules(AGENT_ANALYZER_PROMPT_TEMPLATE),
       })
     );
   };

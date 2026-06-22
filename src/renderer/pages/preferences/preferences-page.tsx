@@ -135,6 +135,30 @@ export const PreferencesPage = observer(() => {
       </div>
 
       <HorizontalLine />
+
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Agent rules</div>
+      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
+        Extra rules appended to the agent system message at the start of every session. Use them to set your own
+        conventions, preferences, or constraints. Leave empty to use the built-in rules only.
+      </div>
+      <textarea
+        style={{
+          width: "100%",
+          minHeight: 150,
+          fontFamily: "monospace",
+          fontSize: 14,
+          padding: 8,
+          borderRadius: 4,
+          border: "1px solid #ccc",
+          background: "#222",
+          color: "#fff",
+        }}
+        placeholder="e.g. Always answer in English. Prefer kubectl examples over Helm."
+        value={preferencesStore.customAgentRules}
+        onChange={(e) => (preferencesStore.customAgentRules = e.target.value)}
+      />
+
+      <HorizontalLine />
       <div>
         <div style={{ fontWeight: "bold" }}>Enable MCP</div>
         <Switch
