@@ -146,7 +146,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     _setChatMessages((prev) => {
       if (!prev) return prev;
       const updated = prev.filter((message) => message.messageId !== messageId);
-      saveChatMessages(window.localStorage, updated);
+      chatSessionStore.setMessages(updated);
       return updated;
     });
   };
@@ -159,7 +159,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       if (!prev) return prev;
       const updated = prev.filter((message) => !message.error);
       if (updated.length === prev.length) return prev;
-      saveChatMessages(window.localStorage, updated);
+      chatSessionStore.setMessages(updated);
       return updated;
     });
   };
