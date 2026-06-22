@@ -53,12 +53,15 @@ DO NOT make up values for or ask about optional parameters.
 Carefully analyze descriptive terms in the request as they may indicate required parameter values that should be included even if not explicitly quoted.
 `;
 
+// NOTE: This prompt is rendered as a literal `SystemMessage` (see
+// kubernetes-operator-agent.ts), NOT as a LangChain f-string template, so the
+// JSON example in <subresources> can use raw `{`/`}` braces without escaping
+// them as `{{`/`}}`. Do not pass this string through `["system", ...]` (which
+// triggers f-string parsing) or the literal braces will throw "Single '}' in
+// template".
 export const KUBERNETES_OPERATOR_PROMPT_TEMPLATE = `
 You are an expert Kubernetes Operator Agent, powered by Freelens-AI, with full write access to the cluster.
 Your primary role is to help users modify and manage their Kubernetes cluster state.
-
-Current conversation:
-{messages}
 
 <tool_calling>
 You have tools at your disposal to solve the coding task. Follow these rules regarding tool calls:
