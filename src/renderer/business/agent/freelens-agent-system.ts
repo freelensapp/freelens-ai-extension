@@ -3,6 +3,7 @@ import { RunnableConfig, RunnableLambda, RunnableLike } from "@langchain/core/ru
 import { Command, StateGraph } from "@langchain/langgraph";
 import useLog from "../../../common/utils/logger/logger-service";
 import { useAgentAnalyzer } from "./analyzer-agent";
+import { checkpointNamespace } from "./checkpoint-namespace";
 import { useConclusionsAgent } from "./conclusions-agent";
 import { useGeneralPurposeAgent } from "./general-purpose-agent";
 import { useAgentKubernetesOperator } from "./kubernetes-operator-agent";
@@ -155,7 +156,7 @@ export const useFreeLensAgentSystem = () => {
     };
   };
 
-  const buildAgentSystem = () => {
+  const buildAgentSystem = (clusterId: string) => {
     return new StateGraph(GraphState)
       .addNode(
         "supervisorAgent",
@@ -175,7 +176,7 @@ export const useFreeLensAgentSystem = () => {
       .addEdge("generalPurposeAgent", "teardownNode")
       .addEdge(conclusionsAgentName, "teardownNode")
       .addEdge("teardownNode", "__end__")
-      .compile({ checkpointer: new PersistentMemorySaver("freelens") });
+      .compile({ checkpointer: new PersistentMemorySaver(checkpointNamespace(clusterId, "freelens")) });
   };
 
   return { buildAgentSystem, availableTools };

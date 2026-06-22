@@ -13,6 +13,7 @@ import useLog from "../../common/utils/logger/logger-service";
 import { generateUuid } from "../../common/utils/uuid";
 import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
 import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
+import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
 import { AIProviders } from "../business/provider/ai-models";
@@ -60,6 +61,10 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const [chatSessionStore, _setChatSessionStore] = useState<ChatSessionStore>(
     ChatSessionStore.getInstanceOrCreate<ChatSessionStore>(),
   );
+  // Resolved once: this cluster frame belongs to exactly one cluster for its
+  // whole lifetime. All durable session data (transcript, conversation thread,
+  // agent checkpoints) is keyed by this id so each cluster keeps its own chat.
+  const [clusterId] = useState<string>(() => getActiveClusterId());
   const [conversationId, _setConversationId] = useState("");
   const [isLoading, _setLoading] = useState(false);
   const [isConversationInterrupted, _setConversationInterrupted] = useState(false);
@@ -99,13 +104,13 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const _loadChatMessages = () => {
     // Durable: persisted in the host-managed ChatSessionStore so the transcript
     // survives an app restart (window.localStorage is not durable here).
-    _setChatMessages(chatSessionStore.messages);
+    _setChatMessages(chatSessionStore.getMessages(clusterId));
   };
 
   const _getConversationId = () => {
     // Durable: persisted in the host-managed ChatSessionStore so the conversation
     // thread stays stable across an app restart, matching the restored transcript.
-    const storedConversationId = chatSessionStore.conversationId;
+    const storedConversationId = chatSessionStore.getConversationId(clusterId);
     if (storedConversationId) {
       _setConversationId(storedConversationId);
       log.debug("Using stored conversation ID: ", storedConversationId);
@@ -113,7 +118,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       log.debug("Generating conversation ID");
       const newConverstionId = generateUuid();
       _setConversationId(newConverstionId);
-      chatSessionStore.setConversationId(newConverstionId);
+      chatSessionStore.setConversationId(clusterId, newConverstionId);
       log.debug("No stored conversation ID found, generating a new one.");
     }
   };
@@ -137,7 +142,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         prev = [];
       }
       const updated = [...prev, message];
-      chatSessionStore.setMessages(updated);
+      chatSessionStore.setMessages(clusterId, updated);
       return updated;
     });
   };
@@ -146,7 +151,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     _setChatMessages((prev) => {
       if (!prev) return prev;
       const updated = prev.filter((message) => message.messageId !== messageId);
-      chatSessionStore.setMessages(updated);
+      chatSessionStore.setMessages(clusterId, updated);
       return updated;
     });
   };
@@ -159,7 +164,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       if (!prev) return prev;
       const updated = prev.filter((message) => !message.error);
       if (updated.length === prev.length) return prev;
-      chatSessionStore.setMessages(updated);
+      chatSessionStore.setMessages(clusterId, updated);
       return updated;
     });
   };
@@ -179,7 +184,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       if (lastMessage.sent || lastMessage.type === MessageType.INTERRUPT) {
         // Agent response does not exist, add a new empty one
         messagesCopy.push(getTextMessage(newText, false));
-        chatSessionStore.setMessages(messagesCopy);
+        chatSessionStore.setMessages(clusterId, messagesCopy);
         return messagesCopy;
       }
 
@@ -189,7 +194,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         text: lastMessage.text + newText,
       };
 
-      chatSessionStore.setMessages(messagesCopy);
+      chatSessionStore.setMessages(clusterId, messagesCopy);
       return messagesCopy;
     });
   };
@@ -211,7 +216,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         };
       }
 
-      chatSessionStore.setMessages(messagesCopy);
+      chatSessionStore.setMessages(clusterId, messagesCopy);
       return messagesCopy;
     });
   };
@@ -220,18 +225,19 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     if (freeLensAgent) {
       cleanAgentMessageHistory(freeLensAgent).finally(() => {
         _setChatMessages([]);
-        chatSessionStore.clear();
+        chatSessionStore.clear(clusterId);
       });
     }
     if (mcpAgent) {
       await cleanAgentMessageHistory(mcpAgent).finally(() => {
         _setChatMessages([]);
-        chatSessionStore.clear();
+        chatSessionStore.clear(clusterId);
       });
     }
-    // Wipe the durable LangGraph checkpointer state so a restart right after a
-    // clear does not restore the model-side conversation context.
-    AgentStateStore.getInstanceOrCreate<AgentStateStore>().clear();
+    // Wipe this cluster's durable LangGraph checkpointer state so a restart right
+    // after a clear does not restore the model-side conversation context. Other
+    // clusters' memory is left untouched.
+    AgentStateStore.getInstanceOrCreate<AgentStateStore>().clearForCluster(clusterId);
   };
 
   const cleanAgentMessageHistory = async (agent: FreeLensAgent | MPCAgent) => {
@@ -277,7 +283,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
 
     if (mcpAgent === null || forceInitialization) {
       log.debug("initializing MCP agent with configuration", preferencesStore.mcpConfiguration);
-      setMcpAgent(await mcpAgentSystem.buildAgentSystem());
+      setMcpAgent(await mcpAgentSystem.buildAgentSystem(clusterId));
       log.debug("MCP agent initialized!");
     } else {
       log.debug("The MCP Agent was already initialized: ", mcpAgent);
@@ -286,7 +292,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
 
   const _initFreeLensAgent = () => {
     if (freeLensAgent === null) {
-      setFreeLensAgent(freeLensAgentSystem.buildAgentSystem());
+      setFreeLensAgent(freeLensAgentSystem.buildAgentSystem(clusterId));
     } else {
       log.debug("Freelens Agent was already initialized: ", freeLensAgent);
     }
@@ -295,7 +301,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const getActiveAgent = async () => {
     if (preferencesStore.mcpEnabled) {
       if (mcpAgent === null) {
-        const _mcpAgent = await mcpAgentSystem.buildAgentSystem();
+        const _mcpAgent = await mcpAgentSystem.buildAgentSystem(clusterId);
         setMcpAgent(_mcpAgent);
         return _mcpAgent;
       }
@@ -304,7 +310,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     }
 
     if (freeLensAgent === null) {
-      const _freeLensAgent = freeLensAgentSystem.buildAgentSystem();
+      const _freeLensAgent = freeLensAgentSystem.buildAgentSystem(clusterId);
       setFreeLensAgent(_freeLensAgent);
       log.debug("Freelens Agent initialized: ", freeLensAgent);
       return _freeLensAgent;
@@ -346,7 +352,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const changeInterruptStatus = (id: string, status: boolean) => {
     _setChatMessages((prevMessages) => {
       const updated = prevMessages!.map((msg) => (msg.messageId === id ? { ...msg, approved: status } : msg));
-      chatSessionStore.setMessages(updated);
+      chatSessionStore.setMessages(clusterId, updated);
       return updated;
     });
   };
