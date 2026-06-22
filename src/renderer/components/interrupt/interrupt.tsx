@@ -1,5 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
 import { CheckCircle, XCircle } from "lucide-react";
+import * as React from "react";
 import { MarkdownViewer } from "../markdown-viewer";
 import styleInline from "./interrupt.scss?inline";
 
@@ -17,12 +18,18 @@ export type InterruptProps = {
 };
 
 const Interrupt = ({ header, question, text, options, approved, onAction }: InterruptProps) => {
+  const pending = approved === null;
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
+
   return (
     <div>
       <style>{styleInline}</style>
       <div className="interrupt-prompt">
-        <div className="interrupt-header">
-          {approved === null ? (
+        <div
+          className={`interrupt-header${pending ? "" : " interrupt-header-toggle"}`}
+          onClick={pending ? undefined : () => setDetailsOpen((open) => !open)}
+        >
+          {pending ? (
             <span className="interrupt-warning-icon">⚠️</span>
           ) : approved ? (
             <CheckCircle className="interrupt-status-icon interrupt-status-approved" />
@@ -31,9 +38,9 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
           )}
           {header}
         </div>
-        {approved === null && <div className="interrupt-question">{question}</div>}
+        {pending && <div className="interrupt-question">{question}</div>}
       </div>
-      {approved === null && (
+      {pending && (
         <>
           <MarkdownViewer content={text} />
           <div>
@@ -50,6 +57,12 @@ const Interrupt = ({ header, question, text, options, approved, onAction }: Inte
             ))}
           </div>
         </>
+      )}
+      {!pending && detailsOpen && (
+        <div className="interrupt-details">
+          {question && <div className="interrupt-question">{question}</div>}
+          <MarkdownViewer content={text} />
+        </div>
       )}
     </div>
   );
