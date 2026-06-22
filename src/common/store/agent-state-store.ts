@@ -1,9 +1,12 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
+import { belongsToCluster } from "../../renderer/business/agent/checkpoint-namespace";
 
 export interface AgentStateModel {
-  // Serialized LangGraph checkpointer state, keyed by saver namespace
-  // (e.g. "freelens", "mcp"). Each value is produced by
+  // Serialized LangGraph checkpointer state, keyed by saver namespace. The
+  // namespace is cluster-qualified (e.g. "<clusterId>::freelens",
+  // "<clusterId>::mcp", see `checkpointNamespace`) so each cluster's agent
+  // memory is stored independently. Each value is produced by
   // `serializeSaverState` in the renderer and is opaque to this store.
   checkpoints: Record<string, string>;
 }
@@ -45,6 +48,19 @@ export class AgentStateStore extends Common.Store.ExtensionStore<AgentStateModel
 
   clear(): void {
     this.checkpoints = {};
+  }
+
+  // Drop only the checkpoints that belong to the given cluster, leaving every
+  // other cluster's agent memory untouched. Used when the user clears the chat
+  // so a "Clear" in one cluster does not wipe another cluster's conversation.
+  clearForCluster(clusterId: string): void {
+    const remaining: Record<string, string> = {};
+    for (const [namespace, blob] of Object.entries(this.checkpoints)) {
+      if (!belongsToCluster(namespace, clusterId)) {
+        remaining[namespace] = blob;
+      }
+    }
+    this.checkpoints = remaining;
   }
 
   fromStore(model: AgentStateModel): void {

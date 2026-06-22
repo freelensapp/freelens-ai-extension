@@ -4,6 +4,7 @@ import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { MultiServerMCPClient } from "@langchain/mcp-adapters";
 import useLog from "../../../common/utils/logger/logger-service";
 import { useModelProvider } from "../provider/model-provider";
+import { checkpointNamespace } from "./checkpoint-namespace";
 import { teardownNode } from "./nodes/teardown";
 import { PersistentMemorySaver } from "./persistent-memory-saver";
 import { GraphState } from "./state/graph-state";
@@ -49,7 +50,7 @@ export const useMcpAgent = (mcpConfiguration: string) => {
     return mcpTools;
   };
 
-  const buildAgentSystem = async () => {
+  const buildAgentSystem = async (clusterId: string) => {
     const mcpTools = await loadMcpTools();
     const toolNode = new ToolNode(mcpTools);
 
@@ -108,7 +109,7 @@ export const useMcpAgent = (mcpConfiguration: string) => {
       .addEdge("tools", "agent")
       .addEdge("agent", "shouldContinue")
       .addEdge("teardownNode", "__end__")
-      .compile({ checkpointer: new PersistentMemorySaver("mcp") });
+      .compile({ checkpointer: new PersistentMemorySaver(checkpointNamespace(clusterId, "mcp")) });
   };
 
   return { buildAgentSystem, loadMcpTools };

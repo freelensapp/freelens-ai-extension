@@ -3,60 +3,87 @@ import { makeObservable, observable, toJS } from "mobx";
 
 import type { MessageObject } from "../../renderer/business/objects/message-object";
 
-export interface ChatSessionModel {
+export interface ChatSession {
   // The rendered chat transcript and the conversation id that ties it to the
   // agent's LangGraph thread. Both make up the durable "session".
   messages: MessageObject[];
   conversationId: string;
 }
 
+export interface ChatSessionModel {
+  // One chat session per cluster, keyed by the cluster id. The store is backed
+  // by a single host-managed JSON file shared across every cluster frame, so the
+  // transcript and conversation thread are kept apart by this key rather than
+  // every cluster sharing one session.
+  sessions: Record<string, ChatSession>;
+}
+
+const emptySession = (): ChatSession => ({ messages: [], conversationId: "" });
+
 /**
- * Durable, host-managed persistence for the rendered chat session (the
- * transcript shown in the UI and its conversation id). This is the
- * Freelens-native place to store extension state: the host writes it to a JSON
- * file in the extension's data directory, so it survives an application restart.
+ * Durable, host-managed persistence for the rendered chat sessions (the
+ * transcript shown in the UI and its conversation id), one per cluster. This is
+ * the Freelens-native place to store extension state: the host writes it to a
+ * JSON file in the extension's data directory, so it survives an application
+ * restart.
  *
  * The transcript previously lived in `window.localStorage`, which is not
  * durable across restarts in the Freelens renderer: the model-side LangGraph
  * state (persisted via `AgentStateStore`, an `ExtensionStore`) came back after a
  * restart while the chat HTML did not. Backing the transcript with the same
  * host-managed mechanism keeps the two in sync.
+ *
+ * Sessions are keyed by cluster id so switching clusters shows that cluster's
+ * own chat rather than a single shared one.
  */
 export class ChatSessionStore extends Common.Store.ExtensionStore<ChatSessionModel> {
-  messages: MessageObject[] = [];
-  conversationId: string = "";
+  sessions: Record<string, ChatSession> = {};
 
   constructor() {
     super({
       configName: "freelens-ai-chat-session-store",
       defaults: {
-        messages: [],
-        conversationId: "",
+        sessions: {},
       },
     });
     // Explicit annotation form instead of `@observable` decorators; see the
     // note in preferences-store.ts for why decorators do not work here.
     makeObservable(this, {
-      messages: observable,
-      conversationId: observable,
+      sessions: observable,
     });
   }
 
-  setMessages(messages: MessageObject[]): void {
-    this.messages = messages;
+  private session(clusterId: string): ChatSession {
+    return this.sessions[clusterId] ?? emptySession();
   }
 
-  setConversationId(conversationId: string): void {
-    this.conversationId = conversationId;
+  // Replace the map so MobX sees a new reference and the host persists it.
+  private patch(clusterId: string, partial: Partial<ChatSession>): void {
+    this.sessions = { ...this.sessions, [clusterId]: { ...this.session(clusterId), ...partial } };
   }
 
-  clear(): void {
-    this.messages = [];
+  getMessages(clusterId: string): MessageObject[] {
+    return this.session(clusterId).messages;
+  }
+
+  setMessages(clusterId: string, messages: MessageObject[]): void {
+    this.patch(clusterId, { messages });
+  }
+
+  getConversationId(clusterId: string): string {
+    return this.session(clusterId).conversationId;
+  }
+
+  setConversationId(clusterId: string, conversationId: string): void {
+    this.patch(clusterId, { conversationId });
+  }
+
+  clear(clusterId: string): void {
+    this.patch(clusterId, { messages: [] });
   }
 
   fromStore(model: ChatSessionModel): void {
-    this.messages = model.messages ?? [];
-    this.conversationId = model.conversationId ?? "";
+    this.sessions = model.sessions ?? {};
   }
 
   toJSON(): ChatSessionModel {
@@ -64,9 +91,13 @@ export class ChatSessionStore extends Common.Store.ExtensionStore<ChatSessionMod
     // it over IPC, which structure-clones it. A live MobX proxy cannot be
     // cloned ("An object could not be cloned"), so convert it to a plain array
     // with `toJS` before returning. See preferences-store.ts for the same note.
-    return {
-      messages: toJS(this.messages),
-      conversationId: this.conversationId,
-    };
+    const sessions: Record<string, ChatSession> = {};
+    for (const [clusterId, session] of Object.entries(this.sessions)) {
+      sessions[clusterId] = {
+        messages: toJS(session.messages),
+        conversationId: session.conversationId,
+      };
+    }
+    return { sessions };
   }
 }
