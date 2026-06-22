@@ -1,5 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
-import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, Play } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, ListPlus, ListX, Play } from "lucide-react";
 import { useState } from "react";
 import styleInline from "./code-block.scss?inline";
 import { useCodeBlockHook } from "./code-block-hook";
@@ -68,7 +68,7 @@ export const CodeBlock = ({
                   className={"code-block-button code-block-managed-fields-button"}
                   title={codeBlockHook.managedFieldsHidden ? "Show managedFields" : "Hide managedFields"}
                 >
-                  {codeBlockHook.managedFieldsHidden ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {codeBlockHook.managedFieldsHidden ? <ListPlus size={16} /> : <ListX size={16} />}
                 </button>
               )}
 
