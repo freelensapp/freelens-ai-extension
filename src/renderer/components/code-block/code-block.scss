@@ -31,6 +31,12 @@
   border-bottom-right-radius: 0.5rem;
 }
 
+.code-block-editor {
+  overflow: hidden;
+  border-bottom-left-radius: 0.5rem;
+  border-bottom-right-radius: 0.5rem;
+}
+
 .code-block-toolbar-language {
   color: white;
 }
@@ -39,6 +45,16 @@
   gap: 4px;
   color: white;
   user-select: none;
+}
+
+.code-block-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.code-block-managed-fields-button {
+  color: white;
 }
 
 .code-block-copy-button {

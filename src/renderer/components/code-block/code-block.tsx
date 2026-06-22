@@ -1,10 +1,14 @@
-import { ChevronDown, ChevronRight, Copy, Play } from "lucide-react";
+import { Renderer } from "@freelensapp/extensions";
+import { ChevronDown, ChevronRight, Copy, ListPlus, ListX, Play } from "lucide-react";
 import { useState } from "react";
-import SyntaxHighlighter from "react-syntax-highlighter";
 import styleInline from "./code-block.scss?inline";
 import { useCodeBlockHook } from "./code-block-hook";
 
 import type { ReactNode } from "react";
+
+const {
+  Component: { MonacoEditor },
+} = Renderer;
 
 type CodeBlockProps = {
   inline?: boolean;
@@ -28,7 +32,7 @@ export const CodeBlock = ({
   defaultCollapsed,
   props,
 }: CodeBlockProps) => {
-  const codeBlockHook = useCodeBlockHook({ children });
+  const codeBlockHook = useCodeBlockHook({ children, language });
   const [collapsed, setCollapsed] = useState(defaultCollapsed ?? false);
 
   if (!inline) {
@@ -56,26 +60,38 @@ export const CodeBlock = ({
               <div className={"code-block-toolbar-language"}>{label}</div>
             )}
 
-            <button onClick={codeBlockHook.handleCopy} className={"code-block-button code-block-copy-button"}>
-              {codeBlockHook.copied && <span className="code-block-copied-text">Copied!</span>}
-              <Copy size={16} />
-            </button>
+            <div className="code-block-toolbar-actions">
+              {codeBlockHook.hasManagedFields && (
+                <button
+                  type="button"
+                  onClick={codeBlockHook.toggleManagedFields}
+                  className={"code-block-button code-block-managed-fields-button"}
+                  title={codeBlockHook.managedFieldsHidden ? "Show managedFields" : "Hide managedFields"}
+                >
+                  {codeBlockHook.managedFieldsHidden ? <ListPlus size={16} /> : <ListX size={16} />}
+                </button>
+              )}
+
+              <button onClick={codeBlockHook.handleCopy} className={"code-block-button code-block-copy-button"}>
+                {codeBlockHook.copied && <span className="code-block-copied-text">Copied!</span>}
+                <Copy size={16} />
+              </button>
+            </div>
           </div>
           {!bodyHidden && (
-            <SyntaxHighlighter
-              PreTag="div"
-              language={language}
-              style={codeBlockHook.getTheme()}
-              customStyle={{
-                margin: 0,
-                borderBottomLeftRadius: "0.5rem",
-                borderBottomRightRadius: "0.5rem",
+            <MonacoEditor
+              readOnly
+              className="code-block-editor"
+              language={codeBlockHook.getMonacoLanguage(language)}
+              value={codeBlockHook.text}
+              setInitialHeight
+              style={{ minHeight: codeBlockHook.getEditorMinHeight() }}
+              options={{
+                scrollbar: {
+                  alwaysConsumeMouseWheel: false,
+                },
               }}
-              showLineNumbers={codeBlockHook.hasMultipleLines}
-              showInlineLineNumbers={codeBlockHook.hasMultipleLines}
-            >
-              {codeBlockHook.text}
-            </SyntaxHighlighter>
+            />
           )}
         </div>
       </>
