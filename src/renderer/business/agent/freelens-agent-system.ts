@@ -157,26 +157,36 @@ export const useFreeLensAgentSystem = () => {
   };
 
   const buildAgentSystem = (clusterId: string) => {
-    return new StateGraph(GraphState)
-      .addNode(
-        "supervisorAgent",
-        RunnableLambda.from(supervisorAgentNode).withConfig({ tags: ["nostream"] }) as RunnableLike,
-        {
-          ends: [...subAgents, conclusionsAgentName],
-        },
-      )
-      .addNode("agentAnalyzer", agentAnalyzerNode)
-      .addNode("kubernetesOperator", kubernetesOperatorNode)
-      .addNode("generalPurposeAgent", generalPurposeAgentNode)
-      .addNode(conclusionsAgentName, conclusionsAgentNode)
-      .addNode("teardownNode", teardownNode)
-      .addEdge("__start__", "supervisorAgent")
-      .addEdge("agentAnalyzer", "supervisorAgent")
-      .addEdge("kubernetesOperator", "teardownNode")
-      .addEdge("generalPurposeAgent", "teardownNode")
-      .addEdge(conclusionsAgentName, "teardownNode")
-      .addEdge("teardownNode", "__end__")
-      .compile({ checkpointer: new PersistentMemorySaver(checkpointNamespace(clusterId, "freelens")) });
+    return (
+      new StateGraph(GraphState)
+        .addNode(
+          "supervisorAgent",
+          RunnableLambda.from(supervisorAgentNode).withConfig({ tags: ["nostream"] }) as RunnableLike,
+          {
+            ends: [...subAgents, conclusionsAgentName],
+          },
+        )
+        // The analyzer is an intermediate worker on the read-only path: it loops
+        // back to the supervisor and its answer is restated by the conclusions
+        // agent. Suppress its LLM token streaming with the `nostream` tag (carried
+        // on the same forwarded config) so the read-only answer is not streamed
+        // twice - once by the analyzer and again by the conclusions agent.
+        .addNode(
+          "agentAnalyzer",
+          RunnableLambda.from(agentAnalyzerNode).withConfig({ tags: ["nostream"] }) as RunnableLike,
+        )
+        .addNode("kubernetesOperator", kubernetesOperatorNode)
+        .addNode("generalPurposeAgent", generalPurposeAgentNode)
+        .addNode(conclusionsAgentName, conclusionsAgentNode)
+        .addNode("teardownNode", teardownNode)
+        .addEdge("__start__", "supervisorAgent")
+        .addEdge("agentAnalyzer", "supervisorAgent")
+        .addEdge("kubernetesOperator", "teardownNode")
+        .addEdge("generalPurposeAgent", "teardownNode")
+        .addEdge(conclusionsAgentName, "teardownNode")
+        .addEdge("teardownNode", "__end__")
+        .compile({ checkpointer: new PersistentMemorySaver(checkpointNamespace(clusterId, "freelens")) })
+    );
   };
 
   return { buildAgentSystem, availableTools };
