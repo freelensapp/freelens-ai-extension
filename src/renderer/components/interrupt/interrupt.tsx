@@ -68,11 +68,11 @@ const Interrupt = ({
           )}
           {header}
         </div>
-        {pending && <div className="interrupt-question">{question}</div>}
       </div>
       {pending && (
         <>
           {renderBody()}
+          <div className="interrupt-question">{question}</div>
           <div>
             {options.map((option) => (
               <Button
