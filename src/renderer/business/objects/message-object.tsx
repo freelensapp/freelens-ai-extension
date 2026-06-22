@@ -1,5 +1,16 @@
 import { MessageType } from "./message-type";
 
+// Describes how to re-run a query that failed, so an error message can offer a
+// "Retry" button. Kept to plain serializable fields because message objects are
+// persisted to localStorage as JSON.
+//   - "message": a normal user prompt -> re-run the agent with the same text.
+//   - "resume":  an approval answer ("yes"/"no") to a tool-use interrupt.
+//   - "explain": an EXPLAIN request analyzed by the AI analysis service.
+export interface RetryContext {
+  kind: "message" | "resume" | "explain";
+  text: string;
+}
+
 export interface MessageObject {
   messageId: string;
   type: MessageType;
@@ -17,5 +28,9 @@ export interface MessageObject {
   resources?: string;
   options?: string[];
   approved?: boolean | null;
+  // Marks an agent error message that should render a "Retry" button. The
+  // `retryContext` carries everything needed to re-run the failed query.
+  error?: boolean;
+  retryContext?: RetryContext;
   sent: boolean;
 }

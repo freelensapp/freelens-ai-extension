@@ -1,3 +1,4 @@
+import { RotateCcw } from "lucide-react";
 import useChatService from "../../../common/service/chat-service";
 import { getTextMessage } from "../../business/objects/message-object-provider";
 import { MessageType } from "../../business/objects/message-type";
@@ -46,6 +47,17 @@ export const Message = ({ message }: MessageProps) => {
             }}
           />
         </>
+      );
+    } else if (message.error) {
+      return (
+        <div className="error-message">
+          <style>{styleInline}</style>
+          <MarkdownViewer content={chatHook.visibleText} />
+          <button type="button" className="retry-button" onClick={() => chatService.retry(message)}>
+            <RotateCcw size={14} />
+            Retry
+          </button>
+        </div>
       );
     } else {
       return (

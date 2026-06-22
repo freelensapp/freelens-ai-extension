@@ -1,5 +1,9 @@
 import { Command } from "@langchain/langgraph";
-import { getInterruptMessage, getTextMessage } from "../../renderer/business/objects/message-object-provider";
+import {
+  getErrorMessage,
+  getExplainMessage,
+  getInterruptMessage,
+} from "../../renderer/business/objects/message-object-provider";
 import { MessageType } from "../../renderer/business/objects/message-type";
 import { DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
 import { AgentService, isReasoningChunk, useAgentService } from "../../renderer/business/service/agent-service";
@@ -9,7 +13,7 @@ import { useApplicationStatusStore } from "../../renderer/context/application-co
 import { PreferencesStore } from "../store";
 import useLog from "../utils/logger/logger-service";
 
-import type { MessageObject } from "../../renderer/business/objects/message-object";
+import type { MessageObject, RetryContext } from "../../renderer/business/objects/message-object";
 
 export interface ApprovalInterrupt {
   question: string;
@@ -85,6 +89,9 @@ const useChatService = () => {
 
   const sendMessageToAgent = (message: MessageObject) => {
     try {
+      // A fresh user action supersedes any earlier failure: drop stale error
+      // messages (and their "Retry" buttons) before running the new query.
+      applicationStatusStore.removeErrorMessages();
       applicationStatusStore.setLoading(true);
       log.debug("Send message to agent: ", message);
 
@@ -96,23 +103,50 @@ const useChatService = () => {
           log.debug("Conversation is interrupted, resuming...");
           // Do not display the resume answer (e.g. "yes"/"no") as a user message:
           // the user picked it from the approval buttons, they did not type it.
-          runAgent(new Command({ resume: message.text })).finally(() => {
+          runAgent(new Command({ resume: message.text }), { kind: "resume", text: message.text }).finally(() => {
             applicationStatusStore.setLoading(false);
           });
         } else {
           _sendMessage(message);
-          const agentInput = {
-            modelName: applicationStatusStore.selectedModel,
-            modelApiKey: applicationStatusStore.apiKey,
-            messages: [{ role: "user", content: message.text }],
-          };
-          runAgent(agentInput).finally(() => applicationStatusStore.setLoading(false));
+          runAgent(_buildAgentInput(message.text), { kind: "message", text: message.text }).finally(() =>
+            applicationStatusStore.setLoading(false),
+          );
         }
       } else {
         log.error("You cannot call sendMessageToAgent with 'sent: false'");
       }
     } catch {
       applicationStatusStore.setLoading(false);
+    }
+  };
+
+  const _buildAgentInput = (text: string) => ({
+    modelName: applicationStatusStore.selectedModel,
+    modelApiKey: applicationStatusStore.apiKey,
+    messages: [{ role: "user", content: text }],
+  });
+
+  // Re-run the query behind an error message, then drop that message so its
+  // "Retry" button disappears from the transcript. The original user prompt is
+  // already in the history, so retrying must not re-add it.
+  const retry = (errorMessage: MessageObject) => {
+    const retryContext = errorMessage.retryContext;
+    applicationStatusStore.removeMessage(errorMessage.messageId);
+    if (!retryContext) {
+      return;
+    }
+
+    applicationStatusStore.setLoading(true);
+    if (retryContext.kind === "explain") {
+      analyzeEvent(getExplainMessage(retryContext.text)).finally(() => applicationStatusStore.setLoading(false));
+    } else if (retryContext.kind === "resume") {
+      runAgent(new Command({ resume: retryContext.text }), retryContext).finally(() =>
+        applicationStatusStore.setLoading(false),
+      );
+    } else {
+      runAgent(_buildAgentInput(retryContext.text), retryContext).finally(() =>
+        applicationStatusStore.setLoading(false),
+      );
     }
   };
 
@@ -129,7 +163,12 @@ const useChatService = () => {
       }
     } catch (error) {
       log.error("Error in AI analysis: ", error);
-      _sendMessage(getTextMessage(`Error in AI analysis: ${getReadableErrorMessage(error)}`, false));
+      _sendMessage(
+        getErrorMessage(`Error in AI analysis: ${getReadableErrorMessage(error)}`, {
+          kind: "explain",
+          text: lastMessage.text,
+        }),
+      );
     }
   };
 
@@ -144,7 +183,7 @@ const useChatService = () => {
     );
   };
 
-  const runAgent = async (agentInput: object | Command) => {
+  const runAgent = async (agentInput: object | Command, retryContext: RetryContext) => {
     try {
       const activeAgent = await applicationStatusStore.getActiveAgent();
       const agentService: AgentService = useAgentService(activeAgent);
@@ -182,16 +221,18 @@ const useChatService = () => {
       }
       applicationStatusStore.setConversationInterrupted(endedWithInterrupt);
       if (autoApproveAndResume) {
-        await runAgent(new Command({ resume: "yes" }));
+        await runAgent(new Command({ resume: "yes" }), retryContext);
       }
     } catch (error) {
       log.error("Error while running Freelens Agent: ", error);
 
-      _sendMessage(getTextMessage(`Error while running Freelens Agent: ${getReadableErrorMessage(error)}`, false));
+      _sendMessage(
+        getErrorMessage(`Error while running Freelens Agent: ${getReadableErrorMessage(error)}`, retryContext),
+      );
     }
   };
 
-  return { sendMessageToAgent, changeInterruptStatus };
+  return { sendMessageToAgent, changeInterruptStatus, retry };
 };
 
 export default useChatService;
