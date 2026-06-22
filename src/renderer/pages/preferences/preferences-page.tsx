@@ -7,48 +7,61 @@ import { addModel, removeModelAt, resolveSelectedModel } from "../../business/pr
 import type { SingleValue } from "react-select";
 
 const { observer } = MobxReact;
-const { useCallback, useEffect, useMemo, useRef, useState } = React;
+const { useCallback, useEffect, useRef, useState } = React;
 
 import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore } from "../../../common/store";
-import { debounce } from "../../../common/utils/debounce";
 
-/** Writes are throttled while typing stays responsive. */
-const STORE_WRITE_DEBOUNCE_MS = 500;
+interface DraftFieldProps {
+  value: string;
+  onChange: (next: string) => void;
+  onFocus: () => void;
+  onBlur: () => void;
+}
 
 /**
- * Binds a controlled text field to a store value while throttling writes.
+ * Binds a controlled text field to a store value, committing only on blur.
  *
- * The returned draft updates immediately so typing stays responsive, but the
- * `commit` callback fires at most once per {@link STORE_WRITE_DEBOUNCE_MS}
- * (trailing edge), avoiding an expensive store/disk write on every keystroke.
+ * Writing to the persisted store on every keystroke is expensive and, because
+ * the store value flows back into the controlled element, repositions the caret
+ * to the end mid-typing. Instead the draft updates locally while editing and the
+ * `commit` callback fires once when the field loses focus. A focus guard keeps
+ * external store updates from clobbering an in-progress edit, and any pending
+ * draft is flushed on unmount so the last edit is never lost.
  */
-function useDebouncedStoreValue(value: string, commit: (next: string) => void): [string, (next: string) => void] {
+function useStoreValueOnBlur(value: string, commit: (next: string) => void): DraftFieldProps {
   const [draft, setDraft] = useState<string>(value);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const focusedRef = useRef(false);
   const commitRef = useRef(commit);
   commitRef.current = commit;
 
-  const debouncedCommit = useMemo(
-    () => debounce((next: string) => commitRef.current(next), STORE_WRITE_DEBOUNCE_MS),
+  // Reflect external changes (store load/reset) only while not editing, so a
+  // blur commit (which updates the store) never moves the caret.
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(value);
+  }, [value]);
+
+  // Flush a pending draft on unmount in case the field never blurred.
+  useEffect(
+    () => () => {
+      if (draftRef.current !== valueRef.current) commitRef.current(draftRef.current);
+    },
     [],
   );
 
-  // Reflect external changes (e.g. when the store is loaded or reset elsewhere).
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
+  const onChange = useCallback((next: string) => setDraft(next), []);
+  const onFocus = useCallback(() => {
+    focusedRef.current = true;
+  }, []);
+  const onBlur = useCallback(() => {
+    focusedRef.current = false;
+    if (draftRef.current !== valueRef.current) commitRef.current(draftRef.current);
+  }, []);
 
-  // Flush any pending write so the last edit is not lost on unmount.
-  useEffect(() => () => debouncedCommit.flush(), [debouncedCommit]);
-
-  const onChange = useCallback(
-    (next: string) => {
-      setDraft(next);
-      debouncedCommit(next);
-    },
-    [debouncedCommit],
-  );
-
-  return [draft, onChange];
+  return { value: draft, onChange, onFocus, onBlur };
 }
 
 const {
@@ -75,11 +88,11 @@ export const PreferencesPage = observer(() => {
   const [newModelProvider, setNewModelProvider] = useState<AIProviders>(AIProviders.OPEN_AI);
   const [newModelName, setNewModelName] = useState<string>("");
 
-  const [customAgentRules, setCustomAgentRules] = useDebouncedStoreValue(
+  const customAgentRulesField = useStoreValueOnBlur(
     preferencesStore.customAgentRules,
     (next) => (preferencesStore.customAgentRules = next),
   );
-  const [mcpConfiguration, setMcpConfiguration] = useDebouncedStoreValue(
+  const mcpConfigurationField = useStoreValueOnBlur(
     preferencesStore.mcpConfiguration,
     (next) => void preferencesStore.updateMcpConfiguration(next),
   );
@@ -203,8 +216,10 @@ export const PreferencesPage = observer(() => {
           color: "#fff",
         }}
         placeholder="e.g. Always answer in English. Prefer kubectl examples over Helm."
-        value={customAgentRules}
-        onChange={(e) => setCustomAgentRules(e.target.value)}
+        value={customAgentRulesField.value}
+        onChange={(e) => customAgentRulesField.onChange(e.target.value)}
+        onFocus={customAgentRulesField.onFocus}
+        onBlur={customAgentRulesField.onBlur}
       />
 
       <HorizontalLine />
@@ -231,8 +246,10 @@ export const PreferencesPage = observer(() => {
               color: "#fff",
             }}
             placeholder="Paste or edit your MCP JSON configuration here"
-            value={mcpConfiguration}
-            onChange={(e) => setMcpConfiguration(e.target.value)}
+            value={mcpConfigurationField.value}
+            onChange={(e) => mcpConfigurationField.onChange(e.target.value)}
+            onFocus={mcpConfigurationField.onFocus}
+            onBlur={mcpConfigurationField.onBlur}
           />
         </div>
       </div>
