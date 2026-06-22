@@ -29,6 +29,8 @@ export function getInterruptMessage(chunk: Interrupt, sent: boolean): MessageObj
     action: chunk.value.actionToApprove.action,
     question: chunk.value.question,
     text: chunk.value.requestString,
+    actionDetails: chunk.value.actionString,
+    resources: chunk.value.resourcesString,
     options: chunk.value.options,
     approved: null,
     sent: sent,
