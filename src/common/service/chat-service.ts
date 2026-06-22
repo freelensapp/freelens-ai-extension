@@ -150,6 +150,28 @@ const useChatService = () => {
     }
   };
 
+  // Resume a paused run with the answer picked from an interrupt's approval
+  // buttons ("yes"/"no"). The answer is never added to the transcript: it was
+  // not typed by the user, and the approval/rejection is already conveyed by the
+  // interrupt's status icon. Resuming through this dedicated path (instead of
+  // sendMessageToAgent) makes that independent of the transient
+  // `isConversationInterrupted` flag, which is not restored after an app restart
+  // even though the pending interrupt itself is.
+  const resumeInterrupt = (option: string) => {
+    try {
+      // A fresh user action supersedes any earlier failure: drop stale error
+      // messages (and their "Retry" buttons) before resuming the run.
+      applicationStatusStore.removeErrorMessages();
+      applicationStatusStore.setLoading(true);
+      log.debug("Resuming interrupted conversation with answer: ", option);
+      runAgent(new Command({ resume: option }), { kind: "resume", text: option }).finally(() => {
+        applicationStatusStore.setLoading(false);
+      });
+    } catch {
+      applicationStatusStore.setLoading(false);
+    }
+  };
+
   const changeInterruptStatus = (id: string, status: boolean) => {
     applicationStatusStore.changeInterruptStatus(id, status);
   };
@@ -232,7 +254,7 @@ const useChatService = () => {
     }
   };
 
-  return { sendMessageToAgent, changeInterruptStatus, retry };
+  return { sendMessageToAgent, resumeInterrupt, changeInterruptStatus, retry };
 };
 
 export default useChatService;

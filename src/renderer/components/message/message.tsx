@@ -1,6 +1,5 @@
 import { RotateCcw } from "lucide-react";
 import useChatService from "../../../common/service/chat-service";
-import { getTextMessage } from "../../business/objects/message-object-provider";
 import { MessageType } from "../../business/objects/message-type";
 import Interrupt from "../interrupt/interrupt";
 import { MarkdownViewer } from "../markdown-viewer";
@@ -43,7 +42,7 @@ export const Message = ({ message }: MessageProps) => {
               } else if ("no" === option) {
                 chatService.changeInterruptStatus(message.messageId, false);
               }
-              chatService.sendMessageToAgent(getTextMessage(option, true));
+              chatService.resumeInterrupt(option);
             }}
           />
         </>
