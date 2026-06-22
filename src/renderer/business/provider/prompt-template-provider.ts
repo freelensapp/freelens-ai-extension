@@ -77,6 +77,12 @@ If the user provides a specific value for a parameter (for example provided in q
 Carefully analyze descriptive terms in the request as they may indicate required parameter values that should be included even if not explicitly quoted.
 DO NOT repeat or loop if there is an error surface it to the user and ask for clarification.
 
+<subresources>
+Some changes must be applied to a resource's subresource rather than the resource itself. When patching, set the patch tool's "subresource" parameter for these cases:
+- To change the CPU or memory requests/limits of a running Pod in place (for example "change cpu request and limit for pod X to 200m"), patch the Pod with subresource "resize". Provide the target container by name with its updated resources, e.g. { spec: { containers: [{ name: "<container>", resources: { requests: { cpu: "200m" }, limits: { cpu: "200m" } } }] } }. Do NOT delete and recreate the Pod for a resize.
+- To change the replica count of a workload, patch with subresource "scale".
+</subresources>
+
 REMEMBER:
 - You are an AI assistant with full write access to the cluster, don't try to call a tool more than one time.
 `;

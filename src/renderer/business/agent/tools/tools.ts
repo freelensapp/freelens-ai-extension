@@ -26,6 +26,15 @@ const apiVersionSchema = z
     'The apiVersion (group/version) of the resource, e.g. "v1" or "apps/v1". Required for kinds without a built-in default.',
   );
 const manifestSchema = z.record(z.any()).describe("The Kubernetes resource manifest as a JSON object.");
+const subresourceSchema = z
+  .string()
+  .optional()
+  .describe(
+    'Optional subresource to patch instead of the main resource. Use "resize" to change the CPU/memory ' +
+      "requests and limits of a running Pod in place (Kubernetes 1.33+) without recreating it; the patch data " +
+      "must carry the target container by name, e.g. { spec: { containers: [{ name, resources: { requests, limits } }] } }. " +
+      'Use "scale" to change replicas. Omit for a normal patch.',
+  );
 
 export const getNamespaces = tool(
   (): string[] => {
@@ -137,13 +146,18 @@ export const updateKubernetesResource = tool(updateKubernetesResourceImpl, {
 
 export const patchKubernetesResource = tool(patchKubernetesResourceImpl, {
   name: "patchKubernetesResource",
-  description: "Patch (via PATCH) an existing Kubernetes resource with a partial manifest",
+  description:
+    "Patch (via PATCH) an existing Kubernetes resource with a partial manifest. " +
+    'Set the optional "subresource" to patch a subresource instead of the main resource: use "resize" to change ' +
+    "the CPU/memory requests and limits of a running Pod in place (Kubernetes 1.33+) instead of recreating it, " +
+    'or "scale" to change replicas.',
   schema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     name: z.string().describe("The name of the resource to patch"),
     namespace: z.string().optional().describe("The namespace of the resource (required for namespaced kinds)"),
     data: manifestSchema.describe("The partial Kubernetes manifest to merge into the resource"),
+    subresource: subresourceSchema,
   }),
 });
 
@@ -303,7 +317,7 @@ export const toolFunctionDescriptions = [
     name: "patchKubernetesResource",
     description: "Patch (via PATCH) an existing Kubernetes resource with a partial manifest",
     arguments:
-      "Requires the resource kind (string), name (string) and the partial manifest data (object), and optionally the apiVersion (string) and namespace (string).",
+      'Requires the resource kind (string), name (string) and the partial manifest data (object), and optionally the apiVersion (string), namespace (string) and subresource (string; e.g. "resize" to change a running Pod\'s CPU/memory in place, or "scale").',
     returnType: "Returns a message string indicating success or error after attempting to patch the resource.",
   },
   {
