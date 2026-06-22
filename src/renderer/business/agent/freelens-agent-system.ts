@@ -76,7 +76,23 @@ export const useFreeLensAgentSystem = () => {
     if (!agentAnalyzer) {
       return;
     }
-    const result = await agentAnalyzer.invoke(state, config);
+    // The analyzer is an intermediate worker on the read-only path: it loops back
+    // to the supervisor and its answer is restated by the conclusions agent.
+    // Suppress its whole subgraph from the parent `messages` stream so the
+    // read-only answer is not emitted twice (once by the analyzer, once by the
+    // conclusions agent). Two tags are required because LangGraph's `messages`
+    // handler emits a run's content through two independent paths:
+    //   - `nostream` stops the analyzer LLM's token stream (`handleChatModelStart`).
+    //   - `langsmith:hidden` stops the analyzer subgraph's `createReactAgent` nodes
+    //     from emitting their final message on completion (`handleChainEnd`). This
+    //     path is gated only by `langsmith:hidden`, never by `nostream`, which is
+    //     why tagging just the model still leaked the analyzer's answer.
+    // The config is still forwarded (tags are merged onto it) so the run stays
+    // attached to the parent run - the checkpointer/thread context is preserved.
+    const result = await agentAnalyzer.invoke(state, {
+      ...config,
+      tags: [...(config?.tags ?? []), "nostream", "langsmith:hidden"],
+    });
     const lastMessage = result.messages[result.messages.length - 1];
     log.debug("Analyzer Agent - analysis result: ", result);
     const analyzerUnknownTools = findUnknownToolCalls(result.messages, allToolNames);
@@ -166,12 +182,10 @@ export const useFreeLensAgentSystem = () => {
             ends: [...subAgents, conclusionsAgentName],
           },
         )
-        // The analyzer is an intermediate worker on the read-only path: it loops
-        // back to the supervisor and its answer is restated by the conclusions
-        // agent. Its streaming is suppressed at the model level (the `nostream`
-        // tag is applied to the analyzer's own LLM in `analyzer-agent.ts`); a tag
-        // on the node here would not reach the inner `createReactAgent` model, so
-        // `messages` stream mode would still emit the analyzer tokens.
+        // The analyzer's intermediate answer is suppressed from the parent
+        // `messages` stream inside `agentAnalyzerNode` (it forwards the config
+        // tagged with `nostream` + `langsmith:hidden`), so it is not streamed
+        // twice - once by the analyzer and again by the conclusions agent.
         .addNode("agentAnalyzer", agentAnalyzerNode)
         .addNode("kubernetesOperator", kubernetesOperatorNode)
         .addNode("generalPurposeAgent", generalPurposeAgentNode)

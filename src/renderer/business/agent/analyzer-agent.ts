@@ -18,12 +18,7 @@ export const useAgentAnalyzer = () => {
     return (
       model &&
       createReactAgent({
-        // The analyzer is an intermediate worker on the read-only path; its
-        // answer is restated by the conclusions agent. Tag the model with
-        // `nostream` so `messages` stream mode suppresses its tokens. The tag
-        // must sit on the model run itself - a `nostream` tag on the graph node
-        // does not cross into this `createReactAgent` subgraph to reach the LLM.
-        llm: model.withConfig({ tags: ["nostream"] }),
+        llm: model,
         tools: [
           getNamespaces,
           getClusterVersion,
