@@ -7,9 +7,62 @@ import { addModel, removeModelAt, resolveSelectedModel } from "../../business/pr
 import type { SingleValue } from "react-select";
 
 const { observer } = MobxReact;
-const { useState } = React;
+const { useCallback, useEffect, useRef, useState } = React;
 
 import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore } from "../../../common/store";
+
+interface DraftFieldProps {
+  value: string;
+  onChange: (next: string) => void;
+  onFocus: () => void;
+  onBlur: () => void;
+}
+
+/**
+ * Binds a controlled text field to a store value, committing only on blur.
+ *
+ * Writing to the persisted store on every keystroke is expensive and, because
+ * the store value flows back into the controlled element, repositions the caret
+ * to the end mid-typing. Instead the draft updates locally while editing and the
+ * `commit` callback fires once when the field loses focus. A focus guard keeps
+ * external store updates from clobbering an in-progress edit, and any pending
+ * draft is flushed on unmount so the last edit is never lost.
+ */
+function useStoreValueOnBlur(value: string, commit: (next: string) => void): DraftFieldProps {
+  const [draft, setDraft] = useState<string>(value);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const focusedRef = useRef(false);
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+
+  // Reflect external changes (store load/reset) only while not editing, so a
+  // blur commit (which updates the store) never moves the caret.
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(value);
+  }, [value]);
+
+  // Flush a pending draft on unmount in case the field never blurred.
+  useEffect(
+    () => () => {
+      if (draftRef.current !== valueRef.current) commitRef.current(draftRef.current);
+    },
+    [],
+  );
+
+  const onChange = useCallback((next: string) => setDraft(next), []);
+  const onFocus = useCallback(() => {
+    focusedRef.current = true;
+  }, []);
+  const onBlur = useCallback(() => {
+    focusedRef.current = false;
+    if (draftRef.current !== valueRef.current) commitRef.current(draftRef.current);
+  }, []);
+
+  return { value: draft, onChange, onFocus, onBlur };
+}
 
 const {
   Component: { Button, Icon, Input, Select, Switch, HorizontalLine },
@@ -34,6 +87,15 @@ export const PreferencesPage = observer(() => {
 
   const [newModelProvider, setNewModelProvider] = useState<AIProviders>(AIProviders.OPEN_AI);
   const [newModelName, setNewModelName] = useState<string>("");
+
+  const customAgentRulesField = useStoreValueOnBlur(
+    preferencesStore.customAgentRules,
+    (next) => (preferencesStore.customAgentRules = next),
+  );
+  const mcpConfigurationField = useStoreValueOnBlur(
+    preferencesStore.mcpConfiguration,
+    (next) => void preferencesStore.updateMcpConfiguration(next),
+  );
 
   const handleAddModel = () => {
     // `addModel` trims the name and ignores empty/duplicate entries.
@@ -135,6 +197,32 @@ export const PreferencesPage = observer(() => {
       </div>
 
       <HorizontalLine />
+
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Agent rules</div>
+      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
+        Extra rules appended to the agent system message at the start of every session. Use them to set your own
+        conventions, preferences, or constraints. Leave empty to use the built-in rules only.
+      </div>
+      <textarea
+        style={{
+          width: "100%",
+          minHeight: 150,
+          fontFamily: "monospace",
+          fontSize: 14,
+          padding: 8,
+          borderRadius: 4,
+          border: "1px solid #ccc",
+          background: "#222",
+          color: "#fff",
+        }}
+        placeholder="e.g. Always answer in English. Prefer kubectl examples over Helm."
+        value={customAgentRulesField.value}
+        onChange={(e) => customAgentRulesField.onChange(e.target.value)}
+        onFocus={customAgentRulesField.onFocus}
+        onBlur={customAgentRulesField.onBlur}
+      />
+
+      <HorizontalLine />
       <div>
         <div style={{ fontWeight: "bold" }}>Enable MCP</div>
         <Switch
@@ -158,8 +246,10 @@ export const PreferencesPage = observer(() => {
               color: "#fff",
             }}
             placeholder="Paste or edit your MCP JSON configuration here"
-            value={preferencesStore.mcpConfiguration}
-            onChange={async (e) => preferencesStore.updateMcpConfiguration(e.target.value).then(() => {})}
+            value={mcpConfigurationField.value}
+            onChange={(e) => mcpConfigurationField.onChange(e.target.value)}
+            onFocus={mcpConfigurationField.onFocus}
+            onBlur={mcpConfigurationField.onBlur}
           />
         </div>
       </div>

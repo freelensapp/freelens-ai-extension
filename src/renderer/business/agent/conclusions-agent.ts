@@ -1,4 +1,5 @@
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { withCustomAgentRules } from "../provider/agent-rules-provider";
 import { useModelProvider } from "../provider/model-provider";
 import { CONCLUSIONS_AGENT_PROMPT_TEMPLATE } from "../provider/prompt-template-provider";
 
@@ -11,7 +12,7 @@ export const useConclusionsAgent = () => {
       createReactAgent({
         llm: model,
         tools: [],
-        prompt: CONCLUSIONS_AGENT_PROMPT_TEMPLATE,
+        prompt: withCustomAgentRules(CONCLUSIONS_AGENT_PROMPT_TEMPLATE),
       })
     );
   };
