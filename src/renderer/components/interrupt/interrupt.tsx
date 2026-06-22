@@ -88,11 +88,7 @@ const Interrupt = ({
           </div>
         </>
       )}
-      {!pending && detailsOpen && (
-        <div className="interrupt-details">
-          {renderBody()}
-        </div>
-      )}
+      {!pending && detailsOpen && <div className="interrupt-details">{renderBody()}</div>}
     </div>
   );
 };
