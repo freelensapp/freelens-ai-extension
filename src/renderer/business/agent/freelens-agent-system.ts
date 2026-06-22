@@ -168,13 +168,11 @@ export const useFreeLensAgentSystem = () => {
         )
         // The analyzer is an intermediate worker on the read-only path: it loops
         // back to the supervisor and its answer is restated by the conclusions
-        // agent. Suppress its LLM token streaming with the `nostream` tag (carried
-        // on the same forwarded config) so the read-only answer is not streamed
-        // twice - once by the analyzer and again by the conclusions agent.
-        .addNode(
-          "agentAnalyzer",
-          RunnableLambda.from(agentAnalyzerNode).withConfig({ tags: ["nostream"] }) as RunnableLike,
-        )
+        // agent. Its streaming is suppressed at the model level (the `nostream`
+        // tag is applied to the analyzer's own LLM in `analyzer-agent.ts`); a tag
+        // on the node here would not reach the inner `createReactAgent` model, so
+        // `messages` stream mode would still emit the analyzer tokens.
+        .addNode("agentAnalyzer", agentAnalyzerNode)
         .addNode("kubernetesOperator", kubernetesOperatorNode)
         .addNode("generalPurposeAgent", generalPurposeAgentNode)
         .addNode(conclusionsAgentName, conclusionsAgentNode)
