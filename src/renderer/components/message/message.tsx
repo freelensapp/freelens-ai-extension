@@ -32,6 +32,8 @@ export const Message = ({ message }: MessageProps) => {
             header={message.action!}
             question={message.question!}
             text={message.text}
+            actionDetails={message.actionDetails}
+            resources={message.resources}
             options={message.options!}
             approved={message.approved!}
             onAction={(option) => {

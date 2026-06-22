@@ -26,8 +26,19 @@
   color: green;
 }
 
+.code-block-toolbar-collapsed {
+  border-bottom-left-radius: 0.5rem;
+  border-bottom-right-radius: 0.5rem;
+}
+
 .code-block-toolbar-language {
   color: white;
+}
+
+.code-block-toggle {
+  gap: 4px;
+  color: white;
+  user-select: none;
 }
 
 .code-block-copy-button {
