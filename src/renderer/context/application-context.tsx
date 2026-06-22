@@ -45,6 +45,8 @@ export interface AppContextType {
   setLoading: (isLoading: boolean) => void;
   setConversationInterrupted: (isConversationInterrupted: boolean) => void;
   addMessage: (message: MessageObject) => void;
+  removeMessage: (messageId: string) => void;
+  removeErrorMessages: () => void;
   updateLastMessage: (newText: string) => void;
   updateLastMessageReasoning: (newText: string) => void;
   clearChat: () => void;
@@ -137,6 +139,28 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         prev = [];
       }
       const updated = [...prev, message];
+      saveChatMessages(window.localStorage, updated);
+      return updated;
+    });
+  };
+
+  const removeMessage = (messageId: string) => {
+    _setChatMessages((prev) => {
+      if (!prev) return prev;
+      const updated = prev.filter((message) => message.messageId !== messageId);
+      saveChatMessages(window.localStorage, updated);
+      return updated;
+    });
+  };
+
+  // Drop any error messages still in the transcript. Called when the user takes
+  // a fresh action (sends a new prompt) so a stale "Retry" button does not
+  // linger once the conversation has moved on.
+  const removeErrorMessages = () => {
+    _setChatMessages((prev) => {
+      if (!prev) return prev;
+      const updated = prev.filter((message) => !message.error);
+      if (updated.length === prev.length) return prev;
       saveChatMessages(window.localStorage, updated);
       return updated;
     });
@@ -348,6 +372,8 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         setLoading,
         setConversationInterrupted,
         addMessage,
+        removeMessage,
+        removeErrorMessages,
         updateLastMessage,
         updateLastMessageReasoning,
         clearChat,
