@@ -8,8 +8,11 @@ import {
   capLogOutput,
   capTailLines,
   collectContainerNames,
+  compileLogFilter,
   emptyLogsMessage,
+  filterLogLines,
   type GetPodLogsInput,
+  noMatchingLogsMessage,
   resolveContainer,
 } from "./pod-logs";
 import { stripManagedFields } from "./project-resource";
@@ -699,6 +702,13 @@ export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
     return `Pods are namespaced; please provide a namespace to read logs for "${name}".`;
   }
 
+  // Compile the optional regex filter up front so an invalid expression is
+  // reported before the pod is loaded or its logs are fetched.
+  const filterResolution = compileLogFilter(input.filter);
+  if (filterResolution.kind === "error") {
+    return filterResolution.message;
+  }
+
   const podsApi = Renderer.K8sApi.podsApi;
   const store = Renderer.K8sApi.apiManager.getStore(podsApi);
   if (!store) {
@@ -739,6 +749,13 @@ export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
     );
     if (!logs || logs.trim().length === 0) {
       return emptyLogsMessage(selectedContainer, name, previous);
+    }
+    if (filterResolution.kind === "regex") {
+      const filtered = filterLogLines(logs, filterResolution.regex);
+      if (filtered.trim().length === 0) {
+        return noMatchingLogsMessage(selectedContainer, name, input.filter as string);
+      }
+      return capLogOutput(filtered);
     }
     return capLogOutput(logs);
   } catch (error) {

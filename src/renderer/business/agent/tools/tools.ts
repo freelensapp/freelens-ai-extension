@@ -204,7 +204,7 @@ export const patchKubernetesResource = tool(patchKubernetesResourceImpl, {
 export const getPodLogs = tool(getPodLogsImpl, {
   name: "getPodLogs",
   description:
-    "Read a one-shot snapshot of container logs from a pod. Namespace is required. If the container is omitted on a multi-container pod, the available containers are returned so one can be chosen. Use previous: true to read the last terminated instance (useful for CrashLoopBackOff).",
+    "Read a one-shot snapshot of container logs from a pod. Namespace is required. If the container is omitted on a multi-container pod, the available containers are returned so one can be chosen. Use previous: true to read the last terminated instance (useful for CrashLoopBackOff). Pass filter with a regular expression to return only matching log lines (grep-style).",
   schema: z.object({
     name: z.string().describe("The name of the pod"),
     namespace: z.string().describe("The namespace of the pod"),
@@ -221,6 +221,14 @@ export const getPodLogs = tool(getPodLogsImpl, {
       .optional()
       .describe("Number of lines from the end of the logs to read (defaults to the preference value)"),
     timestamps: z.boolean().optional().describe("Prefix every log line with an RFC3339 timestamp"),
+    filter: z
+      .string()
+      .optional()
+      .describe(
+        "Optional JavaScript regular expression used to keep only the log lines that match it (grep-style). " +
+          "Applied after tailLines and before any truncation. The match is case-sensitive and unanchored, " +
+          'e.g. "error|warn" keeps lines mentioning error or warn. Omit to return every line.',
+      ),
   }),
 });
 
@@ -352,9 +360,9 @@ export const toolFunctionDescriptions = [
     name: "getPodLogs",
     description: "Read a one-shot snapshot of container logs from a pod",
     arguments:
-      "Requires the pod name (string) and namespace (string), and optionally the container (string; required only for multi-container pods), previous (boolean, for terminated instances), tailLines (number) and timestamps (boolean).",
+      "Requires the pod name (string) and namespace (string), and optionally the container (string; required only for multi-container pods), previous (boolean, for terminated instances), tailLines (number), timestamps (boolean) and filter (string; a regular expression that keeps only matching log lines, grep-style).",
     returnType:
-      "Returns the (possibly truncated) container logs as a string, or the list of containers to choose from for multi-container pods.",
+      "Returns the (possibly truncated and filtered) container logs as a string, or the list of containers to choose from for multi-container pods.",
   },
   {
     name: "createKubernetesResource",
