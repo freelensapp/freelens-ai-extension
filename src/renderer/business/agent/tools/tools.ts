@@ -204,7 +204,7 @@ export const patchKubernetesResource = tool(patchKubernetesResourceImpl, {
 export const getPodLogs = tool(getPodLogsImpl, {
   name: "getPodLogs",
   description:
-    "Read a one-shot snapshot of container logs from a pod. Namespace is required. If the container is omitted on a multi-container pod, the available containers are returned so one can be chosen. Use previous: true to read the last terminated instance (useful for CrashLoopBackOff). Pass filter with a regular expression to return only matching log lines (grep-style).",
+    "Read a one-shot snapshot of container logs from a pod. Namespace is required. If the container is omitted on a multi-container pod, the available containers are returned so one can be chosen. Use previous: true to read the last terminated instance (useful for CrashLoopBackOff). When you are looking for specific log content (errors, warnings, a keyword or pattern) PREFER passing filter with a regular expression to return only the matching lines (grep-style) instead of fetching the whole log and scanning it; read the full, unfiltered log only when the user asks for everything or a filtered read finds nothing.",
   schema: z.object({
     name: z.string().describe("The name of the pod"),
     namespace: z.string().describe("The namespace of the pod"),
@@ -226,8 +226,11 @@ export const getPodLogs = tool(getPodLogsImpl, {
       .optional()
       .describe(
         "Optional JavaScript regular expression used to keep only the log lines that match it (grep-style). " +
+          "Prefer setting this whenever the goal is to find specific content (errors, warnings, a keyword or " +
+          "pattern) so chatty logs are narrowed before they reach the model, instead of fetching every line. " +
           "Applied after tailLines and before any truncation. The match is case-sensitive and unanchored, " +
-          'e.g. "error|warn" keeps lines mentioning error or warn. Omit to return every line.',
+          'e.g. "error|err|fatal|panic" keeps lines mentioning those terms; add casing variants when case may ' +
+          "differ. Omit to return every line.",
       ),
   }),
 });
@@ -360,7 +363,7 @@ export const toolFunctionDescriptions = [
     name: "getPodLogs",
     description: "Read a one-shot snapshot of container logs from a pod",
     arguments:
-      "Requires the pod name (string) and namespace (string), and optionally the container (string; required only for multi-container pods), previous (boolean, for terminated instances), tailLines (number), timestamps (boolean) and filter (string; a regular expression that keeps only matching log lines, grep-style).",
+      "Requires the pod name (string) and namespace (string), and optionally the container (string; required only for multi-container pods), previous (boolean, for terminated instances), tailLines (number), timestamps (boolean) and filter (string; a regular expression that keeps only matching log lines, grep-style - prefer it when searching for specific content such as errors or warnings instead of reading the whole log).",
     returnType:
       "Returns the (possibly truncated and filtered) container logs as a string, or the list of containers to choose from for multi-container pods.",
   },
