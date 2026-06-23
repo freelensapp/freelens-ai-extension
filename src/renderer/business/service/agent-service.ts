@@ -13,6 +13,7 @@ import {
   type TokenUsage,
 } from "./token-usage";
 
+import type { BaseMessage } from "@langchain/core/messages";
 import type { LLMResult } from "@langchain/core/outputs";
 
 const MAX_GEMINI_STREAM_RETRIES = 3;
@@ -71,10 +72,13 @@ export const isTokenUsageChunk = (chunk: unknown): chunk is TokenUsageChunk =>
   typeof chunk === "object" && chunk !== null && "tokenUsage" in chunk;
 
 // A streamed chunk carrying the size of the persisted conversation that the next
-// prompt re-sends. `contextTokens` (parent-thread messages, ~4 chars/token)
-// drives the capacity indicator and the compaction decision; unlike a single
-// call's input it excludes the transient tool-loop context of the sub-agents,
-// which never persists. `peakInputTokens` is the largest single LLM call's input
+// prompt re-sends. `contextTokens` is the persisted parent-thread text
+// (~4 chars/token) plus the measured fixed per-request overhead (system prompt +
+// tool schemas + tool-call structure), so it tracks the real next-prompt size
+// rather than the conversation text alone. It drives the capacity indicator and
+// the compaction decision; unlike a single call's input it excludes the
+// transient tool-loop context of the sub-agents, which never persists.
+// `peakInputTokens` is the largest single LLM call's input
 // in the run - surfaced only in the indicator tooltip, never used to size the
 // gauge or trigger compaction. Emitted live, once per completed LLM call, so the
 // indicator moves during a turn instead of only at the end.
@@ -105,14 +109,38 @@ class TokenUsageCollector extends BaseCallbackHandler {
   // Incremented on every completed LLM call so the streaming loop can detect when
   // a new internal call finished and refresh the live persisted-context reading.
   callCount = 0;
+  // Largest fixed per-request overhead observed: the part of a real prompt that
+  // the ~4-chars/token text estimate cannot see - the node's system prompt, the
+  // tool-schema JSON, and tool-call arguments/structure that live outside message
+  // `content`. Measured per call as (real prompt_tokens) - (estimated tokens of
+  // the messages actually sent), so it is content-independent. Added to the
+  // persisted-context estimate so the gauge reflects the real next-prompt size
+  // rather than the conversation text alone (which under-counts badly on short
+  // sessions, where the fixed overhead dominates). Bounded by the largest tool
+  // set, so unlike the transient content spike it stays small and stable.
+  requestOverhead = 0;
+  // Estimated tokens of the messages handed to each in-flight call, keyed by the
+  // callback `runId`, so `handleLLMEnd` can pair the real input against the
+  // estimate to recover that call's fixed overhead.
+  private approxInputByRun = new Map<string, number>();
 
-  handleLLMEnd(output: LLMResult): void {
+  handleChatModelStart(_llm: unknown, messages: BaseMessage[][], runId: string): void {
+    this.approxInputByRun.set(runId, approximateMessagesTokenCount(messages.flat()));
+  }
+
+  handleLLMEnd(output: LLMResult, runId: string): void {
     const usage = extractTokenUsageFromLLMResult(output);
     if (usage) {
       this.total = addTokenUsage(this.total, usage);
       this.peakInputTokens = Math.max(this.peakInputTokens, usage.input);
       this.callCount += 1;
+
+      const approxInput = this.approxInputByRun.get(runId);
+      if (approxInput !== undefined) {
+        this.requestOverhead = Math.max(this.requestOverhead, usage.input - approxInput);
+      }
     }
+    this.approxInputByRun.delete(runId);
   }
 }
 
@@ -158,8 +186,13 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
       // turn instead of only at the end.
       const readContextSize = async (): Promise<ContextSizeChunk> => {
         const state = await agent.getState({ configurable: config });
+        // Size the gauge as the persisted conversation text plus the measured
+        // fixed per-request overhead (system prompt + tool schemas + tool-call
+        // structure). The text estimate alone omits that overhead, which on a
+        // short session dominates the real prompt - so it would otherwise read
+        // far too low (e.g. 41 tokens for a real 244-token request).
         return {
-          contextTokens: approximateMessagesTokenCount(state?.values?.messages),
+          contextTokens: approximateMessagesTokenCount(state?.values?.messages) + tokenUsageCollector.requestOverhead,
           peakInputTokens: tokenUsageCollector.peakInputTokens,
         };
       };
