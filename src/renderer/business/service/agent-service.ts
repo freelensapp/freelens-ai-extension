@@ -4,7 +4,14 @@ import { FreeLensAgent } from "../agent/freelens-agent-system";
 import { MPCAgent } from "../agent/mcp-agent";
 import { approximateMessagesTokenCount } from "../provider/token-estimate";
 import { createStreamMergeState, extractReasoningText, mergeAiChunk } from "./stream-merge";
-import { addTokenUsage, emptyTokenUsage, extractTokenUsageFromLLMResult, type TokenUsage } from "./token-usage";
+import {
+  addTokenUsage,
+  emptyTokenUsage,
+  extractTokenUsageFromLLMResult,
+  isEmptyTokenUsage,
+  subtractTokenUsage,
+  type TokenUsage,
+} from "./token-usage";
 
 import type { LLMResult } from "@langchain/core/outputs";
 
@@ -49,10 +56,13 @@ export const isReasoningChunk = (chunk: unknown): chunk is ReasoningChunk =>
   "reasoning" in chunk &&
   typeof (chunk as ReasoningChunk).reasoning === "string";
 
-// A streamed chunk carrying the token usage accumulated across the run. The chat
-// service sums these into the per-session counter shown in the UI. Emitted once
-// at end of turn so a transient-error retry can discard the failed attempt's
-// usage rather than double counting it.
+// A streamed chunk carrying token usage to add onto the per-session counter (and
+// the cost derived from it) shown in the UI. Emitted live as a *delta* per
+// completed internal LLM call, so the counter and cost move during a turn
+// instead of only at the end (a single user turn fans out into several calls).
+// On a transient-error retry the failed attempt's already-counted deltas are
+// rolled back with a negative chunk before the run re-counts them, so retries
+// never double count. The chat service simply sums every chunk.
 export interface TokenUsageChunk {
   tokenUsage: TokenUsage;
 }
@@ -124,6 +134,10 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
     console.log("Starting Agent Service run for message: ", agentInput);
 
     let config = { thread_id: conversationId };
+    // Net token usage this run has already added to the per-session counter via
+    // emitted deltas. Tracked across attempts so a transient-error retry can roll
+    // back the failed attempt's contribution before the re-run re-counts it.
+    let storeContribution = emptyTokenUsage();
     for (let attempt = 1; attempt <= MAX_GEMINI_STREAM_RETRIES + 1; attempt++) {
       let hasYieldedContent = false;
       // Tracks assistant message boundaries so distinct messages emitted within a
@@ -148,6 +162,19 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
           contextTokens: approximateMessagesTokenCount(state?.values?.messages),
           peakInputTokens: tokenUsageCollector.peakInputTokens,
         };
+      };
+
+      // The token usage counted since the last emission, as a delta to add onto
+      // the live per-session counter. `storeContribution` follows the collector's
+      // running total within an attempt, so the next delta is exactly the newly
+      // counted usage. Returns null when nothing new has been counted.
+      const nextUsageDelta = (): TokenUsageChunk | null => {
+        const delta = subtractTokenUsage(tokenUsageCollector.total, storeContribution);
+        if (isEmptyTokenUsage(delta)) {
+          return null;
+        }
+        storeContribution = tokenUsageCollector.total;
+        return { tokenUsage: delta };
       };
 
       try {
@@ -191,12 +218,20 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
             }
           }
 
-          // Refresh the live capacity reading whenever a new internal LLM call
-          // has finished, so the indicator moves during the turn rather than
-          // only at the end (a single user turn fans out into several calls).
+          // Refresh the live capacity reading and the token/cost counter whenever
+          // a new internal LLM call has finished, so both move during the turn
+          // rather than only at the end (a single user turn fans out into several
+          // calls). The usage delta is collected from the `handleLLMEnd` callback,
+          // so the supervisor and analyzer turns - suppressed from the `messages`
+          // stream by the `nostream` tag - are counted too, not just the single
+          // visible turn.
           if (tokenUsageCollector.callCount > lastEmittedCallCount) {
             lastEmittedCallCount = tokenUsageCollector.callCount;
             yield await readContextSize();
+            const usageDelta = nextUsageDelta();
+            if (usageDelta) {
+              yield usageDelta;
+            }
           }
         }
 
@@ -207,16 +242,11 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
         // prompt re-sends and what the pre-send compaction decision acts on.
         yield await readContextSize();
 
-        // Emit the token usage accumulated across every model turn in this run
-        // (collected from the `handleLLMEnd` callback above). Reading it from the
-        // callback rather than the streamed chunks is what lets the supervisor
-        // and analyzer turns - suppressed from the `messages` stream by the
-        // `nostream` tag - be counted, not just the single visible turn. Emitted
-        // once here (not per call) so a transient-error retry discards a failed
-        // attempt's usage rather than double counting it.
-        const tokenUsage = tokenUsageCollector.total;
-        if (tokenUsage.input !== 0 || tokenUsage.cached !== 0 || tokenUsage.output !== 0) {
-          yield { tokenUsage };
+        // Flush any usage from the last call(s) not yet reflected in an emitted
+        // delta (a final `handleLLMEnd` may fire after the stream's last message).
+        const finalUsageDelta = nextUsageDelta();
+        if (finalUsageDelta) {
+          yield finalUsageDelta;
         }
 
         // checks the agent state for any interrupts
@@ -241,6 +271,15 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
 
         if (!canRetry) {
           throw error;
+        }
+
+        // Roll back the usage this failed attempt already added to the live
+        // counter with a negative delta, so the re-run re-counts from scratch
+        // without double counting. The next attempt's fresh collector starts at
+        // zero, so `storeContribution` must too.
+        if (!isEmptyTokenUsage(storeContribution)) {
+          yield { tokenUsage: subtractTokenUsage(emptyTokenUsage(), storeContribution) };
+          storeContribution = emptyTokenUsage();
         }
 
         await wait(getRetryDelay(attempt));

@@ -258,8 +258,11 @@ const useChatService = () => {
           continue;
         }
 
-        // Token usage reported for the run is summed into the per-session
-        // counter shown next to the model list.
+        // Token usage deltas are summed into the per-session counter (and the
+        // cost derived from it) shown next to the model list. Emitted live per
+        // completed LLM call, so the counter and cost move during a turn; a
+        // negative delta on a transient-error retry rolls back the failed
+        // attempt's contribution.
         if (isTokenUsageChunk(chunk)) {
           applicationStatusStore.addTokenUsage(chunk.tokenUsage);
           continue;

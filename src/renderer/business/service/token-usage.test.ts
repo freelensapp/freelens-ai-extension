@@ -5,6 +5,8 @@ import {
   extractTokenUsage,
   extractTokenUsageFromLLMResult,
   formatTokenUsage,
+  isEmptyTokenUsage,
+  subtractTokenUsage,
 } from "./token-usage";
 
 describe("extractTokenUsage", () => {
@@ -120,6 +122,38 @@ describe("addTokenUsage", () => {
       cached: 0,
       output: 2,
     });
+  });
+});
+
+describe("subtractTokenUsage", () => {
+  it("returns the field-wise difference", () => {
+    expect(subtractTokenUsage({ input: 105, cached: 22, output: 38 }, { input: 100, cached: 20, output: 30 })).toEqual({
+      input: 5,
+      cached: 2,
+      output: 8,
+    });
+  });
+
+  it("can produce a negative delta to roll back a counted total", () => {
+    expect(subtractTokenUsage(emptyTokenUsage(), { input: 5, cached: 2, output: 8 })).toEqual({
+      input: -5,
+      cached: -2,
+      output: -8,
+    });
+  });
+
+  it("round-trips with addTokenUsage", () => {
+    const total = { input: 100, cached: 20, output: 30 };
+    const delta = { input: 5, cached: 2, output: 8 };
+    expect(subtractTokenUsage(addTokenUsage(total, delta), total)).toEqual(delta);
+  });
+});
+
+describe("isEmptyTokenUsage", () => {
+  it("is true only when every field is zero", () => {
+    expect(isEmptyTokenUsage(emptyTokenUsage())).toBe(true);
+    expect(isEmptyTokenUsage({ input: 0, cached: 0, output: 1 })).toBe(false);
+    expect(isEmptyTokenUsage({ input: 1, cached: 0, output: 0 })).toBe(false);
   });
 });
 

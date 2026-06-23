@@ -124,6 +124,19 @@ export const addTokenUsage = (total: TokenUsage, delta: TokenUsage): TokenUsage 
   output: total.output + delta.output,
 });
 
+// Field-wise difference of two totals. Used to turn a collector's running total
+// into the per-call delta the live counter adds, and to roll back a failed
+// attempt's already-counted usage before a transient-error retry re-runs it.
+export const subtractTokenUsage = (total: TokenUsage, delta: TokenUsage): TokenUsage => ({
+  input: total.input - delta.input,
+  cached: total.cached - delta.cached,
+  output: total.output - delta.output,
+});
+
+// True when every field is zero, so callers can skip emitting an empty delta.
+export const isEmptyTokenUsage = (usage: TokenUsage): boolean =>
+  usage.input === 0 && usage.cached === 0 && usage.output === 0;
+
 /**
  * Render the session totals as the compact counter requested in the issue:
  * `in:xxx (cached:zzz) + out:yyy`. Counts use locale grouping so large totals
