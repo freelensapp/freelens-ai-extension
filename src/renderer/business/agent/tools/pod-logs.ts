@@ -5,6 +5,7 @@ export interface GetPodLogsInput {
   previous?: boolean;
   tailLines?: number;
   timestamps?: boolean;
+  filter?: string;
 }
 
 // Hard cap on the bytes returned to the model so a chatty pod cannot overflow
@@ -113,4 +114,52 @@ export function emptyLogsMessage(container: string, name: string, previous: bool
   return previous
     ? `No previous logs for container "${container}" in pod "${name}". The container may not have a terminated instance.`
     : `No logs for container "${container}" in pod "${name}". The container may not have started yet; try previous: true to read the last terminated instance.`;
+}
+
+export type LogFilterResolution =
+  | { kind: "none" }
+  | { kind: "regex"; regex: RegExp }
+  | { kind: "error"; message: string };
+
+/**
+ * Compile the optional log-line filter into a RegExp. An empty/omitted pattern
+ * disables filtering; an invalid pattern is reported back to the model instead
+ * of throwing so it can correct the expression.
+ */
+export function compileLogFilter(pattern: string | undefined): LogFilterResolution {
+  if (pattern === undefined || pattern === "") {
+    return { kind: "none" };
+  }
+  try {
+    return { kind: "regex", regex: new RegExp(pattern) };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { kind: "error", message: `Invalid filter regular expression "${pattern}": ${reason}` };
+  }
+}
+
+/**
+ * Keep only the log lines matching the regex (grep-style). A trailing newline
+ * on the input is preserved on the output so the result still reads like a log.
+ */
+export function filterLogLines(logs: string, regex: RegExp): string {
+  const hadTrailingNewline = logs.endsWith("\n");
+  const lines = logs.split("\n");
+  if (hadTrailingNewline) {
+    // Drop the empty element produced by the trailing newline so it is not
+    // tested against the filter or re-emitted as a blank line.
+    lines.pop();
+  }
+  const matched = lines.filter((line) => regex.test(line));
+  if (matched.length === 0) {
+    return "";
+  }
+  return matched.join("\n") + (hadTrailingNewline ? "\n" : "");
+}
+
+/**
+ * Build the message returned when a filter was applied but no log line matched.
+ */
+export function noMatchingLogsMessage(container: string, name: string, filter: string): string {
+  return `No log lines for container "${container}" in pod "${name}" matched the filter /${filter}/.`;
 }

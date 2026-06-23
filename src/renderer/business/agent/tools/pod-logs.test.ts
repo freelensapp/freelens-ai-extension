@@ -3,6 +3,8 @@ import {
   capLogOutput,
   capTailLines,
   collectContainerNames,
+  compileLogFilter,
+  filterLogLines,
   MAX_TAIL_LINES,
   resolveContainer,
   TRUNCATION_MARKER,
@@ -113,5 +115,45 @@ describe("capLogOutput", () => {
     const logs = "€".repeat(10);
     const result = capLogOutput(logs, 12);
     expect(result.startsWith(TRUNCATION_MARKER)).toBe(true);
+  });
+});
+
+describe("compileLogFilter", () => {
+  it("disables filtering for an omitted or empty pattern", () => {
+    expect(compileLogFilter(undefined)).toEqual({ kind: "none" });
+    expect(compileLogFilter("")).toEqual({ kind: "none" });
+  });
+
+  it("compiles a valid pattern into a RegExp", () => {
+    const result = compileLogFilter("error|warn");
+    expect(result.kind).toBe("regex");
+    expect(result.kind === "regex" && result.regex.test("an error happened")).toBe(true);
+    expect(result.kind === "regex" && result.regex.test("all good")).toBe(false);
+  });
+
+  it("reports an invalid pattern instead of throwing", () => {
+    const result = compileLogFilter("(unclosed");
+    expect(result.kind).toBe("error");
+    expect(result.kind === "error" && result.message).toContain("(unclosed");
+  });
+});
+
+describe("filterLogLines", () => {
+  it("keeps only matching lines", () => {
+    const logs = "info: started\nerror: boom\ninfo: ok\nwarn: careful\n";
+    expect(filterLogLines(logs, /error|warn/)).toBe("error: boom\nwarn: careful\n");
+  });
+
+  it("preserves the absence of a trailing newline", () => {
+    const logs = "error: a\ninfo: b\nerror: c";
+    expect(filterLogLines(logs, /error/)).toBe("error: a\nerror: c");
+  });
+
+  it("returns an empty string when nothing matches", () => {
+    expect(filterLogLines("info: a\ninfo: b\n", /error/)).toBe("");
+  });
+
+  it("does not emit a blank line for the trailing newline", () => {
+    expect(filterLogLines("match\n", /^/)).toBe("match\n");
   });
 });
