@@ -18,16 +18,21 @@ objects, and best practices.
 
 ## Tools Available to the K8S Operator 🛠️ 
 
-The Kubernetes Operator agent can perform the following actions:
+The Kubernetes Operator agent works on any resource kind — built-in kinds and
+CRDs alike — and can perform the following actions:
 
-- ✅ Create Pods
-- ✅ Delete Pods
-- ✅ Get Pods
-- ✅ Create Deployments
-- ✅ Delete Deployments
-- ✅ Get Deployments
-- ✅ Create Service
-- ✅ Delete Service
-- ✅ Get Services
+- ✅ List, get, create, update, patch, and delete any Kubernetes resource
+- ✅ Read pod container logs, including the previous instance, with a
+  regular-expression filter
+- ✅ Resize a running pod in place (`resize` subresource) or scale a workload
+- ✅ Delete pods with eviction, force delete, or finalizer-clearing variants
+- ✅ Rollout restart of workloads
+- ✅ Read the Kubernetes server version
+- ✅ Analyze warning events in a namespace
 
-🧠 Note: All actions are gated by human approval to ensure operational safety.
+Read and analysis tools return trimmed output: `metadata.managedFields` is
+stripped by default, and JSONPath-style field selectors can limit the result to
+only the fields that matter.
+
+🧠 Note: All write actions are gated by human approval to ensure operational
+safety.
