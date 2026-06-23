@@ -27,6 +27,25 @@ const apiVersionSchema = z
     'The apiVersion (group/version) of the resource, e.g. "v1" or "apps/v1". Required for kinds without a built-in default.',
   );
 const manifestSchema = z.record(z.any()).describe("The Kubernetes resource manifest as a JSON object.");
+const includeManagedFieldsSchema = z
+  .boolean()
+  .optional()
+  .describe(
+    "Whether to include metadata.managedFields in the output. Defaults to false: the server-side apply " +
+      "bookkeeping is large and irrelevant for analysis, so it is stripped to save context. Set to true only " +
+      "when you specifically need to inspect field ownership.",
+  );
+const fieldsSchema = z
+  .array(z.string())
+  .optional()
+  .describe(
+    "Optional list of JSONPath-style field selectors (the kubectl `-o jsonpath` subset) applied to each " +
+      "returned resource to trim the output to only the fields you need, instead of the full and often verbose " +
+      "object. Each selector is relative to a single resource and the result keeps the nested structure of the " +
+      'matched fields. Examples: ".metadata.name", ".status.phase", ".spec.containers[*].image", ' +
+      '".metadata.labels[\'app.kubernetes.io/name\']", ".spec.containers[0].name". ' +
+      "Omit to return the full resource.",
+  );
 const subresourceSchema = z
   .string()
   .optional()
@@ -107,22 +126,34 @@ export const getWarningEventsByNamespace = tool(
 
 export const listKubernetesResources = tool(listKubernetesResourcesImpl, {
   name: "listKubernetesResources",
-  description: "List Kubernetes resources of a given kind, optionally scoped to a namespace",
+  description:
+    "List Kubernetes resources of a given kind, optionally scoped to a namespace. " +
+    "metadata.managedFields is stripped by default to keep the output small. " +
+    'Pass "fields" with JSONPath-style selectors (e.g. [".metadata.name", ".status.phase"]) to return only ' +
+    "a subset of each resource instead of the full, verbose object.",
   schema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     namespace: z.string().optional().describe("The namespace to list namespaced resources in"),
+    includeManagedFields: includeManagedFieldsSchema,
+    fields: fieldsSchema,
   }),
 });
 
 export const getKubernetesResource = tool(getKubernetesResourceImpl, {
   name: "getKubernetesResource",
-  description: "Get a single Kubernetes resource by name (namespace required for namespaced kinds)",
+  description:
+    "Get a single Kubernetes resource by name (namespace required for namespaced kinds). " +
+    "metadata.managedFields is stripped by default to keep the output small. " +
+    'Pass "fields" with JSONPath-style selectors (e.g. [".status.phase", ".spec.containers[*].image"]) to ' +
+    "return only a subset of the resource instead of the full, verbose object.",
   schema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     name: z.string().describe("The name of the resource"),
     namespace: z.string().optional().describe("The namespace of the resource (required for namespaced kinds)"),
+    includeManagedFields: includeManagedFieldsSchema,
+    fields: fieldsSchema,
   }),
 });
 
@@ -173,7 +204,7 @@ export const patchKubernetesResource = tool(patchKubernetesResourceImpl, {
 export const getPodLogs = tool(getPodLogsImpl, {
   name: "getPodLogs",
   description:
-    "Read a one-shot snapshot of container logs from a pod. Namespace is required. If the container is omitted on a multi-container pod, the available containers are returned so one can be chosen. Use previous: true to read the last terminated instance (useful for CrashLoopBackOff).",
+    "Read a one-shot snapshot of container logs from a pod. Namespace is required. If the container is omitted on a multi-container pod, the available containers are returned so one can be chosen. Use previous: true to read the last terminated instance (useful for CrashLoopBackOff). Pass filter with a regular expression to return only matching log lines (grep-style).",
   schema: z.object({
     name: z.string().describe("The name of the pod"),
     namespace: z.string().describe("The namespace of the pod"),
@@ -190,6 +221,14 @@ export const getPodLogs = tool(getPodLogsImpl, {
       .optional()
       .describe("Number of lines from the end of the logs to read (defaults to the preference value)"),
     timestamps: z.boolean().optional().describe("Prefix every log line with an RFC3339 timestamp"),
+    filter: z
+      .string()
+      .optional()
+      .describe(
+        "Optional JavaScript regular expression used to keep only the log lines that match it (grep-style). " +
+          "Applied after tailLines and before any truncation. The match is case-sensitive and unanchored, " +
+          'e.g. "error|warn" keeps lines mentioning error or warn. Omit to return every line.',
+      ),
   }),
 });
 
@@ -296,25 +335,34 @@ export const toolFunctionDescriptions = [
     name: "listKubernetesResources",
     description: "List Kubernetes resources of a given kind, optionally scoped to a namespace",
     arguments:
-      "Requires the resource kind (string) and optionally the apiVersion (string) and namespace (string). Built-in kinds: " +
+      "Requires the resource kind (string) and optionally the apiVersion (string), namespace (string), " +
+      "includeManagedFields (boolean; defaults to false) and fields (array of JSONPath-style selectors to " +
+      "trim each resource to a subset, the kubectl `-o jsonpath` subset). Built-in kinds: " +
       SUPPORTED_KINDS.join(", ") +
       "; any other kind (including CRDs) is accepted.",
-    returnType: "Returns a JSON string containing the matching resources.",
+    returnType:
+      "Returns a JSON string containing the matching resources, with metadata.managedFields stripped unless " +
+      "includeManagedFields is true, and limited to the selected fields when fields is provided.",
   },
   {
     name: "getKubernetesResource",
     description: "Get a single Kubernetes resource by name",
     arguments:
-      "Requires the resource kind (string) and name (string), and optionally the apiVersion (string). Namespace (string) is required for namespaced kinds.",
-    returnType: "Returns a JSON string containing the requested resource.",
+      "Requires the resource kind (string) and name (string), and optionally the apiVersion (string), " +
+      "includeManagedFields (boolean; defaults to false) and fields (array of JSONPath-style selectors to " +
+      "trim the resource to a subset, the kubectl `-o jsonpath` subset). Namespace (string) is required for " +
+      "namespaced kinds.",
+    returnType:
+      "Returns a JSON string containing the requested resource, with metadata.managedFields stripped unless " +
+      "includeManagedFields is true, and limited to the selected fields when fields is provided.",
   },
   {
     name: "getPodLogs",
     description: "Read a one-shot snapshot of container logs from a pod",
     arguments:
-      "Requires the pod name (string) and namespace (string), and optionally the container (string; required only for multi-container pods), previous (boolean, for terminated instances), tailLines (number) and timestamps (boolean).",
+      "Requires the pod name (string) and namespace (string), and optionally the container (string; required only for multi-container pods), previous (boolean, for terminated instances), tailLines (number), timestamps (boolean) and filter (string; a regular expression that keeps only matching log lines, grep-style).",
     returnType:
-      "Returns the (possibly truncated) container logs as a string, or the list of containers to choose from for multi-container pods.",
+      "Returns the (possibly truncated and filtered) container logs as a string, or the list of containers to choose from for multi-container pods.",
   },
   {
     name: "createKubernetesResource",

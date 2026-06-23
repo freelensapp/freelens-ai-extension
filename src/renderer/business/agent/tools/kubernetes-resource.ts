@@ -3,14 +3,19 @@ import { interrupt } from "@langchain/langgraph";
 import { stringify as stringifyYaml } from "yaml";
 import { PreferencesStore } from "../../../../common/store";
 import { type KubernetesVersionInfo, summarizeClusterVersion } from "./cluster-version";
+import { buildFieldSelector } from "./field-filter";
 import {
   capLogOutput,
   capTailLines,
   collectContainerNames,
+  compileLogFilter,
   emptyLogsMessage,
+  filterLogLines,
   type GetPodLogsInput,
+  noMatchingLogsMessage,
   resolveContainer,
 } from "./pod-logs";
+import { stripManagedFields } from "./project-resource";
 import {
   DEFAULT_DELETE_MODE,
   type DeleteMode,
@@ -39,6 +44,12 @@ export interface ListResourceInput {
   kind: string;
   apiVersion?: string;
   namespace?: string;
+  // Server-side apply bookkeeping (`metadata.managedFields`) is stripped by
+  // default to keep the output small; set this to opt back in when needed.
+  includeManagedFields?: boolean;
+  // Optional JSONPath-style field selectors (the kubectl `-o jsonpath` subset)
+  // applied to each resource to trim the output to just the requested fields.
+  fields?: string[];
 }
 
 export interface GetResourceInput {
@@ -46,6 +57,10 @@ export interface GetResourceInput {
   apiVersion?: string;
   name: string;
   namespace?: string;
+  // See ListResourceInput.includeManagedFields.
+  includeManagedFields?: boolean;
+  // See ListResourceInput.fields.
+  fields?: string[];
 }
 
 export interface CreateResourceInput {
@@ -205,13 +220,13 @@ async function captureResourceYaml(
   }
 }
 
-function projectObject(object: KubeObject) {
+function projectObject(object: KubeObject, includeManagedFields = false) {
   return {
     name: object.getName(),
     namespace: object.getNs(),
     spec: object.spec,
     status: object.status,
-    metadata: object.metadata,
+    metadata: stripManagedFields(object.metadata, includeManagedFields),
   };
 }
 
@@ -256,18 +271,31 @@ const STRATEGIC_MERGE_PATCH_CONTENT_TYPE = "application/strategic-merge-patch+js
  * kinds are scoped to `namespace` when provided; otherwise all loaded
  * namespaces are returned.
  */
-export async function listKubernetesResources({ kind, apiVersion, namespace }: ListResourceInput): Promise<string> {
+export async function listKubernetesResources({
+  kind,
+  apiVersion,
+  namespace,
+  includeManagedFields,
+  fields,
+}: ListResourceInput): Promise<string> {
   console.log("[Tool invocation: listKubernetesResources] - kind:", kind, "namespace:", namespace);
   const target = resolveTarget(kind, apiVersion);
   if (typeof target === "string") {
     return target;
+  }
+  let select: ReturnType<typeof buildFieldSelector>;
+  try {
+    select = buildFieldSelector(fields);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
   }
   const { api, store } = target;
   try {
     const scoped = api.isNamespaced && namespace ? [namespace] : undefined;
     const loaded = await store.loadAll(scoped ? { namespaces: scoped } : {});
     const items = loaded ?? (scoped ? store.getAllByNs(namespace as string) : store.items.toJSON());
-    return JSON.stringify(items.map(projectObject));
+    const projected = items.map((item) => projectObject(item, includeManagedFields));
+    return JSON.stringify(select ? projected.map(select) : projected);
   } catch (error) {
     console.error("[Tool invocation error: listKubernetesResources] - ", error);
     return JSON.stringify(error);
@@ -278,7 +306,14 @@ export async function listKubernetesResources({ kind, apiVersion, namespace }: L
  * Get a single resource by name, loading it from the store on demand. For
  * namespaced kinds a namespace is required.
  */
-export async function getKubernetesResource({ kind, apiVersion, name, namespace }: GetResourceInput): Promise<string> {
+export async function getKubernetesResource({
+  kind,
+  apiVersion,
+  name,
+  namespace,
+  includeManagedFields,
+  fields,
+}: GetResourceInput): Promise<string> {
   console.log("[Tool invocation: getKubernetesResource] - kind:", kind, "name:", name, "namespace:", namespace);
   const target = resolveTarget(kind, apiVersion);
   if (typeof target === "string") {
@@ -288,12 +323,19 @@ export async function getKubernetesResource({ kind, apiVersion, name, namespace 
   if (api.isNamespaced && !namespace) {
     return `Kind "${kind}" is namespaced; please provide a namespace to get "${name}".`;
   }
+  let select: ReturnType<typeof buildFieldSelector>;
+  try {
+    select = buildFieldSelector(fields);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
   try {
     const object = await store.load({ name, namespace: api.isNamespaced ? namespace : undefined });
     if (!object) {
       return `The ${kind} "${name}" was not found.`;
     }
-    return JSON.stringify(projectObject(object));
+    const projected = projectObject(object, includeManagedFields);
+    return JSON.stringify(select ? select(projected) : projected);
   } catch (error) {
     console.error("[Tool invocation error: getKubernetesResource] - ", error);
     return JSON.stringify(error);
@@ -660,6 +702,13 @@ export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
     return `Pods are namespaced; please provide a namespace to read logs for "${name}".`;
   }
 
+  // Compile the optional regex filter up front so an invalid expression is
+  // reported before the pod is loaded or its logs are fetched.
+  const filterResolution = compileLogFilter(input.filter);
+  if (filterResolution.kind === "error") {
+    return filterResolution.message;
+  }
+
   const podsApi = Renderer.K8sApi.podsApi;
   const store = Renderer.K8sApi.apiManager.getStore(podsApi);
   if (!store) {
@@ -700,6 +749,13 @@ export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
     );
     if (!logs || logs.trim().length === 0) {
       return emptyLogsMessage(selectedContainer, name, previous);
+    }
+    if (filterResolution.kind === "regex") {
+      const filtered = filterLogLines(logs, filterResolution.regex);
+      if (filtered.trim().length === 0) {
+        return noMatchingLogsMessage(selectedContainer, name, input.filter as string);
+      }
+      return capLogOutput(filtered);
     }
     return capLogOutput(logs);
   } catch (error) {
