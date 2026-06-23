@@ -12,6 +12,11 @@ export interface ChatSession {
   // Running token totals for this session, summed across every model turn.
   // Reset when the session is cleared.
   tokenUsage: TokenUsage;
+  // Approximate size of the persisted conversation that the next prompt re-sends
+  // (parent-thread messages, ~4 chars/token) - what drives the capacity
+  // indicator and the compaction decision. Reset when the session is cleared or
+  // compacted.
+  lastInputTokens: number;
 }
 
 export interface ChatSessionModel {
@@ -22,7 +27,12 @@ export interface ChatSessionModel {
   sessions: Record<string, ChatSession>;
 }
 
-const emptySession = (): ChatSession => ({ messages: [], conversationId: "", tokenUsage: emptyTokenUsage() });
+const emptySession = (): ChatSession => ({
+  messages: [],
+  conversationId: "",
+  tokenUsage: emptyTokenUsage(),
+  lastInputTokens: 0,
+});
 
 /**
  * Durable, host-managed persistence for the rendered chat sessions (the
@@ -90,9 +100,18 @@ export class ChatSessionStore extends Common.Store.ExtensionStore<ChatSessionMod
     this.patch(clusterId, { tokenUsage });
   }
 
+  getLastInputTokens(clusterId: string): number {
+    return this.session(clusterId).lastInputTokens ?? 0;
+  }
+
+  setLastInputTokens(clusterId: string, lastInputTokens: number): void {
+    this.patch(clusterId, { lastInputTokens });
+  }
+
   clear(clusterId: string): void {
-    // Clearing the session also zeroes the token counter.
-    this.patch(clusterId, { messages: [], tokenUsage: emptyTokenUsage() });
+    // Clearing the session also zeroes the token counter and the context-size
+    // estimate that drives compaction.
+    this.patch(clusterId, { messages: [], tokenUsage: emptyTokenUsage(), lastInputTokens: 0 });
   }
 
   fromStore(model: ChatSessionModel): void {
@@ -110,6 +129,7 @@ export class ChatSessionStore extends Common.Store.ExtensionStore<ChatSessionMod
         messages: toJS(session.messages),
         conversationId: session.conversationId,
         tokenUsage: toJS(session.tokenUsage) ?? emptyTokenUsage(),
+        lastInputTokens: session.lastInputTokens ?? 0,
       };
     }
     return { sessions };

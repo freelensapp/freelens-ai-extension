@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { approximateTokenCount, messageContentToText } from "./token-estimate";
+import { approximateMessagesTokenCount, approximateTokenCount, messageContentToText } from "./token-estimate";
 
 describe("messageContentToText", () => {
   it("returns a plain string unchanged", () => {
@@ -43,5 +43,25 @@ describe("approximateTokenCount", () => {
       { type: "text" as const, text: "bbbb" },
     ];
     expect(approximateTokenCount(content)).toBe(2);
+  });
+});
+
+describe("approximateMessagesTokenCount", () => {
+  it("sums the per-message estimate", () => {
+    const messages = [{ content: "12345678" }, { content: "123456789" }];
+    expect(approximateMessagesTokenCount(messages)).toBe(5);
+  });
+
+  it("returns zero for an empty list", () => {
+    expect(approximateMessagesTokenCount([])).toBe(0);
+  });
+
+  it("returns zero when the messages are undefined", () => {
+    expect(approximateMessagesTokenCount(undefined)).toBe(0);
+  });
+
+  it("counts content-block messages alongside plain-string messages", () => {
+    const messages = [{ content: "aaaa" }, { content: [{ type: "text" as const, text: "bbbb" }] }];
+    expect(approximateMessagesTokenCount(messages)).toBe(2);
   });
 });

@@ -34,12 +34,41 @@
 }
 
 .text-input-send-button {
-  margin-left: 0.5rem;
+  margin-left: 0;
   background: none;
   border: none;
   cursor: pointer;
   color: var(--layoutTabsActiveColor);
   transition: color 0.2s ease;
+}
+
+// Circular token-capacity indicator shown next to the send button. Kept tight
+// against the send button.
+.text-input-token-capacity {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.5rem;
+  margin-right: 0;
+  user-select: none;
+}
+
+// Capacity-indicator stroke colours. A CSS `stroke` rule overrides the SVG
+// presentation attribute, so this drives the colours per theme. Dark theme is
+// the default (no body class); `body.theme-light` is set by the host for light.
+.text-input-token-capacity-track {
+  stroke: #616466; // unused capacity (dark theme)
+}
+
+.text-input-token-capacity-arc {
+  stroke: #a0a0a0; // used tokens (dark theme)
+}
+
+body.theme-light .text-input-token-capacity-track {
+  stroke: #acacac; // unused capacity (light theme)
+}
+
+body.theme-light .text-input-token-capacity-arc {
+  stroke: var(--textColorPrimary); // used tokens (light theme)
 }
 
 .text-input-send-button:disabled {
@@ -55,6 +84,21 @@
   font-size: 0.9em;
   white-space: nowrap;
   user-select: none;
+}
+
+// Transient compaction status shown next to the token counter. While compacting
+// it stays dimmed like the counter; once compacted it switches to the normal
+// (primary) text colour to confirm the conversation was compacted.
+.text-input-compaction-status {
+  margin-right: 0.5rem;
+  color: var(--textColorPrimary);
+  font-size: 0.9em;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.text-input-compaction-status.compacting {
+  color: var(--textColorDimmed);
 }
 
 .text-input-select-box {
@@ -99,4 +143,35 @@
   background: var(--inputControlHoverBorder);
   color: var(--textColorPrimary);
   border-color: var(--inputControlHoverBorder);
+}
+
+// Lightweight hover tooltip used for the token counter and capacity indicator.
+// The native `title` attribute is slow to appear and hard to trigger, so the
+// text is supplied via `data-tooltip` and shown instantly on hover, anchored to
+// the element's right edge so it stays inside the input area.
+.text-input-tooltip {
+  position: relative;
+}
+
+.text-input-tooltip[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 100;
+  width: max-content;
+  max-width: 280px;
+  padding: 6px 8px;
+  border: 1px solid var(--borderColor);
+  border-radius: 4px;
+  background-color: var(--menuBackground);
+  color: var(--textColorPrimary);
+  font-size: 0.8em;
+  line-height: 1.3;
+  // `pre-line` keeps explicit newlines in `data-tooltip` (the capacity indicator
+  // puts the peak on its own line) while still wrapping long single-line text.
+  white-space: pre-line;
+  text-align: left;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }

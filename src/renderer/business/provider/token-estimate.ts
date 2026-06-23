@@ -33,3 +33,16 @@ export const messageContentToText = (content: MessageContent): string => {
  */
 export const approximateTokenCount = (content: MessageContent): number =>
   Math.ceil(messageContentToText(content).length / 4);
+
+/**
+ * Approximate the token count of the persisted conversation carried into the
+ * next prompt by summing the per-message estimate. This is what sizes the
+ * capacity indicator and the compaction decision: it is the accumulated history
+ * the next prompt re-sends, not the transient tool-loop context of a single
+ * internal sub-agent call (which never persists). Omits the fixed system-prompt
+ * and tool-schema overhead, so it slightly under-counts the real prompt -
+ * consistent with how compaction estimates the post-compaction size, and the
+ * 90% threshold leaves headroom.
+ */
+export const approximateMessagesTokenCount = (messages: { content: MessageContent }[] | undefined): number =>
+  (messages ?? []).reduce((sum, message) => sum + approximateTokenCount(message.content), 0);

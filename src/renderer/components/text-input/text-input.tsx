@@ -8,6 +8,7 @@ import { useApplicationStatusStore } from "../../context/application-context";
 import { AvailableTools } from "../available-tools/available-tools";
 import styleInline from "./text-input.scss?inline";
 import { useTextInput } from "./text-input-hook";
+import { TokenCapacityIndicator } from "./token-capacity-indicator";
 
 const { observer } = MobxReact;
 
@@ -110,10 +111,22 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               </button>
             </div>
             <div style={{ display: "flex", alignItems: "center" }}>
+              {applicationStatusStore.compactionStatus && (
+                <span
+                  className={`text-input-compaction-status${
+                    applicationStatusStore.compactionStatus === "compacting" ? " compacting" : ""
+                  }`}
+                  title="The conversation was getting close to the model's input token limit, so it was summarized to free up context."
+                >
+                  {applicationStatusStore.compactionStatus === "compacting"
+                    ? "Compacting conversation..."
+                    : "Compacted conversation."}
+                </span>
+              )}
               {textInputHook.agentConfigured && (
                 <span
-                  className="text-input-token-counter"
-                  title="Tokens used this session (input, cached input, output), with estimated cost when known. Resets when the chat is cleared."
+                  className="text-input-token-counter text-input-tooltip"
+                  data-tooltip="Tokens used this session (input, cached input, output), with estimated cost when known. Resets when the chat is cleared."
                 >
                   {formatTokenUsage(applicationStatusStore.tokenUsage)}
                   {applicationStatusStore.sessionCost > 0 ? ` = ${formatCost(applicationStatusStore.sessionCost)}` : ""}
@@ -134,6 +147,13 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                   label="Configure agent"
                   onClick={textInputHook.goToPreferences}
                   title="Set an API key and add a model in Freelens AI settings."
+                />
+              )}
+              {textInputHook.agentConfigured && (
+                <TokenCapacityIndicator
+                  usedTokens={applicationStatusStore.lastInputTokens}
+                  maxTokens={applicationStatusStore.getMaxInputTokens()}
+                  peakTokens={applicationStatusStore.lastPeakInputTokens}
                 />
               )}
               <button
