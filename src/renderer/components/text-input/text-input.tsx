@@ -8,6 +8,7 @@ import { useApplicationStatusStore } from "../../context/application-context";
 import { AvailableTools } from "../available-tools/available-tools";
 import styleInline from "./text-input.scss?inline";
 import { useTextInput } from "./text-input-hook";
+import { TokenCapacityIndicator } from "./token-capacity-indicator";
 
 const { observer } = MobxReact;
 
@@ -146,6 +147,12 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                   label="Configure agent"
                   onClick={textInputHook.goToPreferences}
                   title="Set an API key and add a model in Freelens AI settings."
+                />
+              )}
+              {textInputHook.agentConfigured && (
+                <TokenCapacityIndicator
+                  usedTokens={applicationStatusStore.lastInputTokens}
+                  maxTokens={applicationStatusStore.getMaxInputTokens()}
                 />
               )}
               <button

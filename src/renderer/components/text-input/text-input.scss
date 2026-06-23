@@ -42,6 +42,17 @@
   transition: color 0.2s ease;
 }
 
+// Circular token-capacity indicator shown next to the send button. The contour
+// inherits the send button's colour via `currentColor`; the progress arc is
+// drawn in the standard text colour inside the component.
+.text-input-token-capacity {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.5rem;
+  color: var(--layoutTabsActiveColor);
+  user-select: none;
+}
+
 .text-input-send-button:disabled {
   opacity: 0.3;
   cursor: default;
