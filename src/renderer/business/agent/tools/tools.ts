@@ -27,6 +27,14 @@ const apiVersionSchema = z
     'The apiVersion (group/version) of the resource, e.g. "v1" or "apps/v1". Required for kinds without a built-in default.',
   );
 const manifestSchema = z.record(z.any()).describe("The Kubernetes resource manifest as a JSON object.");
+const includeManagedFieldsSchema = z
+  .boolean()
+  .optional()
+  .describe(
+    "Whether to include metadata.managedFields in the output. Defaults to false: the server-side apply " +
+      "bookkeeping is large and irrelevant for analysis, so it is stripped to save context. Set to true only " +
+      "when you specifically need to inspect field ownership.",
+  );
 const subresourceSchema = z
   .string()
   .optional()
@@ -107,22 +115,28 @@ export const getWarningEventsByNamespace = tool(
 
 export const listKubernetesResources = tool(listKubernetesResourcesImpl, {
   name: "listKubernetesResources",
-  description: "List Kubernetes resources of a given kind, optionally scoped to a namespace",
+  description:
+    "List Kubernetes resources of a given kind, optionally scoped to a namespace. " +
+    "metadata.managedFields is stripped by default to keep the output small.",
   schema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     namespace: z.string().optional().describe("The namespace to list namespaced resources in"),
+    includeManagedFields: includeManagedFieldsSchema,
   }),
 });
 
 export const getKubernetesResource = tool(getKubernetesResourceImpl, {
   name: "getKubernetesResource",
-  description: "Get a single Kubernetes resource by name (namespace required for namespaced kinds)",
+  description:
+    "Get a single Kubernetes resource by name (namespace required for namespaced kinds). " +
+    "metadata.managedFields is stripped by default to keep the output small.",
   schema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     name: z.string().describe("The name of the resource"),
     namespace: z.string().optional().describe("The namespace of the resource (required for namespaced kinds)"),
+    includeManagedFields: includeManagedFieldsSchema,
   }),
 });
 
@@ -296,17 +310,21 @@ export const toolFunctionDescriptions = [
     name: "listKubernetesResources",
     description: "List Kubernetes resources of a given kind, optionally scoped to a namespace",
     arguments:
-      "Requires the resource kind (string) and optionally the apiVersion (string) and namespace (string). Built-in kinds: " +
+      "Requires the resource kind (string) and optionally the apiVersion (string), namespace (string) and " +
+      "includeManagedFields (boolean; defaults to false). Built-in kinds: " +
       SUPPORTED_KINDS.join(", ") +
       "; any other kind (including CRDs) is accepted.",
-    returnType: "Returns a JSON string containing the matching resources.",
+    returnType:
+      "Returns a JSON string containing the matching resources, with metadata.managedFields stripped unless includeManagedFields is true.",
   },
   {
     name: "getKubernetesResource",
     description: "Get a single Kubernetes resource by name",
     arguments:
-      "Requires the resource kind (string) and name (string), and optionally the apiVersion (string). Namespace (string) is required for namespaced kinds.",
-    returnType: "Returns a JSON string containing the requested resource.",
+      "Requires the resource kind (string) and name (string), and optionally the apiVersion (string) and " +
+      "includeManagedFields (boolean; defaults to false). Namespace (string) is required for namespaced kinds.",
+    returnType:
+      "Returns a JSON string containing the requested resource, with metadata.managedFields stripped unless includeManagedFields is true.",
   },
   {
     name: "getPodLogs",
