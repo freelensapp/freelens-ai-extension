@@ -16,7 +16,9 @@ import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
 import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
-import { AIProviders } from "../business/provider/ai-models";
+import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../business/provider/ai-models";
+import { computeSessionCost, type ModelPricingMap } from "../business/provider/model-pricing";
+import { fetchModelPricing } from "../business/provider/model-pricing-provider";
 import { emptyTokenUsage, addTokenUsage as sumTokenUsage, type TokenUsage } from "../business/service/token-usage";
 import { IS_CONVERSATION_INTERRUPTED_KEY, IS_LOADING_KEY } from "./chat-session-storage";
 
@@ -34,6 +36,9 @@ export interface AppContextType {
   isConversationInterrupted: boolean;
   chatMessages: MessageObject[] | null;
   tokenUsage: TokenUsage;
+  // Estimated USD cost of this session for the selected model, or 0 when no
+  // price is known. Resets with the token counter when the chat is cleared.
+  sessionCost: number;
   freeLensAgent: FreeLensAgent | null;
   mcpAgent: MPCAgent | null;
   setSelectedModel: (selectedModel: string) => void;
@@ -73,6 +78,9 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const [isConversationInterrupted, _setConversationInterrupted] = useState(false);
   const [chatMessages, _setChatMessages] = useState<MessageObject[] | null>(null);
   const [tokenUsage, _setTokenUsage] = useState<TokenUsage>(emptyTokenUsage());
+  // Model name => pricing, fetched on start and whenever the model list or
+  // endpoint changes. Used to estimate the per-session cost shown by the UI.
+  const [modelPricing, _setModelPricing] = useState<ModelPricingMap>({});
   const [freeLensAgent, _setFreeLensAgent] = useState<FreeLensAgent | null>(agentsStore.freeLensAgent);
   const [mcpAgent, _setMcpAgent] = useState<MPCAgent | null>(agentsStore.mcpAgent);
 
@@ -90,6 +98,29 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     _setTokenUsage(chatSessionStore.getTokenUsage(clusterId));
     _initFreeLensAgent();
   }, []);
+
+  // Fetch model pricing on start and whenever the model list, endpoint, or proxy
+  // changes. Best-effort: failures leave the map empty and the cost is hidden.
+  const modelNames = preferencesStore.models.map((model) => model.name);
+  const modelNamesKey = modelNames.join(",");
+  useEffect(() => {
+    let cancelled = false;
+    fetchModelPricing({
+      modelNames,
+      openAIBaseUrl: preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
+      proxyPort: preferencesStore.aiProxyPort,
+      proxyToken: preferencesStore.aiProxyToken,
+    })
+      .then((pricing) => {
+        if (!cancelled) {
+          _setModelPricing(pricing);
+        }
+      })
+      .catch((error) => log.debug("Failed to fetch model pricing: ", error));
+    return () => {
+      cancelled = true;
+    };
+  }, [modelNamesKey, preferencesStore.openAIBaseUrl, preferencesStore.aiProxyPort, preferencesStore.aiProxyToken]);
 
   // Recreate MCP server when MCP configuration change
   useEffect(() => {
@@ -366,6 +397,11 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     preferencesStore.bypassApprovals = bypassApprovals;
   };
 
+  // Estimate the session cost for the currently selected model. Zero when the
+  // model has no known price, so the UI can hide it.
+  const selectedPricing = modelPricing[preferencesStore.selectedModel];
+  const sessionCost = selectedPricing ? computeSessionCost(tokenUsage, selectedPricing) : 0;
+
   const changeInterruptStatus = (id: string, status: boolean) => {
     _setChatMessages((prevMessages) => {
       const updated = prevMessages!.map((msg) => (msg.messageId === id ? { ...msg, approved: status } : msg));
@@ -388,6 +424,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         isConversationInterrupted,
         chatMessages,
         tokenUsage,
+        sessionCost,
         mcpAgent,
         freeLensAgent,
         setSelectedModel,

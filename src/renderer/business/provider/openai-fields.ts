@@ -15,6 +15,10 @@ export const UPSTREAM_BASE_URL_HEADER = "x-upstream-base-url";
 // request.
 export const PROXY_TOKEN_HEADER = "x-ai-proxy-token";
 
+// Header that tells the proxy to fetch a public resource without attaching the
+// managed API key (see model-pricing-provider.ts).
+export const PROXY_NO_AUTH_HEADER = "x-ai-proxy-no-auth";
+
 export interface OpenAIChatFieldsOptions {
   // Model id sent to the OpenAI API (e.g. "gpt-5.5").
   modelName: string;
