@@ -112,10 +112,66 @@ page.
 
 ### Key Features
 
-- **Event Analysis**: Intelligent analysis of system events and logs
-- **AI-Powered Pod Creation**: Automatically generate and configure pods using AI
-- **Command Interface**: Natural language command processing and execution
-- **Intelligent Assistance**: Get contextual help and suggestions for your operations
+Talk to your cluster in natural language. The agent reads, explains, and (with
+your approval) changes Kubernetes resources, while the chat keeps the full
+context of the conversation.
+
+**Cluster operations through tools**
+
+- **Any resource kind**: list, get, create, update, patch, and delete any
+  Kubernetes resource — built-in kinds and CRDs alike — instead of a fixed set
+  of Pod/Deployment/Service operations.
+- **Pod logs**: read a snapshot of container logs, including the previous
+  (terminated) instance for `CrashLoopBackOff`, with a regular-expression filter
+  to narrow chatty logs to only the matching lines.
+- **Smaller, focused output**: `metadata.managedFields` is stripped by default,
+  and JSONPath-style field selectors (the `kubectl -o jsonpath` subset) let the
+  agent fetch only the fields it needs.
+- **In-place pod resize and scaling**: patch the `resize` subresource to change a
+  running Pod's CPU/memory without recreating it (Kubernetes 1.33+), or `scale`
+  to change replicas.
+- **Delete and restart variants**: graceful pod eviction that honors
+  PodDisruptionBudgets, force delete with a zero grace period, finalizer
+  clearing for objects stuck in `Terminating`, and `rollout restart` for
+  workloads.
+- **Cluster insight**: query the Kubernetes server version and analyze warning
+  events in a namespace with explanations and remedies.
+
+**Safe, human-in-the-loop changes**
+
+- **Approval gate**: every change is shown for review — rendered as YAML — and
+  applied only after you approve it.
+- **Backups**: the current state of a resource is presented before it is
+  changed, so a modification can be reverted.
+
+**Chat experience**
+
+- **Persistent sessions**: the chat transcript and agent state are stored by the
+  host and survive application restarts; an unsent prompt draft is kept across
+  view switches.
+- **Per-cluster context**: each cluster keeps its own separate conversation.
+- **Token counter and cost estimate**: a live per-session token count and cost
+  estimate sit next to the model list.
+- **Automatic compaction**: long sessions are compacted before they reach the
+  model's input-token limit so the conversation can continue.
+- **Rich rendering**: code blocks use the host Monaco editor, GitHub-flavored
+  Markdown tables are supported, and model reasoning is shown in a collapsible
+  block.
+- **Retry on errors**: failed messages can be retried with one click.
+
+**Models and providers**
+
+- **Editable model list** seeded with OpenAI models, with model-specific
+  behavior chosen by name heuristics (see [Available
+  Models](#available-models)).
+- **OpenAI-compatible gateways** for reaching other providers, with built-in
+  handling for DeepSeek and other "thinking" models.
+- **Custom agent rules** can be added from the preferences to steer the agent.
+
+**Security**
+
+- The API key is injected in the main process rather than the renderer, the
+  local AI proxy requires a per-launch bearer token, and CORS is restricted.
 
 ### Base Agent
 
