@@ -3,6 +3,7 @@ import { interrupt } from "@langchain/langgraph";
 import { stringify as stringifyYaml } from "yaml";
 import { PreferencesStore } from "../../../../common/store";
 import { type KubernetesVersionInfo, summarizeClusterVersion } from "./cluster-version";
+import { buildFieldSelector } from "./field-filter";
 import {
   capLogOutput,
   capTailLines,
@@ -43,6 +44,9 @@ export interface ListResourceInput {
   // Server-side apply bookkeeping (`metadata.managedFields`) is stripped by
   // default to keep the output small; set this to opt back in when needed.
   includeManagedFields?: boolean;
+  // Optional JSONPath-style field selectors (the kubectl `-o jsonpath` subset)
+  // applied to each resource to trim the output to just the requested fields.
+  fields?: string[];
 }
 
 export interface GetResourceInput {
@@ -52,6 +56,8 @@ export interface GetResourceInput {
   namespace?: string;
   // See ListResourceInput.includeManagedFields.
   includeManagedFields?: boolean;
+  // See ListResourceInput.fields.
+  fields?: string[];
 }
 
 export interface CreateResourceInput {
@@ -267,18 +273,26 @@ export async function listKubernetesResources({
   apiVersion,
   namespace,
   includeManagedFields,
+  fields,
 }: ListResourceInput): Promise<string> {
   console.log("[Tool invocation: listKubernetesResources] - kind:", kind, "namespace:", namespace);
   const target = resolveTarget(kind, apiVersion);
   if (typeof target === "string") {
     return target;
   }
+  let select: ReturnType<typeof buildFieldSelector>;
+  try {
+    select = buildFieldSelector(fields);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
   const { api, store } = target;
   try {
     const scoped = api.isNamespaced && namespace ? [namespace] : undefined;
     const loaded = await store.loadAll(scoped ? { namespaces: scoped } : {});
     const items = loaded ?? (scoped ? store.getAllByNs(namespace as string) : store.items.toJSON());
-    return JSON.stringify(items.map((item) => projectObject(item, includeManagedFields)));
+    const projected = items.map((item) => projectObject(item, includeManagedFields));
+    return JSON.stringify(select ? projected.map(select) : projected);
   } catch (error) {
     console.error("[Tool invocation error: listKubernetesResources] - ", error);
     return JSON.stringify(error);
@@ -295,6 +309,7 @@ export async function getKubernetesResource({
   name,
   namespace,
   includeManagedFields,
+  fields,
 }: GetResourceInput): Promise<string> {
   console.log("[Tool invocation: getKubernetesResource] - kind:", kind, "name:", name, "namespace:", namespace);
   const target = resolveTarget(kind, apiVersion);
@@ -305,12 +320,19 @@ export async function getKubernetesResource({
   if (api.isNamespaced && !namespace) {
     return `Kind "${kind}" is namespaced; please provide a namespace to get "${name}".`;
   }
+  let select: ReturnType<typeof buildFieldSelector>;
+  try {
+    select = buildFieldSelector(fields);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
   try {
     const object = await store.load({ name, namespace: api.isNamespaced ? namespace : undefined });
     if (!object) {
       return `The ${kind} "${name}" was not found.`;
     }
-    return JSON.stringify(projectObject(object, includeManagedFields));
+    const projected = projectObject(object, includeManagedFields);
+    return JSON.stringify(select ? select(projected) : projected);
   } catch (error) {
     console.error("[Tool invocation error: getKubernetesResource] - ", error);
     return JSON.stringify(error);
