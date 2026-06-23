@@ -1,18 +1,28 @@
 import * as React from "react";
 
 type TokenCapacityIndicatorProps = {
-  // Input tokens of the last request to the LLM. 0 at the start of a session.
+  // Approximate size of the persisted conversation carried into the next prompt.
+  // 0 at the start of a session. This is what the next prompt re-sends and what
+  // the compaction decision acts on, so the gauge fills as the history grows and
+  // nears 100% just before a compaction is triggered.
   usedTokens: number;
   // Max input tokens of the currently selected model.
   maxTokens: number;
+  // Largest single LLM call's input tokens in the last run. A transient
+  // intra-turn spike surfaced only in the tooltip, not used to size the gauge.
+  peakTokens: number;
 };
 
 // Minimal circular progress indicator shown next to the send button. Renders a
 // thin circle contour (matching the send button's size and colour) with the
 // progress arc drawn in the standard text colour, leaving the inside unfilled.
-// 0% means no tokens were used in the last request (or a fresh session); 100%
-// means the last request reached the model's max input tokens.
-export const TokenCapacityIndicator: React.FC<TokenCapacityIndicatorProps> = ({ usedTokens, maxTokens }) => {
+// 0% means the persisted conversation is empty (a fresh session); 100% means it
+// reached the model's max input tokens and the next send will compact it.
+export const TokenCapacityIndicator: React.FC<TokenCapacityIndicatorProps> = ({
+  usedTokens,
+  maxTokens,
+  peakTokens,
+}) => {
   const size = 22;
   const strokeWidth = 2;
   const center = size / 2;
@@ -23,10 +33,17 @@ export const TokenCapacityIndicator: React.FC<TokenCapacityIndicatorProps> = ({ 
   const dashOffset = circumference * (1 - fraction);
   const percent = Math.round(fraction * 100);
 
-  const title =
+  const contextLine =
     maxTokens > 0
-      ? `Input tokens in last request: ${usedTokens.toLocaleString("en-US")} / ${maxTokens.toLocaleString("en-US")} (${percent}%)`
-      : `Input tokens in last request: ${usedTokens.toLocaleString("en-US")}`;
+      ? `Conversation context: ${usedTokens.toLocaleString("en-US")} / ${maxTokens.toLocaleString("en-US")} tokens (${percent}%)`
+      : `Conversation context: ${usedTokens.toLocaleString("en-US")} tokens`;
+  // Surface the transient peak separately so it is visible without driving the
+  // gauge, which answers "max or last?": the gauge tracks the persisted context,
+  // the tooltip reports the largest single request of the last turn.
+  const title =
+    peakTokens > 0
+      ? `${contextLine}\nLargest single request last turn: ${peakTokens.toLocaleString("en-US")} tokens`
+      : contextLine;
 
   return (
     <span className="text-input-token-capacity text-input-tooltip" data-tooltip={title}>

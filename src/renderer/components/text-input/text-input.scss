@@ -150,7 +150,9 @@
   color: var(--textColorPrimary);
   font-size: 0.8em;
   line-height: 1.3;
-  white-space: normal;
+  // `pre-line` keeps explicit newlines in `data-tooltip` (the capacity indicator
+  // puts the peak on its own line) while still wrapping long single-line text.
+  white-space: pre-line;
   text-align: left;
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);

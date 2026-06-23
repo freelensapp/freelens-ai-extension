@@ -9,6 +9,7 @@ import { DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-mod
 import { approximateTokenCount } from "../../renderer/business/provider/token-estimate";
 import {
   AgentService,
+  isContextSizeChunk,
   isReasoningChunk,
   isTokenUsageChunk,
   useAgentService,
@@ -257,13 +258,20 @@ const useChatService = () => {
           continue;
         }
 
-        // Token usage reported for a model turn is summed into the per-session
+        // Token usage reported for the run is summed into the per-session
         // counter shown next to the model list.
         if (isTokenUsageChunk(chunk)) {
           applicationStatusStore.addTokenUsage(chunk.tokenUsage);
-          // Record the run's peak prompt size so the next send can decide whether
-          // to compact before reaching the model's input token limit.
-          applicationStatusStore.setLastInputTokens(chunk.peakInputTokens);
+          continue;
+        }
+
+        // Persisted-context size: record what the next prompt re-sends so the
+        // next send can decide whether to compact before reaching the model's
+        // input token limit, and update the capacity indicator live. The peak is
+        // kept only for the indicator tooltip.
+        if (isContextSizeChunk(chunk)) {
+          applicationStatusStore.setLastInputTokens(chunk.contextTokens);
+          applicationStatusStore.setLastPeakInputTokens(chunk.peakInputTokens);
           continue;
         }
 

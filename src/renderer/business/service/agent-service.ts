@@ -2,6 +2,7 @@ import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { Command, Interrupt } from "@langchain/langgraph";
 import { FreeLensAgent } from "../agent/freelens-agent-system";
 import { MPCAgent } from "../agent/mcp-agent";
+import { approximateMessagesTokenCount } from "../provider/token-estimate";
 import { createStreamMergeState, extractReasoningText, mergeAiChunk } from "./stream-merge";
 import { addTokenUsage, emptyTokenUsage, extractTokenUsageFromLLMResult, type TokenUsage } from "./token-usage";
 
@@ -48,18 +49,32 @@ export const isReasoningChunk = (chunk: unknown): chunk is ReasoningChunk =>
   "reasoning" in chunk &&
   typeof (chunk as ReasoningChunk).reasoning === "string";
 
-// A streamed chunk carrying the token usage reported for a single model turn.
-// The chat service sums these into the per-session counter shown in the UI.
-// `peakInputTokens` is the largest single LLM call's input within the run - the
-// best naive proxy for the current context size, used to decide when the session
-// must be compacted before the next prompt.
+// A streamed chunk carrying the token usage accumulated across the run. The chat
+// service sums these into the per-session counter shown in the UI. Emitted once
+// at end of turn so a transient-error retry can discard the failed attempt's
+// usage rather than double counting it.
 export interface TokenUsageChunk {
   tokenUsage: TokenUsage;
-  peakInputTokens: number;
 }
 
 export const isTokenUsageChunk = (chunk: unknown): chunk is TokenUsageChunk =>
   typeof chunk === "object" && chunk !== null && "tokenUsage" in chunk;
+
+// A streamed chunk carrying the size of the persisted conversation that the next
+// prompt re-sends. `contextTokens` (parent-thread messages, ~4 chars/token)
+// drives the capacity indicator and the compaction decision; unlike a single
+// call's input it excludes the transient tool-loop context of the sub-agents,
+// which never persists. `peakInputTokens` is the largest single LLM call's input
+// in the run - surfaced only in the indicator tooltip, never used to size the
+// gauge or trigger compaction. Emitted live, once per completed LLM call, so the
+// indicator moves during a turn instead of only at the end.
+export interface ContextSizeChunk {
+  contextTokens: number;
+  peakInputTokens: number;
+}
+
+export const isContextSizeChunk = (chunk: unknown): chunk is ContextSizeChunk =>
+  typeof chunk === "object" && chunk !== null && "contextTokens" in chunk;
 
 /**
  * Accumulates the token usage reported by every model turn in a run via the
@@ -72,16 +87,21 @@ export const isTokenUsageChunk = (chunk: unknown): chunk is TokenUsageChunk =>
 class TokenUsageCollector extends BaseCallbackHandler {
   name = "freelens-token-usage-collector";
   total: TokenUsage = emptyTokenUsage();
-  // Largest single call's input tokens seen in the run. The per-call inputs are
-  // not summed: each call re-sends roughly the same accumulated context, so the
-  // peak (not the sum) approximates how close the conversation is to the limit.
+  // Largest single call's input tokens seen in the run. This is a transient
+  // intra-turn spike (e.g. a sub-agent re-sending a big tool result) that does
+  // not persist, so it never sizes the gauge or the compaction decision - it is
+  // surfaced only in the indicator tooltip as "largest single request this turn".
   peakInputTokens = 0;
+  // Incremented on every completed LLM call so the streaming loop can detect when
+  // a new internal call finished and refresh the live persisted-context reading.
+  callCount = 0;
 
   handleLLMEnd(output: LLMResult): void {
     const usage = extractTokenUsageFromLLMResult(output);
     if (usage) {
       this.total = addTokenUsage(this.total, usage);
       this.peakInputTokens = Math.max(this.peakInputTokens, usage.input);
+      this.callCount += 1;
     }
   }
 }
@@ -90,7 +110,7 @@ export interface AgentService {
   run(
     agentInput: object | Command,
     conversationId: string,
-  ): AsyncGenerator<string | ReasoningChunk | TokenUsageChunk | Interrupt, void, unknown>;
+  ): AsyncGenerator<string | ReasoningChunk | TokenUsageChunk | ContextSizeChunk | Interrupt, void, unknown>;
 }
 
 /**
@@ -112,6 +132,23 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
       // Fresh per attempt so a transient-error retry discards the usage counted
       // for the failed attempt rather than double counting it.
       const tokenUsageCollector = new TokenUsageCollector();
+      // Number of completed LLM calls already reflected in an emitted context
+      // chunk, so the live reading is refreshed only when a new internal call
+      // finishes rather than on every streamed token.
+      let lastEmittedCallCount = 0;
+
+      // Read the persisted parent-thread context size (what the next prompt
+      // re-sends) and pair it with the run's peak single-call input for the
+      // tooltip. The persisted thread grows as the graph's nodes check point, so
+      // reading it after each completed call lets the indicator move during the
+      // turn instead of only at the end.
+      const readContextSize = async (): Promise<ContextSizeChunk> => {
+        const state = await agent.getState({ configurable: config });
+        return {
+          contextTokens: approximateMessagesTokenCount(state?.values?.messages),
+          peakInputTokens: tokenUsageCollector.peakInputTokens,
+        };
+      };
 
       try {
         const streamResponse = await agent.stream(agentInput, {
@@ -153,18 +190,33 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
               yield text;
             }
           }
+
+          // Refresh the live capacity reading whenever a new internal LLM call
+          // has finished, so the indicator moves during the turn rather than
+          // only at the end (a single user turn fans out into several calls).
+          if (tokenUsageCollector.callCount > lastEmittedCallCount) {
+            lastEmittedCallCount = tokenUsageCollector.callCount;
+            yield await readContextSize();
+          }
         }
 
         yield "\n";
+
+        // Final, authoritative capacity reading once the run has settled: the
+        // persisted thread is now complete, so this is exactly what the next
+        // prompt re-sends and what the pre-send compaction decision acts on.
+        yield await readContextSize();
 
         // Emit the token usage accumulated across every model turn in this run
         // (collected from the `handleLLMEnd` callback above). Reading it from the
         // callback rather than the streamed chunks is what lets the supervisor
         // and analyzer turns - suppressed from the `messages` stream by the
-        // `nostream` tag - be counted, not just the single visible turn.
+        // `nostream` tag - be counted, not just the single visible turn. Emitted
+        // once here (not per call) so a transient-error retry discards a failed
+        // attempt's usage rather than double counting it.
         const tokenUsage = tokenUsageCollector.total;
         if (tokenUsage.input !== 0 || tokenUsage.cached !== 0 || tokenUsage.output !== 0) {
-          yield { tokenUsage, peakInputTokens: tokenUsageCollector.peakInputTokens };
+          yield { tokenUsage };
         }
 
         // checks the agent state for any interrupts

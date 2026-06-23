@@ -153,6 +153,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                 <TokenCapacityIndicator
                   usedTokens={applicationStatusStore.lastInputTokens}
                   maxTokens={applicationStatusStore.getMaxInputTokens()}
+                  peakTokens={applicationStatusStore.lastPeakInputTokens}
                 />
               )}
               <button

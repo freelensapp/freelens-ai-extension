@@ -47,9 +47,14 @@ export interface AppContextType {
   // Estimated USD cost of this session for the selected model, or 0 when no
   // price is known. Resets with the token counter when the chat is cleared.
   sessionCost: number;
-  // Input tokens of the previous response's largest model turn - the naive proxy
-  // for the current context size that drives compaction.
+  // Approximate size of the persisted conversation that the next prompt re-sends
+  // (parent-thread messages, ~4 chars/token). Drives the capacity indicator and
+  // the compaction decision; updated live as the run progresses.
   lastInputTokens: number;
+  // Largest single LLM call's input tokens in the last run - a transient
+  // intra-turn spike shown only in the indicator tooltip, never used to size the
+  // gauge or trigger compaction.
+  lastPeakInputTokens: number;
   // Transient compaction status shown in the input bar, or null when idle.
   compactionStatus: CompactionStatus;
   freeLensAgent: FreeLensAgent | null;
@@ -57,6 +62,7 @@ export interface AppContextType {
   setSelectedModel: (selectedModel: string) => void;
   addTokenUsage: (usage: TokenUsage) => void;
   setLastInputTokens: (lastInputTokens: number) => void;
+  setLastPeakInputTokens: (lastPeakInputTokens: number) => void;
   // Max input tokens for the selected model from the fetched pricing data,
   // falling back to a conservative default for unknown models.
   getMaxInputTokens: () => number;
@@ -98,9 +104,11 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const [isConversationInterrupted, _setConversationInterrupted] = useState(false);
   const [chatMessages, _setChatMessages] = useState<MessageObject[] | null>(null);
   const [tokenUsage, _setTokenUsage] = useState<TokenUsage>(emptyTokenUsage());
-  // Previous response's peak input tokens (context-size proxy) and the transient
-  // compaction status shown while the session is being compacted.
+  // Persisted-context size that drives compaction (durable), the last run's peak
+  // single-call input shown only in the tooltip (transient, not persisted), and
+  // the compaction status shown while the session is being compacted.
   const [lastInputTokens, _setLastInputTokens] = useState<number>(0);
+  const [lastPeakInputTokens, _setLastPeakInputTokens] = useState<number>(0);
   const [compactionStatus, _setCompactionStatus] = useState<CompactionStatus>(null);
   // Model name => pricing, fetched on start and whenever the model list or
   // endpoint changes. Used to estimate the per-session cost shown by the UI.
@@ -302,6 +310,12 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     chatSessionStore.setLastInputTokens(clusterId, value);
   };
 
+  // Transient: the peak is a within-turn diagnostic for the tooltip only, so it
+  // is kept in memory and not persisted alongside the durable session state.
+  const setLastPeakInputTokens = (value: number) => {
+    _setLastPeakInputTokens(value);
+  };
+
   // Max input tokens for the selected model, from the pricing data already
   // fetched for the cost estimate. Falls back to a conservative default for
   // models with no known limit.
@@ -321,8 +335,10 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       const messages = (await agent.getState(config)).values.messages ?? [];
       const summary = await sessionCompactionService.summarize(messages);
       await cleanAgentMessageHistory(agent);
-      // The new context is just the summary, so reset the estimate to its size.
+      // The new context is just the summary, so reset the estimate to its size
+      // and clear the last run's peak (a stale within-turn diagnostic).
       setLastInputTokens(approximateTokenCount(summary));
+      setLastPeakInputTokens(0);
       _showCompacted();
       return summary.length > 0 ? summary : null;
     } catch (error) {
@@ -335,6 +351,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         log.error("Failed to clean history during compaction fallback: ", cleanError);
       }
       setLastInputTokens(0);
+      setLastPeakInputTokens(0);
       _showCompacted();
       return null;
     }
@@ -366,6 +383,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     // transcript, and drop any lingering compaction status.
     _setTokenUsage(emptyTokenUsage());
     setLastInputTokens(0);
+    setLastPeakInputTokens(0);
     _setCompactionStatus(null);
     if (freeLensAgent) {
       cleanAgentMessageHistory(freeLensAgent).finally(() => {
@@ -523,12 +541,14 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         tokenUsage,
         sessionCost,
         lastInputTokens,
+        lastPeakInputTokens,
         compactionStatus,
         mcpAgent,
         freeLensAgent,
         setSelectedModel,
         addTokenUsage,
         setLastInputTokens,
+        setLastPeakInputTokens,
         getMaxInputTokens,
         compactSession,
         setExplainEvent,

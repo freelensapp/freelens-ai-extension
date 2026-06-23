@@ -12,9 +12,10 @@ export interface ChatSession {
   // Running token totals for this session, summed across every model turn.
   // Reset when the session is cleared.
   tokenUsage: TokenUsage;
-  // Input tokens of the previous response's largest model turn - the naive proxy
-  // for the current context size, used to decide when to compact before the next
-  // prompt. Reset when the session is cleared or compacted.
+  // Approximate size of the persisted conversation that the next prompt re-sends
+  // (parent-thread messages, ~4 chars/token) - what drives the capacity
+  // indicator and the compaction decision. Reset when the session is cleared or
+  // compacted.
   lastInputTokens: number;
 }
 
