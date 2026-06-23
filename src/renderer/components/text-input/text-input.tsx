@@ -125,8 +125,8 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               )}
               {textInputHook.agentConfigured && (
                 <span
-                  className="text-input-token-counter"
-                  title="Tokens used this session (input, cached input, output), with estimated cost when known. Resets when the chat is cleared."
+                  className="text-input-token-counter text-input-tooltip"
+                  data-tooltip="Tokens used this session (input, cached input, output), with estimated cost when known. Resets when the chat is cleared."
                 >
                   {formatTokenUsage(applicationStatusStore.tokenUsage)}
                   {applicationStatusStore.sessionCost > 0 ? ` = ${formatCost(applicationStatusStore.sessionCost)}` : ""}

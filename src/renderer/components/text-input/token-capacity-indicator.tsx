@@ -29,10 +29,10 @@ export const TokenCapacityIndicator: React.FC<TokenCapacityIndicatorProps> = ({ 
       : `Input tokens in last request: ${usedTokens.toLocaleString("en-US")}`;
 
   return (
-    <span className="text-input-token-capacity" title={title}>
+    <span className="text-input-token-capacity text-input-tooltip" data-tooltip={title}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={title}>
-        {/* Contour, matching the send button's colour */}
-        <circle cx={center} cy={center} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} />
+        {/* Contour, drawn in a neutral grey */}
+        <circle cx={center} cy={center} r={radius} fill="none" stroke="#acacac" strokeWidth={strokeWidth} />
         {/* Progress arc, drawn in the standard text colour */}
         <circle
           cx={center}

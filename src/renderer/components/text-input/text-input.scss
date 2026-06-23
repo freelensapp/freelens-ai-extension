@@ -34,7 +34,7 @@
 }
 
 .text-input-send-button {
-  margin-left: 0.5rem;
+  margin-left: 0;
   background: none;
   border: none;
   cursor: pointer;
@@ -43,13 +43,13 @@
 }
 
 // Circular token-capacity indicator shown next to the send button. The contour
-// inherits the send button's colour via `currentColor`; the progress arc is
-// drawn in the standard text colour inside the component.
+// is a neutral grey (#acacac); the progress arc is drawn in the standard text
+// colour inside the component. Kept tight against the send button.
 .text-input-token-capacity {
   display: inline-flex;
   align-items: center;
   margin-left: 0.5rem;
-  color: var(--layoutTabsActiveColor);
+  margin-right: 0;
   user-select: none;
 }
 
@@ -125,4 +125,33 @@
   background: var(--inputControlHoverBorder);
   color: var(--textColorPrimary);
   border-color: var(--inputControlHoverBorder);
+}
+
+// Lightweight hover tooltip used for the token counter and capacity indicator.
+// The native `title` attribute is slow to appear and hard to trigger, so the
+// text is supplied via `data-tooltip` and shown instantly on hover, anchored to
+// the element's right edge so it stays inside the input area.
+.text-input-tooltip {
+  position: relative;
+}
+
+.text-input-tooltip[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 100;
+  width: max-content;
+  max-width: 280px;
+  padding: 6px 8px;
+  border: 1px solid var(--borderColor);
+  border-radius: 4px;
+  background-color: var(--menuBackground);
+  color: var(--textColorPrimary);
+  font-size: 0.8em;
+  line-height: 1.3;
+  white-space: normal;
+  text-align: left;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
