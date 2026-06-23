@@ -15,8 +15,17 @@ const UPSTREAM_BASE_URL_HEADER = "x-upstream-base-url";
 // whose token does not match the one generated for this launch.
 const PROXY_TOKEN_HEADER = "x-ai-proxy-token";
 
+// Header set by the renderer to fetch a public resource through the proxy
+// without attaching the managed API key. Used for the LiteLLM price list
+// (see model-pricing-provider.ts): it routes through the proxy only to avoid
+// browser CORS, so the user's credentials must never travel with it.
+const NO_AUTH_HEADER = "x-ai-proxy-no-auth";
+
 const UPSTREAM_BY_PREFIX: Record<string, string> = {
   openai: "https://api.openai.com/v1",
+  // Public LiteLLM model price + context-window list. Fetched with the no-auth
+  // header so the user's API key is never sent to GitHub.
+  litellm: "https://raw.githubusercontent.com/BerriAI/litellm/main",
 };
 
 let proxyServerStarted = false;
@@ -36,7 +45,7 @@ let proxyAuthToken: string | null = null;
 // proxy never advertises itself as open to every origin.
 const CORS_ALLOW_METHODS = "GET,POST,OPTIONS";
 const CORS_ALLOW_HEADERS =
-  "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,accept,user-agent,x-upstream-base-url,x-ai-proxy-token";
+  "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,accept,user-agent,x-upstream-base-url,x-ai-proxy-token,x-ai-proxy-no-auth";
 
 const hopByHopHeaders = new Set([
   "connection",
@@ -92,7 +101,7 @@ export const applyManagedAuthorization = (headers: Headers, apiKey: string | und
   return headers;
 };
 
-const createUpstreamHeaders = (request: IncomingMessage) => {
+const createUpstreamHeaders = (request: IncomingMessage, applyAuth: boolean) => {
   const headers = new Headers();
 
   for (const [key, value] of Object.entries(request.headers)) {
@@ -100,6 +109,10 @@ const createUpstreamHeaders = (request: IncomingMessage) => {
       hopByHopHeaders.has(key) ||
       key === UPSTREAM_BASE_URL_HEADER ||
       key === PROXY_TOKEN_HEADER ||
+      key === NO_AUTH_HEADER ||
+      // Drop the caller's Authorization on no-auth routes so neither the managed
+      // key nor the renderer's placeholder is forwarded to the public resource.
+      (!applyAuth && key === "authorization") ||
       value === undefined
     ) {
       continue;
@@ -112,7 +125,7 @@ const createUpstreamHeaders = (request: IncomingMessage) => {
     }
   }
 
-  return applyManagedAuthorization(headers, resolveApiKey());
+  return applyAuth ? applyManagedAuthorization(headers, resolveApiKey()) : headers;
 };
 
 const proxyRequest = async (request: IncomingMessage, response: ServerResponse) => {
@@ -143,9 +156,13 @@ const proxyRequest = async (request: IncomingMessage, response: ServerResponse) 
   const method = request.method ?? "GET";
   const body = method === "GET" || method === "HEAD" ? undefined : await readRequestBody(request);
 
+  // Public resources (the LiteLLM price list) are fetched without the managed
+  // API key so the user's credentials never leak to a third party.
+  const applyAuth = request.headers[NO_AUTH_HEADER] === undefined;
+
   const upstreamResponse = await fetch(upstreamUrl, {
     method,
-    headers: createUpstreamHeaders(request),
+    headers: createUpstreamHeaders(request, applyAuth),
     body,
   });
 

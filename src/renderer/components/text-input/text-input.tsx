@@ -2,6 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { Eraser, SendHorizonal, ShieldOff } from "lucide-react";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
+import { formatCost } from "../../business/provider/model-pricing";
 import { formatTokenUsage } from "../../business/service/token-usage";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { AvailableTools } from "../available-tools/available-tools";
@@ -112,9 +113,10 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               {textInputHook.agentConfigured && (
                 <span
                   className="text-input-token-counter"
-                  title="Tokens used this session (input, cached input, output). Resets when the chat is cleared."
+                  title="Tokens used this session (input, cached input, output), with estimated cost when known. Resets when the chat is cleared."
                 >
                   {formatTokenUsage(applicationStatusStore.tokenUsage)}
+                  {applicationStatusStore.sessionCost > 0 ? ` = ${formatCost(applicationStatusStore.sessionCost)}` : ""}
                 </span>
               )}
               {textInputHook.agentConfigured ? (
