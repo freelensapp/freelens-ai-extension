@@ -14,8 +14,9 @@ type TokenCapacityIndicatorProps = {
 };
 
 // Minimal circular progress indicator shown next to the send button. Renders a
-// thin circle contour (matching the send button's size and colour) with the
-// progress arc drawn in the standard text colour, leaving the inside unfilled.
+// thin circle contour (a neutral dark grey for the unused capacity) with the
+// progress arc drawn in a lighter grey for the used tokens, leaving the inside
+// unfilled.
 // 0% means the persisted conversation is empty (a fresh session); 100% means it
 // reached the model's max input tokens and the next send will compact it.
 export const TokenCapacityIndicator: React.FC<TokenCapacityIndicatorProps> = ({
@@ -48,15 +49,15 @@ export const TokenCapacityIndicator: React.FC<TokenCapacityIndicatorProps> = ({
   return (
     <span className="text-input-token-capacity text-input-tooltip" data-tooltip={title}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={title}>
-        {/* Contour, drawn in a neutral grey */}
-        <circle cx={center} cy={center} r={radius} fill="none" stroke="#acacac" strokeWidth={strokeWidth} />
-        {/* Progress arc, drawn in the standard text colour */}
+        {/* Contour for the unused capacity, drawn in a neutral dark grey */}
+        <circle cx={center} cy={center} r={radius} fill="none" stroke="#616466" strokeWidth={strokeWidth} />
+        {/* Progress arc for the used tokens, drawn in a lighter grey */}
         <circle
           cx={center}
           cy={center}
           r={radius}
           fill="none"
-          stroke="var(--textColorPrimary)"
+          stroke="#a0a0a0"
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeDasharray={circumference}
