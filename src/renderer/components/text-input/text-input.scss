@@ -42,15 +42,33 @@
   transition: color 0.2s ease;
 }
 
-// Circular token-capacity indicator shown next to the send button. The contour
-// is a neutral grey (#acacac); the progress arc is drawn in the standard text
-// colour inside the component. Kept tight against the send button.
+// Circular token-capacity indicator shown next to the send button. Kept tight
+// against the send button.
 .text-input-token-capacity {
   display: inline-flex;
   align-items: center;
   margin-left: 0.5rem;
   margin-right: 0;
   user-select: none;
+}
+
+// Capacity-indicator stroke colours. A CSS `stroke` rule overrides the SVG
+// presentation attribute, so this drives the colours per theme. Dark theme is
+// the default (no body class); `body.theme-light` is set by the host for light.
+.text-input-token-capacity-track {
+  stroke: #616466; // unused capacity (dark theme)
+}
+
+.text-input-token-capacity-arc {
+  stroke: #a0a0a0; // used tokens (dark theme)
+}
+
+body.theme-light .text-input-token-capacity-track {
+  stroke: #acacac; // unused capacity (light theme)
+}
+
+body.theme-light .text-input-token-capacity-arc {
+  stroke: var(--textColorPrimary); // used tokens (light theme)
 }
 
 .text-input-send-button:disabled {
