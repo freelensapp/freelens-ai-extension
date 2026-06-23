@@ -35,6 +35,17 @@ const includeManagedFieldsSchema = z
       "bookkeeping is large and irrelevant for analysis, so it is stripped to save context. Set to true only " +
       "when you specifically need to inspect field ownership.",
   );
+const fieldsSchema = z
+  .array(z.string())
+  .optional()
+  .describe(
+    "Optional list of JSONPath-style field selectors (the kubectl `-o jsonpath` subset) applied to each " +
+      "returned resource to trim the output to only the fields you need, instead of the full and often verbose " +
+      "object. Each selector is relative to a single resource and the result keeps the nested structure of the " +
+      'matched fields. Examples: ".metadata.name", ".status.phase", ".spec.containers[*].image", ' +
+      '".metadata.labels[\'app.kubernetes.io/name\']", ".spec.containers[0].name". ' +
+      "Omit to return the full resource.",
+  );
 const subresourceSchema = z
   .string()
   .optional()
@@ -117,12 +128,15 @@ export const listKubernetesResources = tool(listKubernetesResourcesImpl, {
   name: "listKubernetesResources",
   description:
     "List Kubernetes resources of a given kind, optionally scoped to a namespace. " +
-    "metadata.managedFields is stripped by default to keep the output small.",
+    "metadata.managedFields is stripped by default to keep the output small. " +
+    'Pass "fields" with JSONPath-style selectors (e.g. [".metadata.name", ".status.phase"]) to return only ' +
+    "a subset of each resource instead of the full, verbose object.",
   schema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     namespace: z.string().optional().describe("The namespace to list namespaced resources in"),
     includeManagedFields: includeManagedFieldsSchema,
+    fields: fieldsSchema,
   }),
 });
 
@@ -130,13 +144,16 @@ export const getKubernetesResource = tool(getKubernetesResourceImpl, {
   name: "getKubernetesResource",
   description:
     "Get a single Kubernetes resource by name (namespace required for namespaced kinds). " +
-    "metadata.managedFields is stripped by default to keep the output small.",
+    "metadata.managedFields is stripped by default to keep the output small. " +
+    'Pass "fields" with JSONPath-style selectors (e.g. [".status.phase", ".spec.containers[*].image"]) to ' +
+    "return only a subset of the resource instead of the full, verbose object.",
   schema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     name: z.string().describe("The name of the resource"),
     namespace: z.string().optional().describe("The namespace of the resource (required for namespaced kinds)"),
     includeManagedFields: includeManagedFieldsSchema,
+    fields: fieldsSchema,
   }),
 });
 
@@ -310,21 +327,26 @@ export const toolFunctionDescriptions = [
     name: "listKubernetesResources",
     description: "List Kubernetes resources of a given kind, optionally scoped to a namespace",
     arguments:
-      "Requires the resource kind (string) and optionally the apiVersion (string), namespace (string) and " +
-      "includeManagedFields (boolean; defaults to false). Built-in kinds: " +
+      "Requires the resource kind (string) and optionally the apiVersion (string), namespace (string), " +
+      "includeManagedFields (boolean; defaults to false) and fields (array of JSONPath-style selectors to " +
+      "trim each resource to a subset, the kubectl `-o jsonpath` subset). Built-in kinds: " +
       SUPPORTED_KINDS.join(", ") +
       "; any other kind (including CRDs) is accepted.",
     returnType:
-      "Returns a JSON string containing the matching resources, with metadata.managedFields stripped unless includeManagedFields is true.",
+      "Returns a JSON string containing the matching resources, with metadata.managedFields stripped unless " +
+      "includeManagedFields is true, and limited to the selected fields when fields is provided.",
   },
   {
     name: "getKubernetesResource",
     description: "Get a single Kubernetes resource by name",
     arguments:
-      "Requires the resource kind (string) and name (string), and optionally the apiVersion (string) and " +
-      "includeManagedFields (boolean; defaults to false). Namespace (string) is required for namespaced kinds.",
+      "Requires the resource kind (string) and name (string), and optionally the apiVersion (string), " +
+      "includeManagedFields (boolean; defaults to false) and fields (array of JSONPath-style selectors to " +
+      "trim the resource to a subset, the kubectl `-o jsonpath` subset). Namespace (string) is required for " +
+      "namespaced kinds.",
     returnType:
-      "Returns a JSON string containing the requested resource, with metadata.managedFields stripped unless includeManagedFields is true.",
+      "Returns a JSON string containing the requested resource, with metadata.managedFields stripped unless " +
+      "includeManagedFields is true, and limited to the selected fields when fields is provided.",
   },
   {
     name: "getPodLogs",
