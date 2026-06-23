@@ -6,6 +6,7 @@ import {
 } from "../../renderer/business/objects/message-object-provider";
 import { MessageType } from "../../renderer/business/objects/message-type";
 import { DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
+import { approximateTokenCount } from "../../renderer/business/provider/token-estimate";
 import {
   AgentService,
   isReasoningChunk,
@@ -13,6 +14,7 @@ import {
   useAgentService,
 } from "../../renderer/business/service/agent-service";
 import { AiAnalysisService, useAiAnalysisService } from "../../renderer/business/service/ai-analysis-service";
+import { estimateNextPromptTokens, shouldCompactSession } from "../../renderer/business/service/session-compaction";
 import { ActionToApprove } from "../../renderer/components/chat";
 import { useApplicationStatusStore } from "../../renderer/context/application-context";
 import { PreferencesStore } from "../store";
@@ -113,9 +115,13 @@ const useChatService = () => {
           });
         } else {
           _sendMessage(message);
-          runAgent(_buildAgentInput(message.text), { kind: "message", text: message.text }).finally(() =>
-            applicationStatusStore.setLoading(false),
-          );
+          // Compact the session first when the next prompt would approach the
+          // model's input token limit, then send (seeding the summary into the
+          // prompt so the conversation context is not lost).
+          (async () => {
+            const summary = await _maybeCompactBeforeSend(message.text);
+            await runAgent(_buildAgentInput(message.text, summary), { kind: "message", text: message.text });
+          })().finally(() => applicationStatusStore.setLoading(false));
         }
       } else {
         log.error("You cannot call sendMessageToAgent with 'sent: false'");
@@ -125,11 +131,31 @@ const useChatService = () => {
     }
   };
 
-  const _buildAgentInput = (text: string) => ({
+  const _buildAgentInput = (text: string, summary: string | null = null) => ({
     modelName: applicationStatusStore.selectedModel,
     modelApiKey: applicationStatusStore.apiKey,
-    messages: [{ role: "user", content: text }],
+    // When the session was just compacted, prepend the summary so the agent keeps
+    // the earlier context even though the model-side history was wiped.
+    messages: summary
+      ? [
+          { role: "user", content: `Summary of the earlier (compacted) conversation:\n${summary}` },
+          { role: "user", content: text },
+        ]
+      : [{ role: "user", content: text }],
   });
+
+  // Estimate the next prompt's input tokens from the previous response and the
+  // new message, and compact the session first when that reaches the threshold
+  // (90%) of the selected model's max input tokens. Returns the summary to seed
+  // into the next prompt, or null when no compaction was needed or possible.
+  const _maybeCompactBeforeSend = async (text: string): Promise<string | null> => {
+    const estimate = estimateNextPromptTokens(applicationStatusStore.lastInputTokens, approximateTokenCount(text));
+    if (!shouldCompactSession(estimate, applicationStatusStore.getMaxInputTokens())) {
+      return null;
+    }
+    log.debug("Next prompt approaches the input token limit, compacting session first");
+    return applicationStatusStore.compactSession();
+  };
 
   // Re-run the query behind an error message, then drop that message so its
   // "Retry" button disappears from the transcript. The original user prompt is
@@ -235,6 +261,9 @@ const useChatService = () => {
         // counter shown next to the model list.
         if (isTokenUsageChunk(chunk)) {
           applicationStatusStore.addTokenUsage(chunk.tokenUsage);
+          // Record the run's peak prompt size so the next send can decide whether
+          // to compact before reaching the model's input token limit.
+          applicationStatusStore.setLastInputTokens(chunk.peakInputTokens);
           continue;
         }
 

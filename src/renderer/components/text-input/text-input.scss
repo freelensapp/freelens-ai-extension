@@ -57,6 +57,21 @@
   user-select: none;
 }
 
+// Transient compaction status shown next to the token counter. While compacting
+// it stays dimmed like the counter; once compacted it switches to the normal
+// (primary) text colour to confirm the conversation was compacted.
+.text-input-compaction-status {
+  margin-right: 0.5rem;
+  color: var(--textColorPrimary);
+  font-size: 0.9em;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.text-input-compaction-status.compacting {
+  color: var(--textColorDimmed);
+}
+
 .text-input-select-box {
   min-width: 70px !important;
 }

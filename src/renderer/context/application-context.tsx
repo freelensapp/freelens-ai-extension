@@ -19,10 +19,18 @@ import { MessageType } from "../business/objects/message-type";
 import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../business/provider/ai-models";
 import { computeSessionCost, type ModelPricingMap } from "../business/provider/model-pricing";
 import { fetchModelPricing } from "../business/provider/model-pricing-provider";
+import { approximateTokenCount } from "../business/provider/token-estimate";
+import { resolveMaxInputTokens } from "../business/service/session-compaction";
+import { useSessionCompactionService } from "../business/service/session-compaction-service";
 import { emptyTokenUsage, addTokenUsage as sumTokenUsage, type TokenUsage } from "../business/service/token-usage";
 import { IS_CONVERSATION_INTERRUPTED_KEY, IS_LOADING_KEY } from "./chat-session-storage";
 
 import type { MessageObject } from "../business/objects/message-object";
+
+// Transient status shown while the session is compacted: dimmed "Compacting
+// conversation..." during, then normal "Compacted conversation." after. Null
+// hides the indicator.
+export type CompactionStatus = "compacting" | "compacted" | null;
 
 export interface AppContextType {
   apiKey: string;
@@ -39,10 +47,22 @@ export interface AppContextType {
   // Estimated USD cost of this session for the selected model, or 0 when no
   // price is known. Resets with the token counter when the chat is cleared.
   sessionCost: number;
+  // Input tokens of the previous response's largest model turn - the naive proxy
+  // for the current context size that drives compaction.
+  lastInputTokens: number;
+  // Transient compaction status shown in the input bar, or null when idle.
+  compactionStatus: CompactionStatus;
   freeLensAgent: FreeLensAgent | null;
   mcpAgent: MPCAgent | null;
   setSelectedModel: (selectedModel: string) => void;
   addTokenUsage: (usage: TokenUsage) => void;
+  setLastInputTokens: (lastInputTokens: number) => void;
+  // Max input tokens for the selected model from the fetched pricing data,
+  // falling back to a conservative default for unknown models.
+  getMaxInputTokens: () => number;
+  // Summarize and reset the model-side history before the next prompt. Returns
+  // the summary to seed into that prompt, or null when nothing was compacted.
+  compactSession: () => Promise<string | null>;
   setExplainEvent: (messageObject: MessageObject) => void;
   setBypassApprovals: (bypassApprovals: boolean) => void;
   setLoading: (isLoading: boolean) => void;
@@ -78,6 +98,10 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const [isConversationInterrupted, _setConversationInterrupted] = useState(false);
   const [chatMessages, _setChatMessages] = useState<MessageObject[] | null>(null);
   const [tokenUsage, _setTokenUsage] = useState<TokenUsage>(emptyTokenUsage());
+  // Previous response's peak input tokens (context-size proxy) and the transient
+  // compaction status shown while the session is being compacted.
+  const [lastInputTokens, _setLastInputTokens] = useState<number>(0);
+  const [compactionStatus, _setCompactionStatus] = useState<CompactionStatus>(null);
   // Model name => pricing, fetched on start and whenever the model list or
   // endpoint changes. Used to estimate the per-session cost shown by the UI.
   const [modelPricing, _setModelPricing] = useState<ModelPricingMap>({});
@@ -85,9 +109,13 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const [mcpAgent, _setMcpAgent] = useState<MPCAgent | null>(agentsStore.mcpAgent);
 
   const prevMcpConfiguration = useRef(preferencesStore.mcpConfiguration);
+  // Holds the pending timer that hides the "Compacted conversation." status after
+  // a short delay, so a new compaction can cancel and restart it.
+  const compactionStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mcpAgentSystem = useMcpAgent(preferencesStore.mcpConfiguration);
   const freeLensAgentSystem = useFreeLensAgentSystem();
+  const sessionCompactionService = useSessionCompactionService();
 
   // Init variables
   useEffect(() => {
@@ -96,6 +124,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     _getConversationId();
     _loadChatMessages();
     _setTokenUsage(chatSessionStore.getTokenUsage(clusterId));
+    _setLastInputTokens(chatSessionStore.getLastInputTokens(clusterId));
     _initFreeLensAgent();
   }, []);
 
@@ -267,9 +296,77 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     });
   };
 
+  const setLastInputTokens = (value: number) => {
+    _setLastInputTokens(value);
+    // Durable: persisted so the compaction decision survives an app restart.
+    chatSessionStore.setLastInputTokens(clusterId, value);
+  };
+
+  // Max input tokens for the selected model, from the pricing data already
+  // fetched for the cost estimate. Falls back to a conservative default for
+  // models with no known limit.
+  const getMaxInputTokens = (): number => resolveMaxInputTokens(modelPricing[preferencesStore.selectedModel]);
+
+  // Summarize the model-side history into a short summary, wipe that history, and
+  // reset the context-size estimate so the next prompt starts small. The summary
+  // is returned so the caller can seed it into the next prompt. On any failure
+  // the history is still wiped (best effort) so the next prompt cannot exceed the
+  // limit; only the summary context is lost.
+  const compactSession = async (): Promise<string | null> => {
+    _showCompacting();
+    const agent = await getActiveAgent();
+    const config = { configurable: { thread_id: conversationId } };
+
+    try {
+      const messages = (await agent.getState(config)).values.messages ?? [];
+      const summary = await sessionCompactionService.summarize(messages);
+      await cleanAgentMessageHistory(agent);
+      // The new context is just the summary, so reset the estimate to its size.
+      setLastInputTokens(approximateTokenCount(summary));
+      _showCompacted();
+      return summary.length > 0 ? summary : null;
+    } catch (error) {
+      log.error("Failed to compact session: ", error);
+      // Best effort: drop the model-side history anyway so the next prompt is
+      // small, even though we could not summarize it.
+      try {
+        await cleanAgentMessageHistory(agent);
+      } catch (cleanError) {
+        log.error("Failed to clean history during compaction fallback: ", cleanError);
+      }
+      setLastInputTokens(0);
+      _showCompacted();
+      return null;
+    }
+  };
+
+  const _showCompacting = () => {
+    if (compactionStatusTimer.current) {
+      clearTimeout(compactionStatusTimer.current);
+      compactionStatusTimer.current = null;
+    }
+    _setCompactionStatus("compacting");
+  };
+
+  // Show the "Compacted conversation." status, then hide it after a short delay
+  // so the transient notification does not linger on the input bar.
+  const _showCompacted = () => {
+    _setCompactionStatus("compacted");
+    if (compactionStatusTimer.current) {
+      clearTimeout(compactionStatusTimer.current);
+    }
+    compactionStatusTimer.current = setTimeout(() => {
+      _setCompactionStatus(null);
+      compactionStatusTimer.current = null;
+    }, 5000);
+  };
+
   const clearChat = async () => {
-    // Zero the per-session token counter alongside the transcript.
+    // Zero the per-session token counter and context-size estimate alongside the
+    // transcript, and drop any lingering compaction status.
     _setTokenUsage(emptyTokenUsage());
+    setLastInputTokens(0);
+    _setCompactionStatus(null);
     if (freeLensAgent) {
       cleanAgentMessageHistory(freeLensAgent).finally(() => {
         _setChatMessages([]);
@@ -425,10 +522,15 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         chatMessages,
         tokenUsage,
         sessionCost,
+        lastInputTokens,
+        compactionStatus,
         mcpAgent,
         freeLensAgent,
         setSelectedModel,
         addTokenUsage,
+        setLastInputTokens,
+        getMaxInputTokens,
+        compactSession,
         setExplainEvent,
         setBypassApprovals,
         setLoading,

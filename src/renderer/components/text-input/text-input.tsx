@@ -110,6 +110,18 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               </button>
             </div>
             <div style={{ display: "flex", alignItems: "center" }}>
+              {applicationStatusStore.compactionStatus && (
+                <span
+                  className={`text-input-compaction-status${
+                    applicationStatusStore.compactionStatus === "compacting" ? " compacting" : ""
+                  }`}
+                  title="The conversation was getting close to the model's input token limit, so it was summarized to free up context."
+                >
+                  {applicationStatusStore.compactionStatus === "compacting"
+                    ? "Compacting conversation..."
+                    : "Compacted conversation."}
+                </span>
+              )}
               {textInputHook.agentConfigured && (
                 <span
                   className="text-input-token-counter"

@@ -50,8 +50,12 @@ export const isReasoningChunk = (chunk: unknown): chunk is ReasoningChunk =>
 
 // A streamed chunk carrying the token usage reported for a single model turn.
 // The chat service sums these into the per-session counter shown in the UI.
+// `peakInputTokens` is the largest single LLM call's input within the run - the
+// best naive proxy for the current context size, used to decide when the session
+// must be compacted before the next prompt.
 export interface TokenUsageChunk {
   tokenUsage: TokenUsage;
+  peakInputTokens: number;
 }
 
 export const isTokenUsageChunk = (chunk: unknown): chunk is TokenUsageChunk =>
@@ -68,11 +72,16 @@ export const isTokenUsageChunk = (chunk: unknown): chunk is TokenUsageChunk =>
 class TokenUsageCollector extends BaseCallbackHandler {
   name = "freelens-token-usage-collector";
   total: TokenUsage = emptyTokenUsage();
+  // Largest single call's input tokens seen in the run. The per-call inputs are
+  // not summed: each call re-sends roughly the same accumulated context, so the
+  // peak (not the sum) approximates how close the conversation is to the limit.
+  peakInputTokens = 0;
 
   handleLLMEnd(output: LLMResult): void {
     const usage = extractTokenUsageFromLLMResult(output);
     if (usage) {
       this.total = addTokenUsage(this.total, usage);
+      this.peakInputTokens = Math.max(this.peakInputTokens, usage.input);
     }
   }
 }
@@ -155,7 +164,7 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
         // `nostream` tag - be counted, not just the single visible turn.
         const tokenUsage = tokenUsageCollector.total;
         if (tokenUsage.input !== 0 || tokenUsage.cached !== 0 || tokenUsage.output !== 0) {
-          yield { tokenUsage };
+          yield { tokenUsage, peakInputTokens: tokenUsageCollector.peakInputTokens };
         }
 
         // checks the agent state for any interrupts
