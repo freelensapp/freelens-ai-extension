@@ -12,6 +12,7 @@ import {
   emptyLogsMessage,
   filterLogLines,
   type GetPodLogsInput,
+  isPreviousContainerNotFoundError,
   noMatchingLogsMessage,
   resolveContainer,
 } from "./pod-logs";
@@ -759,6 +760,13 @@ export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
     }
     return capLogOutput(logs);
   } catch (error) {
+    // A "previous terminated container ... not found" response is expected when
+    // previous: true is requested but the container has never terminated. Treat
+    // it as a normal "no previous logs" result so the model does not report it
+    // as a tool error.
+    if (isPreviousContainerNotFoundError(error)) {
+      return emptyLogsMessage(selectedContainer, name, previous);
+    }
     console.error("[Tool invocation error: getPodLogs] - ", error);
     return JSON.stringify(error);
   }

@@ -163,3 +163,42 @@ export function filterLogLines(logs: string, regex: RegExp): string {
 export function noMatchingLogsMessage(container: string, name: string, filter: string): string {
   return `No log lines for container "${container}" in pod "${name}" matched the filter /${filter}/.`;
 }
+
+/**
+ * Reduce an unknown thrown value to a searchable string so callers can pattern
+ * match on the underlying server message. Covers Error instances, Kubernetes
+ * API error objects (which carry the server message on `message`), plain
+ * strings, and arbitrary objects (JSON-encoded as a last resort).
+ */
+export function errorToText(error: unknown): string {
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (error && typeof error === "object") {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.length > 0) {
+      return message;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
+/**
+ * Detect the Kubernetes "previous terminated container ... not found" response.
+ * The API returns this when previous: true is requested but the container has
+ * never terminated/restarted. It is an expected, benign situation (there simply
+ * is no prior instance) rather than a tool failure, so the caller surfaces it as
+ * a normal "no previous logs" result instead of a raw error.
+ */
+export function isPreviousContainerNotFoundError(error: unknown): boolean {
+  const text = errorToText(error).toLowerCase();
+  return text.includes("previous terminated container") && text.includes("not found");
+}

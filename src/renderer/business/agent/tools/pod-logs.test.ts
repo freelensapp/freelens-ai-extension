@@ -4,7 +4,9 @@ import {
   capTailLines,
   collectContainerNames,
   compileLogFilter,
+  errorToText,
   filterLogLines,
+  isPreviousContainerNotFoundError,
   MAX_TAIL_LINES,
   resolveContainer,
   TRUNCATION_MARKER,
@@ -155,5 +157,49 @@ describe("filterLogLines", () => {
 
   it("does not emit a blank line for the trailing newline", () => {
     expect(filterLogLines("match\n", /^/)).toBe("match\n");
+  });
+});
+
+describe("errorToText", () => {
+  it("returns a string error unchanged", () => {
+    expect(errorToText("boom")).toBe("boom");
+  });
+
+  it("reads the message from an Error instance", () => {
+    expect(errorToText(new Error("the failure"))).toBe("the failure");
+  });
+
+  it("reads the message from a Kubernetes API error object", () => {
+    expect(errorToText({ code: 400, message: "bad request" })).toBe("bad request");
+  });
+
+  it("JSON-encodes an object without a message", () => {
+    expect(errorToText({ code: 404 })).toBe('{"code":404}');
+  });
+});
+
+describe("isPreviousContainerNotFoundError", () => {
+  it("detects the API message on an Error instance", () => {
+    const error = new Error('previous terminated container "app" in pod "web" not found');
+    expect(isPreviousContainerNotFoundError(error)).toBe(true);
+  });
+
+  it("detects the API message on a Kubernetes error object", () => {
+    const error = { code: 400, message: 'previous terminated container "app" in pod "web" not found' };
+    expect(isPreviousContainerNotFoundError(error)).toBe(true);
+  });
+
+  it("detects the API message on a plain string", () => {
+    expect(isPreviousContainerNotFoundError("previous terminated container not found")).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    expect(isPreviousContainerNotFoundError("Previous Terminated Container ... NOT FOUND")).toBe(true);
+  });
+
+  it("does not match unrelated errors", () => {
+    expect(isPreviousContainerNotFoundError(new Error("container not found"))).toBe(false);
+    expect(isPreviousContainerNotFoundError(new Error("connection refused"))).toBe(false);
+    expect(isPreviousContainerNotFoundError({ code: 500 })).toBe(false);
   });
 });
