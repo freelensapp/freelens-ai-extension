@@ -62,7 +62,7 @@
   "devDependencies": {
     "@babel/plugin-proposal-decorators": "^8.0.2",
     "@electron-toolkit/tsconfig": "^2.0.0",
-    "@freelensapp/extensions": "^1.9.0",
+    "@freelensapp/extensions": "^1.10.1",
     "@langchain/core": "^1.2.0",
     "@langchain/langgraph": "^1.4.4",
     "@langchain/mcp-adapters": "^1.1.3",
