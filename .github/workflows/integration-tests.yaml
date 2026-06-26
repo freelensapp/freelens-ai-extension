@@ -201,12 +201,12 @@ jobs:
       - name: Install Playwright with dependencies
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: freelens
-        run: pnpx playwright install --with-deps
+        run: pnpx playwright install --with-deps chromium
 
       - name: Install Playwright's dependencies
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         working-directory: freelens
-        run: pnpx playwright install-deps
+        run: pnpx playwright install-deps chromium
 
       - name: Build app
         if: steps.electron-build-cache.outputs.cache-hit != 'true'
