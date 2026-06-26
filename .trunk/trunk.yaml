@@ -53,6 +53,7 @@ lint:
           run: biome check --fix "${target}"
           run_from: ${parent}
   enabled:
+    - prettier@3.8.5
     - taplo@0.10.0
     - actionlint@1.7.12
     - biome@2.5.1! # datasource=npm depName=@biomejs/biome
