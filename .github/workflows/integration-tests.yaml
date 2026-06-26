@@ -24,8 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # - freelens_version: v1.10.0
-          - freelens_version: main
+          - freelens_version: v1.10.0
 
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
@@ -272,7 +271,7 @@ jobs:
       - name: Restore dev node_modules
         working-directory: freelens
         run: |
-          mv freelens/node_modules freelens/node_modules_prod
+          rm -rf freelens/node_modules
           mv freelens/node_modules_dev freelens/node_modules
 
       - name: Run integration tests
