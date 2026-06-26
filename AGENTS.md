@@ -21,12 +21,12 @@ Freelens application.
 pnpm type:check
 
 # Linting & formatting
-pnpm biome:check          # TypeScript/TSX (biome) — prefer this for TS/TSX
-pnpm biome:fix            # Auto-fix TypeScript/TSX
-pnpm trunk:check          # SCSS, Markdown, and other formats not covered by biome
-pnpm trunk:fix            # Auto-fix SCSS, Markdown, etc.
-pnpm lint:check           # biome + prettier check (all formats)
-pnpm lint:fix             # biome + prettier fix (all formats)
+pnpm biome:check          # TypeScript/TSX/SCSS (biome) — prefer this for TS/TSX/SCSS
+pnpm biome:fix            # Auto-fix TypeScript/TSX/SCSS
+pnpm trunk:check          # Markdown, YAML, and other formats not covered by biome
+pnpm trunk:fix            # Auto-fix Markdown, YAML, etc.
+pnpm lint:check           # biome check (all biome formats)
+pnpm lint:fix             # biome fix (all biome formats)
 
 # Tests
 pnpm test:unit            # vitest
@@ -144,8 +144,8 @@ helpers and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`).
 
 ## Code Style
 
-- **Biome** formats **TypeScript/TSX**: double quotes, semicolons, trailing commas, 2-space indent, 120 char line width
-- **Trunk** formats **SCSS, Markdown**, and other non-TS formats — use `pnpm trunk:fix`
+- **Biome** formats **TypeScript/TSX and SCSS**: double quotes, semicolons, trailing commas, 2-space indent, 120 char line width
+- **Trunk** formats **Markdown, YAML**, and other formats not covered by biome — use `pnpm trunk:fix`
 - Import order (enforced by biome organizeImports): built-in modules → `@freelensapp/**` → packages → relative paths
 - React 17 (no `react/jsx-runtime` in tsconfig needed, but handled by build)
 - **No emoji** in Markdown files (`.md`), comments, or any source code
@@ -202,8 +202,8 @@ Code in `src/common/` is shared between both processes.
 2. **Follow existing patterns** — grep for similar implementations before creating new ones
 3. **Test changes** before committing
 4. **Run validation before committing:** `pnpm lint:fix && pnpm type:check && pnpm test:unit`
-5. **For TypeScript/TSX files:** run `pnpm biome:fix` (or `biome check` directly if `biome` is installed locally)
-6. **For SCSS, Markdown, and other formats:** run `pnpm trunk:fix` (or `trunk check` directly if `trunk` is installed locally)
+5. **For TypeScript/TSX/SCSS files:** run `pnpm biome:fix` (or `biome check` directly if `biome` is installed locally)
+6. **For Markdown, YAML, and other formats:** run `pnpm trunk:fix` (or `trunk check` directly if `trunk` is installed locally)
 7. **Full build** when in doubt about cached state: `pnpm clean:all && pnpm build`
 8. **Do not use Anthropic Fable for coding tasks** — Fable may be used only for planning,
    analysis, and thinking through problems. When writing or editing code,

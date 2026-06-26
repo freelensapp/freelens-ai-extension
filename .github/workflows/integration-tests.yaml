@@ -24,8 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # - freelens_version: v1.10.0
-          - freelens_version: main
+          - freelens_version: v1.10.0
 
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
@@ -55,7 +54,7 @@ jobs:
         run: echo "pnpm_cache_dir=$(pnpm store path)" >> ${GITHUB_ENV}
 
       - name: Use pnpm cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ env.pnpm_cache_dir }}
           key: node-freelens-${{ matrix.freelens_version }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -116,7 +115,7 @@ jobs:
         run: echo "playwright_version=$(yq -r .importers.freelens.devDependencies.playwright.version freelens/pnpm-lock.yaml | sed 's/(.*)//')" >> $GITHUB_ENV
 
       - name: Use Electron cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ env.ELECTRON_CACHE }}
           key: ubuntu-24.04-arm-electron-${{ env.electron_version }}
@@ -124,7 +123,7 @@ jobs:
             ubuntu-24.04-arm-electron-
 
       - name: Use Electron Builder cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ env.ELECTRON_BUILDER_CACHE }}
           key: ubuntu-24.04-arm-electron-builder-${{ env.electron_builder_version }}
@@ -133,14 +132,14 @@ jobs:
 
       - name: Use Electron headers cache
         id: electron-headers
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ env.ELECTRON_HEADERS_CACHE }}
           key: electron-headers-${{ env.electron_version }}
 
       - name: Use Playwright cache
         id: playwright-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: ubuntu-24.04-arm-playwright-${{ env.playwright_version }}
@@ -148,7 +147,7 @@ jobs:
             ubuntu-24.04-arm-playwright-
 
       - name: Use Turborepo cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ env.TURBOREPO_CACHE }}
           key: ubuntu-24.04-arm-turborepo-${{ hashFiles('freelens/**/package.json', 'freelens/**/pnpm-lock.yaml', 'freelens/turbo.json') }}
@@ -272,7 +271,7 @@ jobs:
       - name: Restore dev node_modules
         working-directory: freelens
         run: |
-          mv freelens/node_modules freelens/node_modules_prod
+          rm -rf freelens/node_modules
           mv freelens/node_modules_dev freelens/node_modules
 
       - name: Run integration tests
