@@ -81,7 +81,7 @@
     "remark-gfm": "^1.0.0",
     "sass": "^1.101.0",
     "typescript": "5.9.3",
-    "vite": "^8.0.16",
+    "vite": "^8.1.0",
     "vite-plugin-sass-dts": "^1.3.37",
     "vitest": "^4.1.9",
     "yaml": "^2.9.0",
