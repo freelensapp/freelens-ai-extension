@@ -69,7 +69,6 @@ lint:
     - eslint
     - svgo
     - grype
-    - hadolint
     - osv-scanner
     - oxipng
     - pinact
