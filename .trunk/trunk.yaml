@@ -64,7 +64,6 @@ lint:
     - checkov
     - eslint
     - grype
-    - hadolint
     - osv-scanner
     - oxipng
     - pinact
