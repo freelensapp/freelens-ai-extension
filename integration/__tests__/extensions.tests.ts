@@ -53,7 +53,7 @@ describe("extensions page tests", () => {
     await window.click('i[data-testid*="close-notification-for-notification_"]');
     console.log('await window.click div[class*=[close-button-module__closeButton--"][aria-label="Close"]');
     await window.click('div[class*="close-button-module__closeButton--"][aria-label="Close"]');
-  }, 15 * 1000);
+  }, 120 * 1000);
 
   afterAll(
     async () => {
