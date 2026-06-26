@@ -63,13 +63,14 @@ lint:
   disabled:
     - checkov
     - eslint
-    - svgo
     - grype
     - hadolint
     - osv-scanner
     - oxipng
     - pinact
+    - prettier
     - renovate
+    - svgo
     - trufflehog
 actions:
   enabled:
