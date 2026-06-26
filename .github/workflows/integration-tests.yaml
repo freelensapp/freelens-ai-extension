@@ -271,7 +271,7 @@ jobs:
       - name: Restore dev node_modules
         working-directory: freelens
         run: |
-          mv freelens/node_modules freelens/node_modules_prod
+          rm -rf freelens/node_modules
           mv freelens/node_modules_dev freelens/node_modules
 
       - name: Run integration tests
