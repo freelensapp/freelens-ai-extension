@@ -64,9 +64,8 @@ Model-specific behavior (for example, sending a reasoning effort instead of a
 temperature) is decided by heuristics on the model name, so adding a new model
 needs no code changes.
 
-> Currently the **OpenAI** provider is the only one enabled. Google/Gemini and
-> Ollama support is temporarily disabled and will return after further
-> refactoring.
+> Currently the **OpenAI** provider is the only one enabled. Google/Gemini
+> support is temporarily disabled and will return after further refactoring.
 
 ### Using other providers through an OpenAI-compatible gateway
 Although OpenAI is the only built-in provider, the extension talks to any
