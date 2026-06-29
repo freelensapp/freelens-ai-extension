@@ -32,6 +32,7 @@ automate complex tasks and enhance productivity.
 
 - [@freelensapp/ai-extension](#freelensappai-extension)
   - [Index](#index)
+  - [How it works](#how-it-works)
   - [Available Models](#available-models)
     - [Using other providers through an OpenAI-compatible gateway](#using-other-providers-through-an-openai-compatible-gateway)
     - [DeepSeek and other "thinking" models](#deepseek-and-other-thinking-models)
@@ -48,6 +49,50 @@ or:
 
 Use a following URL in the browser:
 [freelens://app/extensions/install/%40freelensapp%2Fai-extension](freelens://app/extensions/install/%40freelensapp%2Fai-extension)
+
+## How it works
+
+Freelens AI is a **client of a large language model API**. It does not run a
+model itself; instead it sends your prompts and the cluster context to a model
+provider and renders the response. The agent logic (the LangGraph supervisor,
+the cluster tools, structured output, and human-in-the-loop approvals) runs
+inside the extension, and only the model inference is delegated to the provider.
+
+- **Talks the OpenAI Chat Completions API.** The extension is built on the
+  OpenAI client and the OpenAI-compatible wire format. It works with OpenAI
+  directly, and with any endpoint that implements the same API — either natively
+  or through an OpenAI-compatible gateway such as
+  [LiteLLM](https://github.com/BerriAI/litellm) (see [Using other providers
+  through an OpenAI-compatible
+  gateway](#using-other-providers-through-an-openai-compatible-gateway)).
+- **Pay-as-you-go billing.** You bring your own API key, and the provider bills
+  you per token for the requests the extension makes. There is no bundled
+  subscription or hosted backend; usage cost depends entirely on the model and
+  provider you configure.
+- **Requires standard API access.** Because the extension drives the model
+  through the OpenAI-compatible API and its own tool/structured-output protocol,
+  it can only use providers that expose such an API with a standard API key.
+
+### What the extension cannot use
+
+Some providers do **not** offer a general-purpose, pay-as-you-go API key.
+Instead they grant access **only** through their own native tooling and a
+custom, proprietary SDK — for example **Claude Code**, which authenticates with
+a subscription token obtained via `claude login` / `claude setup-token` and is
+designed to be driven exclusively by Anthropic's own runtime and Agent SDK.
+
+These providers are **not compatible** with this extension:
+
+- The access is tied to a **subscription/native client**, not a standard
+  pay-as-you-go API key, and reusing those tokens in a third-party app is
+  outside the provider's terms.
+- They expose their own **agent loop, tools, and SDK** rather than the
+  OpenAI-compatible Chat Completions API and tool protocol the extension relies
+  on, so they cannot be plugged in behind the existing provider/proxy.
+
+If you want to use such a provider, run it through its own dedicated client. To
+use it with Freelens AI you would need an OpenAI-compatible endpoint and a
+standard API key (directly or through a gateway).
 
 ## Available Models
 The list of models is fully editable in the extension preferences. You can add
