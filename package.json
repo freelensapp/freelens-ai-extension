@@ -72,7 +72,7 @@
     "@vitejs/plugin-react": "^6.0.3",
     "electron-vite": "^5.0.0",
     "loglevel": "^1.9.2",
-    "lucide-react": "^1.21.0",
+    "lucide-react": "^1.23.0",
     "mobx": "6.13.7",
     "mobx-react": "7.6.0",
     "react": "17.0.2",
