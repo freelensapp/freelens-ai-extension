@@ -1,6 +1,6 @@
 # Build guide
 
-This guide will help you build the project to create the tgz file or run the server localy.
+This guide will help you build the project, create the tgz file, and run the extension in Freelens.
 
 ## Index
 
@@ -9,8 +9,8 @@ This guide will help you build the project to create the tgz file or run the ser
     - [Prerequisites](#prerequisites)
     - [Install dependencies](#install-dependencies)
     - [Build the project](#build-the-project)
-    - [Run the server](#run-the-server)
     - [Create the tgz file](#create-the-tgz-file)
+    - [Run the extension](#run-the-extension)
       - [Additional Resources](#additional-resources)
 
 ---
@@ -49,20 +49,11 @@ pnpm build:production
 
 ---
 
-Now you can choose between the following options:
+Now you can proceed with the following steps:
 
-- [***Run the server***](#run-the-server)
 - [***Create the tgz file***](#create-the-tgz-file)
+- [***Run the extension***](#run-the-extension)
 
----
-
-### Run the server
-
-To run the server, run the following command in your terminal:
-
-```sh
-pnpm start
-```
 ---
 
 ### Create the tgz file
@@ -76,6 +67,15 @@ pnpm pack:dev
 This bumps the prerelease version, builds the project, and creates the tgz file.
 
 After creating the tgz file, you can proceed with the extension setup guide to install the plugin in Freelens.
+
+---
+
+### Run the extension
+
+This project builds a Freelens extension, not a standalone server: the code
+runs inside Freelens once the tgz file is installed, as described in the
+[***setup guide***](./SET_UP_EXTENSION.md). After rebuilding, reinstall the
+extension or restart Freelens to pick up the new build.
 
 ---
 
