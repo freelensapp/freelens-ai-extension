@@ -60,6 +60,24 @@ const hopByHopHeaders = new Set([
   "upgrade",
 ]);
 
+// Response headers that stop describing the body once it has been read through
+// `fetch`: undici transparently decodes gzip/br/deflate response bodies, so what
+// we pipe back is already plain text. Forwarding the upstream `content-encoding`
+// (like `content-length`, dropped above as hop-by-hop) makes the renderer decode
+// an already decoded body and fail with ERR_CONTENT_DECODING_FAILED, which broke
+// the LiteLLM price list fetch behind the cost estimate.
+const decodedBodyHeaders = new Set(["content-encoding"]);
+
+// Pure predicate telling whether an upstream RESPONSE header can be copied
+// verbatim to the proxied response. Request headers use a different filter (see
+// createUpstreamHeaders): a client-sent `content-encoding` describes a request
+// body we forward untouched and must still reach the upstream.
+export const isForwardableResponseHeader = (name: string): boolean => {
+  const key = name.toLowerCase();
+
+  return !hopByHopHeaders.has(key) && !decodedBodyHeaders.has(key);
+};
+
 // Normalize the possibly-array Origin header to a single value.
 const getRequestOrigin = (request: IncomingMessage): string | undefined => {
   const origin = request.headers.origin;
@@ -171,7 +189,7 @@ const proxyRequest = async (request: IncomingMessage, response: ServerResponse) 
   applyCorsHeaders(response, getRequestOrigin(request));
 
   upstreamResponse.headers.forEach((value, key) => {
-    if (!hopByHopHeaders.has(key)) {
+    if (isForwardableResponseHeader(key)) {
       response.setHeader(key, value);
     }
   });
