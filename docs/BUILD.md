@@ -42,9 +42,9 @@ To build the project, run the following command in your terminal:
 pnpm build
 ```
 
-Or additionally, to build il dev mode:
+Or additionally, to build in production mode:
 ```sh
-pnpm build:dev
+pnpm build:production
 ```
 
 ---
@@ -70,8 +70,10 @@ pnpm start
 To create the tgz file, run the following command in your terminal:
 
 ```sh
-pnpm pack
+pnpm pack:dev
 ```
+
+This bumps the prerelease version, builds the project, and creates the tgz file.
 
 After creating the tgz file, you can proceed with the extension setup guide to install the plugin in Freelens.
 
