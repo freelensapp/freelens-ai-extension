@@ -23,7 +23,8 @@ automate complex tasks and enhance productivity.
 **Quick Links:**
 
 - [Install](#install)
-- [How to obtain a Google API Key](./docs/GOOGLE_API_KEY.md)
+- [How to obtain a Google API Key](./docs/GOOGLE_API_KEY.md) (provider
+  temporarily disabled)
 - [Build & Run Guide](./docs/BUILD.md)
 
 ---
@@ -36,6 +37,7 @@ automate complex tasks and enhance productivity.
   - [Available Models](#available-models)
     - [Using other providers through an OpenAI-compatible gateway](#using-other-providers-through-an-openai-compatible-gateway)
     - [DeepSeek and other "thinking" models](#deepseek-and-other-thinking-models)
+    - [Ollama](#ollama)
     - [Connecting a model](#connecting-a-model)
     - [Key Features](#key-features)
     - [Base Agent](#base-agent)
@@ -141,6 +143,30 @@ applies automatically based on the model name:
   structured output. If you hit a `Thinking mode does not support this
   tool_choice` error, enable **Disable thinking mode** in the OpenAI preferences.
 
+### Ollama
+[Ollama](https://ollama.com) exposes a natively OpenAI-compatible endpoint, so
+no gateway is needed to reach a model running on your own machine.
+
+To connect it:
+
+- Set the **Base URL** in the OpenAI section of the preferences to
+  `http://localhost:11434/v1`.
+- Set any non-empty **API key**. Ollama ignores its value, but a key must be set
+  for the models to appear in the chat.
+- Add the exact model name, **including its tag** (for example `llama3.2:3b`, as
+  shown by `ollama list`), to the editable model list.
+
+The model must support **tool calling**: the agent drives every cluster
+operation through tools, so a model without tool support cannot be used. Models
+with a "thinking" mode may need the handling described in [DeepSeek and other
+"thinking" models](#deepseek-and-other-thinking-models).
+
+No pricing data is available for local models, so the cost estimate stays hidden
+and only the token counter is shown.
+
+On networks with TLS inspection, the first `ollama pull` may need the corporate
+root certificate to be trusted by Ollama's environment.
+
 ### Connecting a model
 Open the preferences page and, in the OpenAI section, set your API key and
 (optionally) a custom base URL. You can also provide the key through an
@@ -151,6 +177,12 @@ environment variable instead:
 A model is only offered in the chat dropdown once its provider has a key set; if
 no model is available, the chat shows a button that takes you to the preferences
 page.
+
+The **Base URL** is a single global setting: every configured model is requested
+from that endpoint, so switching between a cloud provider and a local one means
+changing the Base URL. If you alternate between them regularly, put a gateway
+such as [LiteLLM](https://github.com/BerriAI/litellm) in front of the extension
+and keep one fixed URL, with the models routed by name.
 
 ---
 
