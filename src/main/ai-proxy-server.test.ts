@@ -3,6 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   applyCorsHeaders,
   applyManagedAuthorization,
+  isForwardableRequestHeader,
   isForwardableResponseHeader,
   startAiProxyServer,
 } from "./ai-proxy-server";
@@ -80,6 +81,57 @@ describe("isForwardableResponseHeader", () => {
   });
 });
 
+describe("isForwardableRequestHeader", () => {
+  const authenticated = { applyAuth: true };
+
+  it("drops the browser context the renderer attaches to every request", () => {
+    // Ollama rejects the renderer's Origin (http://<cluster-id>.localhost:<port>)
+    // with a bodyless 403 when it is forwarded.
+    for (const header of [
+      "origin",
+      "Origin",
+      "referer",
+      "cookie",
+      "sec-fetch-mode",
+      "sec-fetch-site",
+      "sec-fetch-dest",
+      "sec-ch-ua",
+      "sec-ch-ua-platform",
+    ]) {
+      expect(isForwardableRequestHeader(header, authenticated)).toBe(false);
+    }
+  });
+
+  it("drops hop-by-hop headers and the proxy's own headers", () => {
+    for (const header of [
+      "connection",
+      "content-length",
+      "host",
+      "transfer-encoding",
+      "x-upstream-base-url",
+      "x-ai-proxy-token",
+      "x-ai-proxy-no-auth",
+    ]) {
+      expect(isForwardableRequestHeader(header, authenticated)).toBe(false);
+    }
+  });
+
+  it("forwards the headers the LLM SDKs rely on", () => {
+    for (const header of ["content-type", "accept", "user-agent", "x-stainless-lang", "x-stainless-package-version"]) {
+      expect(isForwardableRequestHeader(header, authenticated)).toBe(true);
+    }
+  });
+
+  it("keeps Authorization only on authenticated routes", () => {
+    expect(isForwardableRequestHeader("authorization", authenticated)).toBe(true);
+    // No-auth route (the public LiteLLM price list): neither the managed key nor
+    // the renderer's placeholder may travel to a third party.
+    expect(isForwardableRequestHeader("authorization", { applyAuth: false })).toBe(false);
+    expect(isForwardableRequestHeader("Authorization", { applyAuth: false })).toBe(false);
+    expect(isForwardableRequestHeader("content-type", { applyAuth: false })).toBe(true);
+  });
+});
+
 const PROXY_TOKEN = "test-proxy-token";
 
 interface ProxiedResponse {
@@ -90,7 +142,7 @@ interface ProxiedResponse {
 
 // Real HTTP call against the proxy, so the assertions cover the headers the
 // server actually puts on the wire.
-const requestThroughProxy = (port: number, path: string) =>
+const requestThroughProxy = (port: number, path: string, extraHeaders: Record<string, string> = {}) =>
   new Promise<ProxiedResponse>((resolve, reject) => {
     const clientRequest = httpRequest(
       {
@@ -101,6 +153,7 @@ const requestThroughProxy = (port: number, path: string) =>
         headers: {
           "x-ai-proxy-token": PROXY_TOKEN,
           "x-ai-proxy-no-auth": "1",
+          ...extraHeaders,
         },
       },
       (incoming) => {
@@ -161,5 +214,31 @@ describe("proxied response headers", () => {
     // Dropped: the renderer would otherwise fail with ERR_CONTENT_DECODING_FAILED.
     expect(response.headers["content-encoding"]).toBeUndefined();
     expect(response.headers["content-type"]).toBe("application/json");
+  });
+
+  it("strips the renderer's browser context from the upstream request", async () => {
+    // Ollama answers a forwarded Freelens renderer Origin with a bodyless 403.
+    const fetchMock = vi.fn(
+      async (_url: unknown, _init?: RequestInit) =>
+        new Response(upstreamBody, { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await requestThroughProxy(proxyPort, "/litellm/model_prices.json", {
+      origin: "http://c56ec0d3ac1f4e0a9d2b.localhost:52341",
+      referer: "http://c56ec0d3ac1f4e0a9d2b.localhost:52341/",
+      cookie: "session=secret",
+      "sec-fetch-mode": "cors",
+      "sec-ch-ua-platform": '"macOS"',
+      "content-type": "application/json",
+    });
+
+    const upstreamHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(upstreamHeaders.get("origin")).toBeNull();
+    expect(upstreamHeaders.get("referer")).toBeNull();
+    expect(upstreamHeaders.get("cookie")).toBeNull();
+    expect(upstreamHeaders.get("sec-fetch-mode")).toBeNull();
+    expect(upstreamHeaders.get("sec-ch-ua-platform")).toBeNull();
+    expect(upstreamHeaders.get("content-type")).toBe("application/json");
   });
 });

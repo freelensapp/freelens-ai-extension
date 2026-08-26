@@ -1,5 +1,6 @@
 import log from "loglevel";
 import * as React from "react";
+import { redactSecrets } from "../redact";
 
 const { useMemo } = React;
 
@@ -19,6 +20,8 @@ export interface Logger {
   error: (message: string, ...meta: any[]) => void;
 }
 
+const redact = (meta: any[]) => meta.map((entry) => redactSecrets(entry));
+
 const useLog = (scope = "default") => {
   const _logger = useMemo(() => {
     const _logger = log.getLogger("base");
@@ -26,12 +29,15 @@ const useLog = (scope = "default") => {
     return _logger;
   }, []);
 
+  // Redact here rather than at each call site: the objects most often logged
+  // (the agent input, the graph state) carry the user's API key, and a new log
+  // line must not be able to reintroduce the leak.
   const logger: Logger = useMemo(
     () => ({
-      debug: (msg: string, ...meta: any[]) => _logger.debug(`[${scope}] ${msg}`, ...meta),
-      info: (msg: string, ...meta: any[]) => _logger.info(`[${scope}] ${msg}`, ...meta),
-      warn: (msg: string, ...meta: any[]) => _logger.warn(`[${scope}] ${msg}`, ...meta),
-      error: (msg: string, ...meta: any[]) => _logger.error(`[${scope}] ${msg}`, ...meta),
+      debug: (msg: string, ...meta: any[]) => _logger.debug(`[${scope}] ${msg}`, ...redact(meta)),
+      info: (msg: string, ...meta: any[]) => _logger.info(`[${scope}] ${msg}`, ...redact(meta)),
+      warn: (msg: string, ...meta: any[]) => _logger.warn(`[${scope}] ${msg}`, ...redact(meta)),
+      error: (msg: string, ...meta: any[]) => _logger.error(`[${scope}] ${msg}`, ...redact(meta)),
     }),
     [scope],
   );

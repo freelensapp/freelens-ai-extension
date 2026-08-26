@@ -1,5 +1,6 @@
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { Command, Interrupt } from "@langchain/langgraph";
+import { redactSecrets } from "../../../common/utils/redact";
 import { FreeLensAgent } from "../agent/freelens-agent-system";
 import { MPCAgent } from "../agent/mcp-agent";
 import { approximateMessagesTokenCount } from "../provider/token-estimate";
@@ -159,7 +160,7 @@ export interface AgentService {
  */
 export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService => {
   const run = async function* (agentInput: object | Command, conversationId: string) {
-    console.log("Starting Agent Service run for message: ", agentInput);
+    console.log("Starting Agent Service run for message: ", redactSecrets(agentInput));
 
     let config = { thread_id: conversationId };
     // Net token usage this run has already added to the per-session counter via
@@ -218,7 +219,7 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
         });
 
         // streams LLM token by token to the UI
-        for await (const [message, _metadata] of streamResponse) {
+        for await (const [message, metadata] of streamResponse) {
           // Always emit the assistant's text content, even when the same chunk
           // also carries tool calls. Some providers (e.g. DeepSeek via
           // DsmlAwareChatOpenAI) deliver the preamble text and the tool call in
@@ -244,7 +245,10 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
               yield { reasoning };
             }
 
-            const text = mergeAiChunk(mergeState, message.id, message.content);
+            // The stream metadata identifies the graph node execution behind the
+            // chunk, which is what separates two assistant messages; the chunk id
+            // is not reliable (some gateways mint one per token).
+            const text = mergeAiChunk(mergeState, message, metadata);
             if (text.length > 0) {
               hasYieldedContent = true;
               yield text;
@@ -284,7 +288,8 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
 
         // checks the agent state for any interrupts
         const agentState = await agent.getState({ configurable: config });
-        console.log("Agent state: ", agentState);
+        // The snapshot's `values` are the graph channels, which include the key.
+        console.log("Agent state: ", redactSecrets(agentState));
         if (agentState.next) {
           console.log("Agent state next: ", agentState.next);
           for (const task of agentState.tasks) {
