@@ -3,19 +3,52 @@
  * Markdown string without gluing distinct assistant messages onto one line.
  *
  * The agent streams in `messages` mode: a single assistant message arrives as
- * many chunks that share the same `id` and must be concatenated directly (token
- * streaming). When the agent graph emits a *new* assistant message its `id`
- * changes; concatenating it straight onto the previous one produces output like
- * `...check?### Summary`, where `###` is no longer at the start of a line and
- * Markdown renders it verbatim. Inserting a blank line at the boundary keeps the
- * heading on its own block.
+ * many chunks that must be concatenated directly (token streaming). When the
+ * graph emits a *new* assistant message - typically the summary the model writes
+ * after a tool call - concatenating it straight onto the previous one produces
+ * output like `...check?### Summary`, where `###` is no longer at the start of a
+ * line and Markdown renders it verbatim. A blank line at that boundary keeps the
+ * heading in its own block.
+ *
+ * The boundary is taken from the LangGraph stream metadata (the second element
+ * of every `messages` tuple) rather than from the chunk id. LangGraph tags each
+ * chunk with the checkpoint namespace of the node execution that produced it
+ * (`<node>:<taskId>`, minted once per node run), so it changes exactly once per
+ * assistant message and is provider independent. The chunk id is not: OpenAI
+ * repeats one completion id for a whole message, but a LiteLLM gateway proxying
+ * Ollama mints a fresh id on every SSE chunk (and LangGraph only rewrites the
+ * ids it generated itself), so treating any id change as a boundary inserted a
+ * blank line between every token and rendered one word per Markdown paragraph.
+ *
+ * Without metadata the rule degrades to an id change that is additionally gated
+ * on a finish signal already seen for the previous message, so per-chunk ids
+ * still concatenate. `@langchain/openai` reports `finish_reason` in the
+ * generation info, which is not merged into the chunk on the callback path
+ * LangGraph streams through, so that fallback usually resolves to plain
+ * concatenation - the safe direction, since a missing separator is a cosmetic
+ * defect while a spurious one breaks every line of the answer.
  */
 
 import type { MessageContent } from "@langchain/core/messages";
 
 export interface StreamMergeState {
   lastMessageId: string | undefined;
+  lastBoundaryKey: string | undefined;
+  // Whether the provider already reported the current message as complete. Only
+  // consulted by the id fallback, when no LangGraph metadata is available.
+  finished: boolean;
   started: boolean;
+}
+
+/**
+ * The parts of a streamed `AIMessageChunk` this module reads. Declared
+ * structurally so the helpers stay free of any LangChain runtime dependency.
+ */
+export interface AiMessageChunk {
+  id?: string;
+  content: MessageContent;
+  additional_kwargs?: Record<string, unknown>;
+  response_metadata?: Record<string, unknown>;
 }
 
 // Content-part types that carry the model's chain-of-thought rather than the
@@ -25,6 +58,8 @@ const REASONING_PART_TYPES = new Set(["reasoning", "thinking"]);
 
 export const createStreamMergeState = (): StreamMergeState => ({
   lastMessageId: undefined,
+  lastBoundaryKey: undefined,
+  finished: false,
   started: false,
 });
 
@@ -133,26 +168,106 @@ export const extractReasoningText = (
 };
 
 /**
+ * Identify the graph node execution a streamed chunk belongs to, from the
+ * LangGraph metadata carried alongside it. The checkpoint namespace is
+ * `<node>:<taskId>` with the task id derived from the superstep, so it is minted
+ * once per node run and is the same for every token of one assistant message.
+ * Falls back to node plus step, and returns undefined when the metadata carries
+ * neither (callers then use the id fallback).
+ */
+export const streamBoundaryKey = (metadata: Record<string, unknown> | undefined): string | undefined => {
+  if (!metadata) {
+    return undefined;
+  }
+
+  const checkpointNamespace = metadata.langgraph_checkpoint_ns ?? metadata.checkpoint_ns;
+  if (typeof checkpointNamespace === "string" && checkpointNamespace.length > 0) {
+    return checkpointNamespace;
+  }
+
+  const node = metadata.langgraph_node;
+  if (typeof node !== "string" || node.length === 0) {
+    return undefined;
+  }
+
+  const step = metadata.langgraph_step;
+  return typeof step === "number" ? `${node}:${step}` : node;
+};
+
+/**
+ * Whether a chunk reports the message it belongs to as complete. Providers put
+ * the OpenAI `finish_reason` either on `response_metadata` or on
+ * `additional_kwargs`; an explicit null (sent on every intermediate chunk) means
+ * "not finished" and is ignored.
+ */
+export const hasFinishSignal = (chunk: AiMessageChunk): boolean => {
+  for (const source of [chunk.response_metadata, chunk.additional_kwargs]) {
+    const reason = source?.finish_reason;
+    if (typeof reason === "string" && reason.length > 0) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const isMessageBoundary = (
+  state: StreamMergeState,
+  chunk: AiMessageChunk,
+  boundaryKey: string | undefined,
+): boolean => {
+  if (!state.started) {
+    return false;
+  }
+
+  if (boundaryKey !== undefined && state.lastBoundaryKey !== undefined) {
+    return boundaryKey !== state.lastBoundaryKey;
+  }
+
+  // No metadata to compare: an id change alone is not evidence of a new message,
+  // because some gateways mint one id per streamed chunk. Require the previous
+  // message to have been reported as finished as well.
+  return state.finished && chunk.id !== undefined && chunk.id !== state.lastMessageId;
+};
+
+/**
  * Returns the text to yield for an incoming AI message chunk, updating `state`.
  *
- * Empty chunks yield nothing. When a new assistant message begins (a defined
- * `id` that differs from the previous one) a blank-line separator is prepended
- * so the following content starts a fresh Markdown block. Chunks with no id, or
- * the same id, are concatenated directly to preserve token streaming.
+ * Empty chunks yield nothing. When a new assistant message begins a blank-line
+ * separator is prepended so the following content starts a fresh Markdown block;
+ * every other chunk is concatenated directly to preserve token streaming. See
+ * the module doc comment for how the boundary is detected.
  *
- * `content` may be a plain string or LangChain's structured content array; it is
- * flattened to text first, so a chunk that also carries `tool_call_chunks` still
- * contributes its preamble text instead of being dropped.
+ * `metadata` is the second element of the `messages` stream tuple. `content` may
+ * be a plain string or LangChain's structured content array; it is flattened to
+ * text first, so a chunk that also carries `tool_call_chunks` still contributes
+ * its preamble text instead of being dropped.
  */
-export const mergeAiChunk = (state: StreamMergeState, id: string | undefined, content: MessageContent): string => {
-  const text = flattenContentText(content);
+export const mergeAiChunk = (
+  state: StreamMergeState,
+  chunk: AiMessageChunk,
+  metadata?: Record<string, unknown>,
+): string => {
+  // Recorded before the empty-chunk exit below: OpenAI-compatible endpoints
+  // report `finish_reason` on a final chunk whose content delta is empty.
+  if (hasFinishSignal(chunk)) {
+    state.finished = true;
+  }
+
+  const text = flattenContentText(chunk.content);
   if (text.length === 0) {
     return "";
   }
 
-  const isNewMessage = state.started && id !== undefined && id !== state.lastMessageId;
-  state.lastMessageId = id;
+  const boundaryKey = streamBoundaryKey(metadata);
+  const isNewMessage = isMessageBoundary(state, chunk, boundaryKey);
+
+  state.lastMessageId = chunk.id;
+  state.lastBoundaryKey = boundaryKey;
   state.started = true;
+  if (isNewMessage) {
+    state.finished = false;
+  }
 
   return isNewMessage ? `\n\n${text}` : text;
 };

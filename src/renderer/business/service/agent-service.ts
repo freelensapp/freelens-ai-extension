@@ -218,7 +218,7 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
         });
 
         // streams LLM token by token to the UI
-        for await (const [message, _metadata] of streamResponse) {
+        for await (const [message, metadata] of streamResponse) {
           // Always emit the assistant's text content, even when the same chunk
           // also carries tool calls. Some providers (e.g. DeepSeek via
           // DsmlAwareChatOpenAI) deliver the preamble text and the tool call in
@@ -244,7 +244,10 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
               yield { reasoning };
             }
 
-            const text = mergeAiChunk(mergeState, message.id, message.content);
+            // The stream metadata identifies the graph node execution behind the
+            // chunk, which is what separates two assistant messages; the chunk id
+            // is not reliable (some gateways mint one per token).
+            const text = mergeAiChunk(mergeState, message, metadata);
             if (text.length > 0) {
               hasYieldedContent = true;
               yield text;
