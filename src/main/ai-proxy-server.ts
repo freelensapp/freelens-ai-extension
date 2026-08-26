@@ -60,6 +60,19 @@ const hopByHopHeaders = new Set([
   "upgrade",
 ]);
 
+// The proxy's own headers: consumed here, never meaningful upstream.
+const internalProxyHeaders = new Set([UPSTREAM_BASE_URL_HEADER, PROXY_TOKEN_HEADER, NO_AUTH_HEADER]);
+
+// Headers Chromium attaches to every renderer request. They describe the calling
+// page rather than the request itself, and an upstream that enforces an origin
+// allowlist rejects them: Ollama answers the Freelens renderer's Origin
+// (http://<cluster-id>.localhost:<port>) with a bodyless 403, so a Base URL
+// pointing straight at Ollama could not work. `cookie` is dropped for the same
+// reason plus a stricter one - the proxy authenticates with the managed API key
+// alone, so no browser cookie ever needs to travel to a third-party endpoint.
+const browserContextHeaders = new Set(["cookie", "origin", "referer"]);
+const browserContextHeaderPrefixes = ["sec-ch-", "sec-fetch-"];
+
 // Response headers that stop describing the body once it has been read through
 // `fetch`: undici transparently decodes gzip/br/deflate response bodies, so what
 // we pipe back is already plain text. Forwarding the upstream `content-encoding`
@@ -76,6 +89,28 @@ export const isForwardableResponseHeader = (name: string): boolean => {
   const key = name.toLowerCase();
 
   return !hopByHopHeaders.has(key) && !decodedBodyHeaders.has(key);
+};
+
+/**
+ * Pure predicate telling whether a client REQUEST header can be forwarded to the
+ * upstream. Drops hop-by-hop headers, the proxy's own headers, and the browser
+ * context the renderer cannot suppress; `applyAuth: false` (the no-auth routes)
+ * additionally drops Authorization so neither the managed key nor the renderer's
+ * placeholder reaches a public resource. Everything else - `content-type`,
+ * `accept`, the OpenAI SDK's `x-stainless-*` - passes through untouched.
+ */
+export const isForwardableRequestHeader = (name: string, { applyAuth }: { applyAuth: boolean }): boolean => {
+  const key = name.toLowerCase();
+
+  if (hopByHopHeaders.has(key) || internalProxyHeaders.has(key) || browserContextHeaders.has(key)) {
+    return false;
+  }
+
+  if (browserContextHeaderPrefixes.some((prefix) => key.startsWith(prefix))) {
+    return false;
+  }
+
+  return applyAuth || key !== "authorization";
 };
 
 // Normalize the possibly-array Origin header to a single value.
@@ -123,16 +158,7 @@ const createUpstreamHeaders = (request: IncomingMessage, applyAuth: boolean) => 
   const headers = new Headers();
 
   for (const [key, value] of Object.entries(request.headers)) {
-    if (
-      hopByHopHeaders.has(key) ||
-      key === UPSTREAM_BASE_URL_HEADER ||
-      key === PROXY_TOKEN_HEADER ||
-      key === NO_AUTH_HEADER ||
-      // Drop the caller's Authorization on no-auth routes so neither the managed
-      // key nor the renderer's placeholder is forwarded to the public resource.
-      (!applyAuth && key === "authorization") ||
-      value === undefined
-    ) {
+    if (value === undefined || !isForwardableRequestHeader(key, { applyAuth })) {
       continue;
     }
 
