@@ -1,5 +1,6 @@
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { Command, Interrupt } from "@langchain/langgraph";
+import { redactSecrets } from "../../../common/utils/redact";
 import { FreeLensAgent } from "../agent/freelens-agent-system";
 import { MPCAgent } from "../agent/mcp-agent";
 import { approximateMessagesTokenCount } from "../provider/token-estimate";
@@ -159,7 +160,7 @@ export interface AgentService {
  */
 export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService => {
   const run = async function* (agentInput: object | Command, conversationId: string) {
-    console.log("Starting Agent Service run for message: ", agentInput);
+    console.log("Starting Agent Service run for message: ", redactSecrets(agentInput));
 
     let config = { thread_id: conversationId };
     // Net token usage this run has already added to the per-session counter via
@@ -287,7 +288,8 @@ export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService =
 
         // checks the agent state for any interrupts
         const agentState = await agent.getState({ configurable: config });
-        console.log("Agent state: ", agentState);
+        // The snapshot's `values` are the graph channels, which include the key.
+        console.log("Agent state: ", redactSecrets(agentState));
         if (agentState.next) {
           console.log("Agent state next: ", agentState.next);
           for (const task of agentState.tasks) {

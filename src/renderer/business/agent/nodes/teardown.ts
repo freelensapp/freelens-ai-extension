@@ -1,4 +1,5 @@
 import { RemoveMessage } from "@langchain/core/messages";
+import { redactSecrets } from "../../../../common/utils/redact";
 import { GraphState } from "../state/graph-state";
 
 /* this is the size of the history to keep in the state.
@@ -11,7 +12,7 @@ import { GraphState } from "../state/graph-state";
 const HISTORY_SIZE = 5;
 
 export function teardownNode(state: typeof GraphState.State) {
-  console.log("Teardown Node - called with input: ", state);
+  console.log("Teardown Node - called with input: ", redactSecrets(state));
   const messages = state.messages;
   if (messages.length > HISTORY_SIZE) {
     return {
