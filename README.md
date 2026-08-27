@@ -16,7 +16,7 @@ automate complex tasks and enhance productivity.
 
 ## Video Demo
 
-[Video Demo](https://github.com/user-attachments/assets/3463a056-ff83-4705-aa9a-cae3a5f63feb)
+[Video Demo](https://github.com/user-attachments/assets/1307de5c-5bd3-431d-a5b4-c9ea46be2e66)
 
 ---
 
@@ -32,8 +32,11 @@ automate complex tasks and enhance productivity.
 ## Index
 
 - [@freelensapp/ai-extension](#freelensappai-extension)
+  - [Video Demo](#video-demo)
   - [Index](#index)
+  - [Install](#install)
   - [How it works](#how-it-works)
+    - [What the extension cannot use](#what-the-extension-cannot-use)
   - [Available Models](#available-models)
     - [Using other providers through an OpenAI-compatible gateway](#using-other-providers-through-an-openai-compatible-gateway)
     - [DeepSeek and other "thinking" models](#deepseek-and-other-thinking-models)
@@ -42,6 +45,7 @@ automate complex tasks and enhance productivity.
     - [Key Features](#key-features)
     - [Base Agent](#base-agent)
     - [MCP Agent](#mcp-agent)
+      - [Additional Resources](#additional-resources)
 
 ---
 ## Install
