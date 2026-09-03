@@ -1,6 +1,7 @@
 import { ChatPromptTemplate } from "@langchain/core/prompts";
+import { PreferencesStore } from "../../../common/store";
 import useLog from "../../../common/utils/logger/logger-service";
-import { AppContextType } from "../../context/application-context";
+import { buildAgentReadinessInput, isAgentConfigured } from "../provider/chat-readiness";
 import { useModelProvider } from "../provider/model-provider";
 import { ANALYSIS_PROMPT_TEMPLATE } from "../provider/prompt-template-provider";
 
@@ -36,7 +37,7 @@ export interface AiAnalysisService {
   analyze: (message: string) => AsyncGenerator<string, void, unknown>;
 }
 
-export const useAiAnalysisService = (applicationStatusStore: AppContextType): AiAnalysisService => {
+export const useAiAnalysisService = (): AiAnalysisService => {
   const { log } = useLog("useAiAnalysisService");
 
   const analyze = async function* (message: string) {
@@ -46,8 +47,11 @@ export const useAiAnalysisService = (applicationStatusStore: AppContextType): Ai
       throw new Error("No message provided for analysis.");
     }
 
-    if (!applicationStatusStore.apiKey) {
-      throw new Error("API key is required. Use the settings to register it.");
+    // Same readiness check as the chat input, so a key provided only through the
+    // OPENAI_API_KEY environment variable works here too.
+    const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+    if (!isAgentConfigured(buildAgentReadinessInput(preferencesStore))) {
+      throw new Error("The agent is not configured. Use the settings to add a model and register the API key.");
     }
 
     const model = useModelProvider().getModel();

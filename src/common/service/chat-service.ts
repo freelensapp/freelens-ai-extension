@@ -33,7 +33,7 @@ export interface ApprovalInterrupt {
 const useChatService = () => {
   const { log } = useLog("useChatService");
   const applicationStatusStore = useApplicationStatusStore();
-  const aiAnalysisService: AiAnalysisService = useAiAnalysisService(applicationStatusStore);
+  const aiAnalysisService: AiAnalysisService = useAiAnalysisService();
 
   const getReadableErrorMessage = (error: unknown) => {
     if (!(error instanceof Error)) {
