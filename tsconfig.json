@@ -9,7 +9,12 @@
     "types": ["vite/client", "electron-vite/node"],
     "paths": {
       "@vitejs/plugin-react": ["./node_modules/@vitejs/plugin-react/dist/index.d.ts"],
-      "@langchain/langgraph/prebuilt": ["./node_modules/@langchain/langgraph/dist/prebuilt/index.d.ts"]
+      "@langchain/langgraph/prebuilt": ["./node_modules/@langchain/langgraph/dist/prebuilt/index.d.ts"],
+      "@strands-agents/sdk/models/openai": ["./node_modules/@strands-agents/sdk/dist/src/models/openai/index.d.ts"],
+      "@strands-agents/sdk/multiagent": ["./node_modules/@strands-agents/sdk/dist/src/multiagent/index.d.ts"],
+      "@strands-agents/sdk/vended-interventions/hitl": [
+        "./node_modules/@strands-agents/sdk/dist/src/vended-interventions/hitl/index.d.ts"
+      ]
     }
   }
 }

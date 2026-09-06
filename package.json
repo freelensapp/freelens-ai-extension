@@ -67,6 +67,7 @@
     "@langchain/langgraph": "^1.4.7",
     "@langchain/mcp-adapters": "^1.1.3",
     "@langchain/openai": "^1.5.3",
+    "@strands-agents/sdk": "1.16.0",
     "@types/node": "~24.12.4",
     "@types/react": "^17.0.93",
     "@vitejs/plugin-react": "^6.0.3",
@@ -75,6 +76,7 @@
     "lucide-react": "^1.21.0",
     "mobx": "6.13.7",
     "mobx-react": "7.6.0",
+    "openai": "^6.49.0",
     "react": "17.0.2",
     "react-markdown": "^6.0.3",
     "react-select": "5.10.2",
@@ -85,7 +87,7 @@
     "vite-plugin-sass-dts": "^1.3.37",
     "vitest": "^4.1.9",
     "yaml": "^2.9.0",
-    "zod": "^3.25.76"
+    "zod": "^4.4.3"
   },
   "keywords": [
     "ai",
