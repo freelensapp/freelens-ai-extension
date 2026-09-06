@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AIProviders, type CustomModel } from "./ai-models";
-import { isAgentConfigured } from "./chat-readiness";
+import { buildAgentReadinessInput, isAgentConfigured } from "./chat-readiness";
 
 const openAiModels: CustomModel[] = [
   { provider: AIProviders.OPEN_AI, name: "gpt-5.5" },
@@ -33,5 +33,31 @@ describe("isAgentConfigured", () => {
   it("falls back to the first model's provider when the selection does not match", () => {
     expect(isAgentConfigured({ models: openAiModels, selectedModel: "unknown", openAIKey: "" })).toBe(false);
     expect(isAgentConfigured({ models: openAiModels, selectedModel: "unknown", openAIKey: "sk-test" })).toBe(true);
+  });
+});
+
+describe("buildAgentReadinessInput", () => {
+  const prefsWithoutStoredKey = { models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "" };
+
+  it("picks up the key from the environment", () => {
+    expect(isAgentConfigured(buildAgentReadinessInput(prefsWithoutStoredKey, { OPENAI_API_KEY: "sk-env" }))).toBe(true);
+  });
+
+  // Passing `undefined` would fall back to the real `process.env`, so an empty
+  // object stands in for "no environment key set".
+  it("is not configured without an environment key and without a stored key", () => {
+    expect(isAgentConfigured(buildAgentReadinessInput(prefsWithoutStoredKey, {}))).toBe(false);
+  });
+
+  it("treats a whitespace-only environment key as unset", () => {
+    expect(isAgentConfigured(buildAgentReadinessInput(prefsWithoutStoredKey, { OPENAI_API_KEY: "   " }))).toBe(false);
+  });
+
+  it("keeps working with the stored key alone", () => {
+    expect(
+      isAgentConfigured(
+        buildAgentReadinessInput({ models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "sk-test" }, {}),
+      ),
+    ).toBe(true);
   });
 });
