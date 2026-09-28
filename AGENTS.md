@@ -132,15 +132,49 @@ store; there is no hardcoded model enum. Key files live in
 - `model-list.ts` — pure helpers for the editable list (trim, dedupe, remove,
   `resolveSelectedModel` selection fallback). No host/MobX deps so they are
   unit-tested directly.
-- `openai-fields.ts` — pure `buildOpenAIChatFields` builder (proxy routing
-  header + reasoning-effort/temperature heuristic), unit-tested in isolation.
+- `openai-fields.ts` — the proxy routing header names.
+- `strands-openai-model.ts` — pure `buildStrandsOpenAIModelOptions` builder
+  (proxy routing headers + reasoning-effort/temperature heuristic) and the
+  Strands `OpenAIModel` factory, which taps the `reasoning_content` deltas the
+  Strands chat adapter drops. Unit-tested in isolation.
 - `model-provider.ts` — `getModel()` resolves the selected model's provider and
-  builds the LangChain client; throws when no model is selected.
+  builds the Strands model; throws when no model is selected.
 
 A custom base URL is routed to the local proxy (`src/main/ai-proxy-server.ts`)
 via the `x-upstream-base-url` header rather than being passed straight to the
 client. When changing the heuristics or list logic, prefer extending the pure
 helpers and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`).
+
+## Agent (Strands Agents SDK)
+
+The chat runs a **single** agent loop on `@strands-agents/sdk` (the TypeScript
+SDK of the `strands-agents/harness-sdk` repository; not the separate
+`@strands-agents/harness` package). There is no multi-agent graph: one agent
+owns every tool. It runs in the renderer, so the tools keep using the host
+`Renderer.K8sApi` stores. Key files live in `src/renderer/business/agent/`:
+
+- `freelens-agent.ts` — pure `createFreelensAgent` factory (model, tools and
+  storage injected), MCP approval hook, and the resume/abandon/reset helpers.
+  Exercised end to end with a scripted model in `freelens-agent.test.ts`.
+- `freelens-agent-provider.ts` — store-aware provider: caches the agent per
+  (cluster, conversation, MCP configuration) and the MCP connections.
+- `tools/tools.ts` — the Kubernetes tools as Strands `tool()` definitions (zod
+  v4 schemas); implementations live in `tools/kubernetes-resource.ts`.
+- `tools/approval.ts` — the human-in-the-loop gate. Write tools call
+  `requestApproval(context, ...)`, which raises `context.interrupt()`: the run
+  stops with the approval payload, and when resumed the tool runs again from
+  the start and `interrupt()` returns the answer (`"yes"` approves). Tools run
+  sequentially so approvals are asked one at a time.
+- `session-storage.ts` — Strands `Storage` over the host-persisted
+  `AgentStateStore`; the agent's `SessionManager` saves the conversation and
+  pending approvals there, keyed by a cluster-qualified session id.
+- `mcp-servers.ts` — parses the MCP preference and connects Strands
+  `McpClient`s; their tools are added to the same agent and every call asks for
+  approval.
+
+`src/renderer/business/service/strands-stream.ts` maps the agent stream events
+to the UI chunks (text, reasoning, token usage, context size, approvals);
+`agent-service.ts` runs the agent with them.
 
 ## Code Style
 

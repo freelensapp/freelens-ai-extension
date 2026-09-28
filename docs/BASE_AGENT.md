@@ -1,9 +1,10 @@
 # Base Agent for Freelens-AI 📡
 
-The Base Agent for Freelens-AI is a multi-agent AI workflow designed to assist
-users with Kubernetes-related tasks. It intelligently responds to user queries
-and interacts with your cluster using a set of built-in tools — all with
-optional human approval.
+The Base Agent for Freelens-AI is a single AI agent, built on the
+[Strands Agents SDK](https://github.com/strands-agents/harness-sdk), designed to
+assist users with Kubernetes-related tasks. It responds to user queries and
+interacts with your cluster using a set of built-in tools (plus the tools of any
+configured MCP servers), with human approval for every change.
 
 ## Features 🛠️
 

@@ -60,9 +60,10 @@ Use a following URL in the browser:
 
 Freelens AI is a **client of a large language model API**. It does not run a
 model itself; instead it sends your prompts and the cluster context to a model
-provider and renders the response. The agent logic (the LangGraph supervisor,
-the cluster tools, structured output, and human-in-the-loop approvals) runs
-inside the extension, and only the model inference is delegated to the provider.
+provider and renders the response. The agent logic (a single
+[Strands Agents](https://github.com/strands-agents/harness-sdk) agent loop, the
+cluster tools, and human-in-the-loop approvals) runs inside the extension, and
+only the model inference is delegated to the provider.
 
 - **Talks the OpenAI Chat Completions API.** The extension is built on the
   OpenAI client and the OpenAI-compatible wire format. It works with OpenAI
