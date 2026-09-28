@@ -119,21 +119,23 @@ Other dependencies ARE bundled into the extension output.
 
 ## AI Model & Provider System
 
-The list of chat models is user-editable and persisted in the preferences
-store; there is no hardcoded model enum. Key files live in
-`src/renderer/business/provider/`:
+Models are configured through a user-editable **provider list** persisted in
+the preferences store (like the OpenCode `provider` config); there is no
+hardcoded model enum. Key files live in `src/renderer/business/provider/`:
 
-- `ai-models.tsx` — `AIProviders` enum (`OPEN_AI` for any OpenAI-compatible
-  endpoint, `ANTHROPIC` for any Anthropic-compatible endpoint), the
-  `CustomModel` type (`{ provider, name }`), the seed list `DEFAULT_MODELS`
-  (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`), the default base URLs, and
-  `endpointBaseUrl`.
+- `ai-models.tsx` — `AIProviders` enum (the provider's API: `OPEN_AI` for any
+  OpenAI-compatible endpoint, `ANTHROPIC` for any Anthropic-compatible
+  endpoint), the `ProviderConfig` type (`{ id, name, type, baseUrl, apiKey,
+  models }`), the default base URLs and `createDefaultProviders` (one OpenAI
+  provider with `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`).
 - `model-capabilities.ts` — name heuristics (regex) deciding model behavior.
   Add new model families here rather than hardcoding ids. Reasoning models
   (`o<n>`, `gpt-5.x`) take a reasoning effort and reject `temperature`.
-- `model-list.ts` — pure helpers for the editable list (trim, dedupe, remove,
-  `resolveSelectedModel` selection fallback). No host/MobX deps so they are
-  unit-tested directly.
+- `provider-list.ts` — pure helpers for the provider list (add/edit/remove
+  providers and models, `resolveSelection` fallback, `modelKey`, the
+  `resolveProviderApiKey` rule shared by the proxy and the readiness check, and
+  `migrateLegacyProviders` for preferences saved before the provider list). No
+  host/MobX deps so they are unit-tested directly.
 - `openai-fields.ts` — the proxy routing header names.
 - `strands-openai-model.ts` — pure `buildStrandsOpenAIModelOptions` builder
   (proxy routing headers + reasoning-effort/temperature heuristic) and the
@@ -142,12 +144,14 @@ store; there is no hardcoded model enum. Key files live in
 - `strands-anthropic-model.ts` — pure `buildStrandsAnthropicModelOptions`
   builder and the Strands `AnthropicModel` factory (explicit `max_tokens`, no
   forced temperature). Unit-tested in isolation.
-- `model-provider.ts` — `getModel()` resolves the selected model's provider and
-  builds the Strands model; throws when no model is selected.
+- `model-provider.ts` — `getModel()` resolves the selected provider
+  (`selectedProviderId` + `selectedModel`) and builds the Strands model; throws
+  when no model is selected.
 
 A custom base URL is routed to the local proxy (`src/main/ai-proxy-server.ts`)
 via the `x-upstream-base-url` header rather than being passed straight to the
-client. OpenAI-compatible requests use the `/openai` prefix and get the key as
+client, and the provider id travels in `x-ai-provider-id`: the main process
+looks up that provider's key. OpenAI-compatible requests use the `/openai` prefix and get the key as
 `Authorization: Bearer`; Anthropic-compatible requests use the `/anthropic`
 prefix and get it as `x-api-key`. When changing the heuristics or list logic, prefer extending the pure
 helpers and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`).

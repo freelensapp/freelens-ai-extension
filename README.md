@@ -104,31 +104,40 @@ Anthropic-compatible endpoint and a standard API key (directly or through a
 gateway).
 
 ## Available Models
-The list of models is fully editable in the extension preferences. You can add
-or remove any model offered by the configured provider; the model name you enter
-is sent directly to the provider API. When adding a model you pick its
-provider:
+Models are configured through **providers** in the extension preferences,
+similar to the `provider` section of the OpenCode config. You can add as many
+providers as you want; each one has its own:
 
-- **OpenAI-compatible**: sent to the OpenAI-compatible endpoint (OpenAI Chat
-  Completions API).
-- **Anthropic-compatible**: sent to the Anthropic-compatible endpoint (Anthropic
-  Messages API), for example `claude-sonnet-4-5`.
+- **Name**, shown next to the model in the chat dropdown.
+- **API**: **OpenAI-compatible** (OpenAI Chat Completions API) or
+  **Anthropic-compatible** (Anthropic Messages API).
+- **Base URL** of the endpoint.
+- **API key**: the key itself, `{env:NAME}` to read it from the `NAME`
+  environment variable, or empty to use `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`
+  depending on the API.
+- **Models**: the model names sent to that endpoint.
 
-The list comes seeded with these OpenAI models, which you can change at any time:
+The chat dropdown offers every model of every provider. Two providers can offer a
+model with the same name; each is sent to its own endpoint with its own key.
+
+A fresh install comes with one OpenAI provider seeded with these models, which
+you can change at any time:
 
 - ***gpt-5.5***
 - ***gpt-5.4***
 - ***gpt-5.4-mini***
+
+Preferences saved by older versions are converted on the first start: the old
+OpenAI-compatible and Anthropic-compatible sections become one provider each,
+with the same key, base URL and models.
 
 Model-specific behavior (for example, sending a reasoning effort instead of a
 temperature) is decided by heuristics on the model name, so adding a new model
 needs no code changes.
 
 ### Anthropic-compatible endpoints
-Set the API key (or the `ANTHROPIC_API_KEY` environment variable) in the
-**Anthropic-compatible endpoint** section of the preferences, then add models
-with the **Anthropic-compatible** provider. The **Base URL** defaults to
-`https://api.anthropic.com`; point it at any other service implementing the
+Add a provider with the **Anthropic-compatible** API. The **Base URL** defaults
+to `https://api.anthropic.com`; point it at any other service implementing the
 Anthropic Messages API (for example a gateway or a provider's Anthropic-compatible
 endpoint). Enter it **without** the `/v1` suffix: the client appends
 `/v1/messages` itself. The key is sent in the `x-api-key` header.
@@ -140,7 +149,7 @@ API. That means you can put a gateway such as
 reach providers like Google/Gemini, DeepSeek, Qwen, and many others through a
 single OpenAI-compatible API.
 
-To do this, set the **Base URL** in the OpenAI-compatible section of the preferences to your
+To do this, add an OpenAI-compatible provider whose **Base URL** points to your
 gateway (for example `http://localhost:4000/v1`) and use the model names exposed
 by that gateway. Requests are routed through the extension's local proxy, so the
 custom base URL works without any code changes.
@@ -149,7 +158,7 @@ custom base URL works without any code changes.
 Some providers (for example DeepSeek via LiteLLM) expose a thinking mode that
 rejects some tool-call requests. If you hit an error such as `Thinking mode does
 not support this tool_choice`, enable **Disable thinking mode** in the
-preferences; it is sent to both endpoints.
+preferences; it is sent to every provider.
 
 DeepSeek models must be served by an endpoint that parses their native tool
 calls: markup leaked into the answer text is no longer recovered. See
@@ -159,14 +168,14 @@ add the recovery back.
 ### OpenCode
 [OpenCode Go](https://opencode.ai/docs/go/) serves some models through an
 OpenAI-compatible API and others through an Anthropic-compatible API, with the
-same key:
+same key. Add two providers:
 
-- OpenAI-compatible **Base URL**: `https://opencode.ai/zen/go/v1` (models such
-  as `glm-5.1`, `kimi-k2.6`).
-- Anthropic-compatible **Base URL**: `https://opencode.ai/zen/go`, without
-  `/v1` (models such as `minimax-m2.7`).
-- Set the OpenCode key as the **API key in both sections**; each endpoint uses
-  only its own key.
+- **OpenCode Go (OpenAI)**: OpenAI-compatible, **Base URL**
+  `https://opencode.ai/zen/go/v1` (models such as `glm-5.1`, `kimi-k2.6`).
+- **OpenCode Go (Anthropic)**: Anthropic-compatible, **Base URL**
+  `https://opencode.ai/zen/go`, without `/v1` (models such as `minimax-m2.7`).
+- Set the OpenCode key on **both providers**, for example as
+  `{env:OPENCODE_API_KEY}`.
 
 The [OpenCode console inference API](https://opencode.ai/v2/docs/console/inference/)
 works the same way with `https://opencode.ai/inference/openai/v1` and
@@ -179,12 +188,12 @@ no gateway is needed to reach a model running on your own machine.
 
 To connect it:
 
-- Set the **Base URL** in the OpenAI-compatible section of the preferences to
+- Add an OpenAI-compatible provider with the **Base URL**
   `http://localhost:11434/v1`.
 - Set any non-empty **API key**. Ollama ignores its value, but a key must be set
   for the models to appear in the chat.
 - Add the exact model name, **including its tag** (for example `llama3.2:3b`, as
-  shown by `ollama list`), to the editable model list.
+  shown by `ollama list`), to the provider's models.
 
 The model must support **tool calling**: the agent drives every cluster
 operation through tools, so a model without tool support cannot be used. Models
@@ -198,25 +207,20 @@ On networks with TLS inspection, the first `ollama pull` may need the corporate
 root certificate to be trusted by Ollama's environment.
 
 ### Connecting a model
-Open the preferences page and, in the OpenAI-compatible or Anthropic-compatible
-section, set your API key and (optionally) a custom base URL. You can also
-provide the keys through environment variables instead:
+Open the preferences page, add a provider (or edit the default one), set its API
+key and (optionally) a custom base URL, and add its models. Instead of typing the
+key you can reference an environment variable with `{env:NAME}`, or leave the
+key empty to use one of these variables:
 
-- OPENAI_API_KEY = ...
-- ANTHROPIC_API_KEY = ...
+- OPENAI_API_KEY = ... (OpenAI-compatible providers)
+- ANTHROPIC_API_KEY = ... (Anthropic-compatible providers)
 
-An environment variable takes precedence over the key set in the preferences.
+A key set on the provider takes precedence over these variables, so each
+provider can use its own key.
 
-A model is only offered in the chat dropdown once its provider has a key set; if
-no model is available, the chat shows a button that takes you to the preferences
-page.
-
-Each provider has a single **Base URL**: every model of that provider is
-requested from that endpoint, so switching between two OpenAI-compatible
-services (for example a cloud provider and a local one) means changing the Base
-URL. If you alternate between them regularly, put a gateway
-such as [LiteLLM](https://github.com/BerriAI/litellm) in front of the extension
-and keep one fixed URL, with the models routed by name.
+A model is only offered in the chat once its provider has a key; if the
+selected model has none, the chat shows a button that takes you to the
+preferences page.
 
 ---
 
