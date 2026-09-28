@@ -6,7 +6,7 @@ This guide will walk you through setting up an MCP (Model Control Protocol) agen
 
 - You have Freelens-AI installed.
 - You have Node.js and npx available in your system.
-- You have an OpenAI API Key, at the moment it only works with its models
+- You have an API key for an OpenAI-compatible or Anthropic-compatible endpoint (see the README)
 
 ## Configuration
 

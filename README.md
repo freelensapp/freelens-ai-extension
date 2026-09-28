@@ -65,10 +65,10 @@ provider and renders the response. The agent logic (a single
 cluster tools, and human-in-the-loop approvals) runs inside the extension, and
 only the model inference is delegated to the provider.
 
-- **Talks the OpenAI Chat Completions API.** The extension is built on the
-  OpenAI client and the OpenAI-compatible wire format. It works with OpenAI
-  directly, and with any endpoint that implements the same API — either natively
-  or through an OpenAI-compatible gateway such as
+- **Talks the OpenAI Chat Completions API and the Anthropic Messages API.** Each
+  model is sent either to an OpenAI-compatible or to an Anthropic-compatible
+  endpoint. Both work with the vendor's own API and with any other service that
+  implements the same API, natively or through a gateway such as
   [LiteLLM](https://github.com/BerriAI/litellm) (see [Using other providers
   through an OpenAI-compatible
   gateway](#using-other-providers-through-an-openai-compatible-gateway)).
@@ -77,8 +77,9 @@ only the model inference is delegated to the provider.
   subscription or hosted backend; usage cost depends entirely on the model and
   provider you configure.
 - **Requires standard API access.** Because the extension drives the model
-  through the OpenAI-compatible API and its own tool/structured-output protocol,
-  it can only use providers that expose such an API with a standard API key.
+  through the OpenAI-compatible or Anthropic-compatible API and its own tool
+  protocol, it can only use providers that expose such an API with a standard
+  API key.
 
 ### What the extension cannot use
 
@@ -94,17 +95,24 @@ These providers are **not compatible** with this extension:
   pay-as-you-go API key, and reusing those tokens in a third-party app is
   outside the provider's terms.
 - They expose their own **agent loop, tools, and SDK** rather than the
-  OpenAI-compatible Chat Completions API and tool protocol the extension relies
-  on, so they cannot be plugged in behind the existing provider/proxy.
+  OpenAI-compatible or Anthropic-compatible API the extension relies on, so
+  they cannot be plugged in behind the existing provider/proxy.
 
 If you want to use such a provider, run it through its own dedicated client. To
-use it with Freelens AI you would need an OpenAI-compatible endpoint and a
-standard API key (directly or through a gateway).
+use it with Freelens AI you would need an OpenAI-compatible or
+Anthropic-compatible endpoint and a standard API key (directly or through a
+gateway).
 
 ## Available Models
 The list of models is fully editable in the extension preferences. You can add
 or remove any model offered by the configured provider; the model name you enter
-is sent directly to the provider API.
+is sent directly to the provider API. When adding a model you pick its
+provider:
+
+- **OpenAI-compatible**: sent to the OpenAI-compatible endpoint (OpenAI Chat
+  Completions API).
+- **Anthropic-compatible**: sent to the Anthropic-compatible endpoint (Anthropic
+  Messages API), for example `claude-sonnet-4-5`.
 
 The list comes seeded with these OpenAI models, which you can change at any time:
 
@@ -116,37 +124,35 @@ Model-specific behavior (for example, sending a reasoning effort instead of a
 temperature) is decided by heuristics on the model name, so adding a new model
 needs no code changes.
 
-> Currently the **OpenAI** provider is the only one enabled. Google/Gemini
-> support is temporarily disabled and will return after further refactoring.
+### Anthropic-compatible endpoints
+Set the API key (or the `ANTHROPIC_API_KEY` environment variable) in the
+**Anthropic-compatible endpoint** section of the preferences, then add models
+with the **Anthropic-compatible** provider. The **Base URL** defaults to
+`https://api.anthropic.com`; point it at any other service implementing the
+Anthropic Messages API (for example a gateway or a provider's Anthropic-compatible
+endpoint). Enter it **without** the `/v1` suffix: the client appends
+`/v1/messages` itself. The key is sent in the `x-api-key` header.
 
 ### Using other providers through an OpenAI-compatible gateway
-Although OpenAI is the only built-in provider, the extension talks to any
-endpoint that implements the OpenAI Chat Completions API. That means you can put
-a gateway such as [LiteLLM](https://github.com/BerriAI/litellm) in front of the
-extension and reach providers like Anthropic, Google/Gemini, DeepSeek, Qwen, and
-many others through a single OpenAI-compatible API.
+The extension talks to any endpoint that implements the OpenAI Chat Completions
+API. That means you can put a gateway such as
+[LiteLLM](https://github.com/BerriAI/litellm) in front of the extension and
+reach providers like Google/Gemini, DeepSeek, Qwen, and many others through a
+single OpenAI-compatible API.
 
-To do this, set the **Base URL** in the OpenAI section of the preferences to your
+To do this, set the **Base URL** in the OpenAI-compatible section of the preferences to your
 gateway (for example `http://localhost:4000/v1`) and use the model names exposed
 by that gateway. Requests are routed through the extension's local proxy, so the
 custom base URL works without any code changes.
 
 ### DeepSeek and other "thinking" models
-Some models reached through a gateway need extra handling, which the extension
-applies automatically based on the model name:
+Some providers (for example DeepSeek via LiteLLM) expose a thinking mode that
+rejects some tool-call requests. If you hit an error such as `Thinking mode does
+not support this tool_choice`, enable **Disable thinking mode** in the
+preferences; it is sent to both endpoints.
 
-- **DSML tool-call markup**: DeepSeek models emit native tool calls in their
-  "DSML" markup. OpenAI-compatible endpoints without a server-side tool-call
-  parser leak this markup into the assistant text instead of returning
-  structured tool calls. For these models the extension uses a client that
-  recovers the tool calls from the markup so tools still run.
-- **Forced tool choice**: DeepSeek and Qwen reasoning models reject a *forced*
-  `tool_choice` while thinking mode is on; the extension requests
-  `tool_choice: "auto"` for them instead.
-- **Disable thinking mode**: some providers (for example DeepSeek via LiteLLM)
-  expose a thinking mode that conflicts with the forced tool selection used for
-  structured output. If you hit a `Thinking mode does not support this
-  tool_choice` error, enable **Disable thinking mode** in the OpenAI preferences.
+DeepSeek models must be served by an endpoint that parses their native tool
+calls: markup leaked into the answer text is no longer recovered.
 
 ### Ollama
 [Ollama](https://ollama.com) exposes a natively OpenAI-compatible endpoint, so
@@ -154,7 +160,7 @@ no gateway is needed to reach a model running on your own machine.
 
 To connect it:
 
-- Set the **Base URL** in the OpenAI section of the preferences to
+- Set the **Base URL** in the OpenAI-compatible section of the preferences to
   `http://localhost:11434/v1`.
 - Set any non-empty **API key**. Ollama ignores its value, but a key must be set
   for the models to appear in the chat.
@@ -173,19 +179,21 @@ On networks with TLS inspection, the first `ollama pull` may need the corporate
 root certificate to be trusted by Ollama's environment.
 
 ### Connecting a model
-Open the preferences page and, in the OpenAI section, set your API key and
-(optionally) a custom base URL. You can also provide the key through an
-environment variable instead:
+Open the preferences page and, in the OpenAI-compatible or Anthropic-compatible
+section, set your API key and (optionally) a custom base URL. You can also
+provide the keys through environment variables instead:
 
 - OPENAI_API_KEY = ...
+- ANTHROPIC_API_KEY = ...
 
 A model is only offered in the chat dropdown once its provider has a key set; if
 no model is available, the chat shows a button that takes you to the preferences
 page.
 
-The **Base URL** is a single global setting: every configured model is requested
-from that endpoint, so switching between a cloud provider and a local one means
-changing the Base URL. If you alternate between them regularly, put a gateway
+Each provider has a single **Base URL**: every model of that provider is
+requested from that endpoint, so switching between two OpenAI-compatible
+services (for example a cloud provider and a local one) means changing the Base
+URL. If you alternate between them regularly, put a gateway
 such as [LiteLLM](https://github.com/BerriAI/litellm) in front of the extension
 and keep one fixed URL, with the models routed by name.
 
@@ -245,8 +253,9 @@ context of the conversation.
 - **Editable model list** seeded with OpenAI models, with model-specific
   behavior chosen by name heuristics (see [Available
   Models](#available-models)).
-- **OpenAI-compatible gateways** for reaching other providers, with built-in
-  handling for DeepSeek and other "thinking" models.
+- **OpenAI-compatible and Anthropic-compatible endpoints**, each with its own
+  API key and base URL, so any gateway or provider implementing either API can
+  be used.
 - **Custom agent rules** can be added from the preferences to steer the agent.
 
 **Security**

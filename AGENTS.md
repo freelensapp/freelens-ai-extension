@@ -123,9 +123,11 @@ The list of chat models is user-editable and persisted in the preferences
 store; there is no hardcoded model enum. Key files live in
 `src/renderer/business/provider/`:
 
-- `ai-models.tsx` — `AIProviders` enum (only `OPEN_AI` active), the
+- `ai-models.tsx` — `AIProviders` enum (`OPEN_AI` for any OpenAI-compatible
+  endpoint, `ANTHROPIC` for any Anthropic-compatible endpoint), the
   `CustomModel` type (`{ provider, name }`), the seed list `DEFAULT_MODELS`
-  (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`), and `DEFAULT_OPENAI_BASE_URL`.
+  (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`), the default base URLs, and
+  `endpointBaseUrl`.
 - `model-capabilities.ts` — name heuristics (regex) deciding model behavior.
   Add new model families here rather than hardcoding ids. Reasoning models
   (`o<n>`, `gpt-5.x`) take a reasoning effort and reject `temperature`.
@@ -137,12 +139,17 @@ store; there is no hardcoded model enum. Key files live in
   (proxy routing headers + reasoning-effort/temperature heuristic) and the
   Strands `OpenAIModel` factory, which taps the `reasoning_content` deltas the
   Strands chat adapter drops. Unit-tested in isolation.
+- `strands-anthropic-model.ts` — pure `buildStrandsAnthropicModelOptions`
+  builder and the Strands `AnthropicModel` factory (explicit `max_tokens`, no
+  forced temperature). Unit-tested in isolation.
 - `model-provider.ts` — `getModel()` resolves the selected model's provider and
   builds the Strands model; throws when no model is selected.
 
 A custom base URL is routed to the local proxy (`src/main/ai-proxy-server.ts`)
 via the `x-upstream-base-url` header rather than being passed straight to the
-client. When changing the heuristics or list logic, prefer extending the pure
+client. OpenAI-compatible requests use the `/openai` prefix and get the key as
+`Authorization: Bearer`; Anthropic-compatible requests use the `/anthropic`
+prefix and get it as `x-api-key`. When changing the heuristics or list logic, prefer extending the pure
 helpers and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`).
 
 ## Agent (Strands Agents SDK)
