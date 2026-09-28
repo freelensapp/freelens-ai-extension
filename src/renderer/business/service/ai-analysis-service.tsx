@@ -1,4 +1,4 @@
-import { ChatPromptTemplate } from "@langchain/core/prompts";
+import { Agent } from "@strands-agents/sdk";
 import { PreferencesStore } from "../../../common/store";
 import useLog from "../../../common/utils/logger/logger-service";
 import { buildAgentReadinessInput, isAgentConfigured } from "../provider/chat-readiness";
@@ -54,23 +54,25 @@ export const useAiAnalysisService = (): AiAnalysisService => {
       throw new Error("The agent is not configured. Use the settings to add a model and register the API key.");
     }
 
-    const model = useModelProvider().getModel();
-    if (!model) {
-      return;
-    }
-
-    const chain = ChatPromptTemplate.fromTemplate(ANALYSIS_PROMPT_TEMPLATE).pipe(model);
+    const prompt = ANALYSIS_PROMPT_TEMPLATE.replace("{context}", message);
 
     for (let attempt = 1; attempt <= MAX_GEMINI_STREAM_RETRIES + 1; attempt++) {
       let hasYieldedContent = false;
 
       try {
-        const streamResponse = await chain.stream({ context: message });
+        // A throwaway, tool-less agent per attempt: a single streamed model call
+        // with no history, so a retry never re-sends a failed attempt.
+        const analyzer = new Agent({ model: useModelProvider().getModel(), printer: false, retryStrategy: null });
 
-        for await (const chunk of streamResponse) {
-          if (chunk?.content) {
+        for await (const event of analyzer.stream(prompt)) {
+          if (
+            event.type === "modelStreamUpdateEvent" &&
+            event.event.type === "modelContentBlockDeltaEvent" &&
+            event.event.delta.type === "textDelta" &&
+            event.event.delta.text.length > 0
+          ) {
             hasYieldedContent = true;
-            yield String(chunk.content);
+            yield event.event.delta.text;
           }
         }
 

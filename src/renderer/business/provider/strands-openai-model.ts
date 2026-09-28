@@ -4,11 +4,11 @@
 // heuristic) can be unit-tested without the MobX store or instantiating a real
 // client.
 //
-// This is the Strands equivalent of `buildOpenAIChatFields`: it targets the
-// same local AI proxy (baseURL + upstream/token headers) but shapes the config
-// for `@strands-agents/sdk/models/openai` instead of `@langchain/openai`.
+// Every request targets the local AI proxy (baseURL + upstream/token headers),
+// which injects the real API key in the main process.
 
 import { OpenAIModel } from "@strands-agents/sdk/models/openai";
+import OpenAI from "openai";
 import { isReasoningModel } from "./model-capabilities";
 import { PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
 
@@ -27,9 +27,13 @@ export interface StrandsOpenAIModelOptions {
   proxyToken?: string | null;
   // Optional reasoning effort; applied only to reasoning-capable models.
   reasoningEffort?: string;
-  // When true, request the upstream to disable its "thinking" mode. Mirrors the
-  // LangChain path; forwarded verbatim via `params` so it reaches the request body.
+  // When true, request the upstream to disable its "thinking" mode (provider
+  // specific); forwarded verbatim via `params` so it reaches the request body.
   disableThinking?: boolean;
+  // Receives the model's reasoning ("chain-of-thought") deltas. The Strands chat
+  // adapter drops the `reasoning_content` field OpenAI-compatible gateways
+  // stream next to the answer, so it is tapped from the raw chunks instead.
+  onReasoning?: (text: string) => void;
 }
 
 // Builds the discriminated `OpenAIModelOptions` for the chat completions API.
@@ -42,7 +46,7 @@ export const buildStrandsOpenAIModelOptions = ({
   proxyToken,
   reasoningEffort,
   disableThinking,
-}: StrandsOpenAIModelOptions): OpenAIModelOptions => {
+}: Omit<StrandsOpenAIModelOptions, "onReasoning">): OpenAIModelOptions => {
   // Provider-managed request fields that are not covered by dedicated config
   // properties are forwarded through `params` verbatim.
   const params: Record<string, unknown> = {};
@@ -55,6 +59,10 @@ export const buildStrandsOpenAIModelOptions = ({
       // The proxy strips the "/openai" prefix and forwards to the upstream
       // advertised via UPSTREAM_BASE_URL_HEADER.
       baseURL: `${proxyBaseUrl}/openai`,
+      // The agent runs in the Electron renderer, which the OpenAI SDK detects as
+      // a browser. The key sent from here is a placeholder: the local proxy
+      // injects the real one in the main process.
+      dangerouslyAllowBrowser: true,
       defaultHeaders: {
         [UPSTREAM_BASE_URL_HEADER]: upstreamBaseUrl,
         ...(proxyToken ? { [PROXY_TOKEN_HEADER]: proxyToken } : {}),
@@ -85,6 +93,60 @@ export const buildStrandsOpenAIModelOptions = ({
   return options;
 };
 
+// Reads the reasoning text a chat-completions chunk carries. Gateways expose it
+// as `reasoning_content` (DeepSeek, vLLM, LiteLLM) or `reasoning` (OpenRouter).
+export const extractChunkReasoning = (chunk: unknown): string => {
+  if (typeof chunk !== "object" || chunk === null) {
+    return "";
+  }
+  const choices = (chunk as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || choices.length === 0) {
+    return "";
+  }
+  const delta = (choices[0] as { delta?: Record<string, unknown> } | undefined)?.delta;
+  if (!delta) {
+    return "";
+  }
+  const reasoning = delta.reasoning_content ?? delta.reasoning;
+  return typeof reasoning === "string" ? reasoning : "";
+};
+
+const isAsyncIterable = (value: unknown): value is AsyncIterable<unknown> =>
+  typeof value === "object" && value !== null && Symbol.asyncIterator in value;
+
+// Re-yields every streamed chunk unchanged, reporting its reasoning on the side.
+async function* tapReasoning(stream: AsyncIterable<unknown>, onReasoning: (text: string) => void) {
+  for await (const chunk of stream) {
+    const reasoning = extractChunkReasoning(chunk);
+    if (reasoning.length > 0) {
+      onReasoning(reasoning);
+    }
+    yield chunk;
+  }
+}
+
+// Wraps `chat.completions.create` so streamed responses report their reasoning
+// to `onReasoning` before the Strands adapter consumes (and drops) it.
+const withReasoningTap = (client: OpenAI, onReasoning: (text: string) => void): OpenAI => {
+  const completions = client.chat.completions;
+  const create = completions.create.bind(completions);
+  const tapped = async (...args: Parameters<typeof create>) => {
+    const response: unknown = await create(...args);
+    return isAsyncIterable(response) ? tapReasoning(response, onReasoning) : response;
+  };
+  completions.create = tapped as unknown as typeof completions.create;
+  return client;
+};
+
 // Instantiates the Strands `OpenAIModel` from the resolved options.
-export const createStrandsOpenAIModel = (options: StrandsOpenAIModelOptions): OpenAIModel =>
-  new OpenAIModel(buildStrandsOpenAIModelOptions(options));
+export const createStrandsOpenAIModel = ({ onReasoning, ...options }: StrandsOpenAIModelOptions): OpenAIModel => {
+  const { apiKey, clientConfig, ...modelOptions } = buildStrandsOpenAIModelOptions(options);
+  if (!onReasoning) {
+    return new OpenAIModel({ apiKey, clientConfig, ...modelOptions });
+  }
+  const client = withReasoningTap(
+    new OpenAI({ apiKey: typeof apiKey === "string" ? apiKey : undefined, ...clientConfig }),
+    onReasoning,
+  );
+  return new OpenAIModel({ ...modelOptions, client });
+};

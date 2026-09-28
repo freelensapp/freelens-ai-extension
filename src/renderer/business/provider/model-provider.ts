@@ -1,14 +1,9 @@
 import { PreferencesStore } from "../../../common/store";
 import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "./ai-models";
-import { DsmlAwareChatOpenAI } from "./dsml-aware-chat-model";
-import { emitsDsmlToolCalls } from "./model-capabilities";
 import { findProvider } from "./model-list";
-import { OfflineTokenChatOpenAI } from "./offline-token-chat-model";
-import { buildOpenAIChatFields } from "./openai-fields";
+import { createStrandsOpenAIModel } from "./strands-openai-model";
 
-// Re-exported for callers that imported it from here previously; the canonical
-// definition now lives next to the field builder.
-export { UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
+import type { Model } from "@strands-agents/sdk";
 
 // Placeholder key sent to the SDK so it populates the Authorization header; the
 // AI proxy overrides it with the real key resolved in the main process, so the
@@ -23,11 +18,18 @@ const getAiProxyBaseUrl = (aiProxyPort: number | null) => {
   return `http://127.0.0.1:${aiProxyPort}`;
 };
 
+export interface GetModelOptions {
+  // Receives the reasoning deltas streamed by the model, when it exposes them.
+  onReasoning?: (text: string) => void;
+}
+
 export const useModelProvider = () => {
   // @ts-ignore
   const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
-  const getModel = () => {
+  // Builds a Strands model for the currently selected model. Called per run so
+  // a model or endpoint change in the preferences applies to the next prompt.
+  const getModel = ({ onReasoning }: GetModelOptions = {}): Model => {
     const modelName = preferencesStore.selectedModel;
 
     // Guard the empty-list / no-selection case: the chat UI offers a
@@ -40,28 +42,17 @@ export const useModelProvider = () => {
     const provider = findProvider(preferencesStore.models, modelName) ?? AIProviders.OPEN_AI;
 
     switch (provider) {
-      case AIProviders.OPEN_AI: {
-        const openAIBaseUrl = preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
-
-        const fields = buildOpenAIChatFields({
+      case AIProviders.OPEN_AI:
+        return createStrandsOpenAIModel({
           modelName,
           apiKey: PROXY_MANAGED_API_KEY,
-          upstreamBaseUrl: openAIBaseUrl,
+          upstreamBaseUrl: preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
           proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
           proxyToken: preferencesStore.aiProxyToken,
           reasoningEffort: preferencesStore.openAIReasoningEffort,
           disableThinking: preferencesStore.disableThinking,
+          onReasoning,
         });
-
-        // DeepSeek models leak their native "DSML" tool-call markup into the
-        // assistant text when the endpoint has no server-side tool-call parser.
-        // Use a client that recovers those tool calls so the agents can run them.
-        if (emitsDsmlToolCalls(modelName)) {
-          return new DsmlAwareChatOpenAI({ ...fields, streaming: true });
-        }
-
-        return new OfflineTokenChatOpenAI(fields);
-      }
       default:
         throw new Error(`Unsupported provider: ${provider}`);
     }

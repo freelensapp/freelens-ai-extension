@@ -1,30 +1,55 @@
 // Local, network-free token estimation.
 //
-// `@langchain/core`'s default `getNumTokens` lazily downloads the tiktoken BPE
-// ranks from `https://tiktoken.pages.dev` on the first call. When that host is
-// unreachable (corporate proxy, air-gapped cluster) the fetch fails, retries
-// with exponential backoff, and is never cached — so every model turn re-stalls
-// for minutes and the chat appears to hang. See issue #181.
-//
-// The extension never uses these counts for anything functional (no trimming,
-// no `maxTokens` budgeting — they only populate advisory token-usage metadata),
-// so we approximate locally with the same ~4-chars-per-token rule LangChain
-// itself falls back to once the download fails, but without the network round
-// trip and retry stall.
+// Used as a fallback for the capacity indicator when the provider reports no
+// token usage, and to size the context right after a compaction. The counts are
+// advisory only (no trimming, no `maxTokens` budgeting), so the common
+// ~4-chars-per-token heuristic is enough and needs no tokenizer download.
 
-import type { MessageContent } from "@langchain/core/messages";
+// Message content: a plain string, or an array of content blocks. Blocks are
+// described structurally so both Strands blocks (`TextBlock`, `ToolUseBlock`,
+// `ToolResultBlock`) and plain OpenAI-style parts are accepted.
+export type MessageContent = string | readonly unknown[];
+
+const blockToText = (block: unknown): string => {
+  if (typeof block !== "object" || block === null) {
+    return "";
+  }
+  const { type, text, input, content } = block as {
+    type?: unknown;
+    text?: unknown;
+    input?: unknown;
+    content?: unknown;
+  };
+  if (typeof text === "string" && (type === "text" || type === "textBlock")) {
+    return text;
+  }
+  // Tool calls and tool results are re-sent with every prompt, so they count.
+  if (type === "toolUseBlock" && input !== undefined) {
+    return JSON.stringify(input);
+  }
+  if (type === "toolResultBlock" && Array.isArray(content)) {
+    return content
+      .map((item) =>
+        typeof (item as { text?: unknown })?.text === "string"
+          ? (item as { text: string }).text
+          : (item as { json?: unknown })?.json !== undefined
+            ? JSON.stringify((item as { json: unknown }).json)
+            : "",
+      )
+      .join("");
+  }
+  return "";
+};
 
 /**
- * Flatten a `MessageContent` (a plain string or an array of content blocks)
- * into the text we count. Non-text blocks (images, files) contribute no text.
+ * Flatten message content (a plain string or an array of content blocks) into
+ * the text we count. Non-text blocks (images, files) contribute no text.
  */
 export const messageContentToText = (content: MessageContent): string => {
   if (typeof content === "string") {
     return content;
   }
-  return content
-    .map((item) => (typeof item === "object" && item !== null && item.type === "text" ? (item.text ?? "") : ""))
-    .join("");
+  return content.map(blockToText).join("");
 };
 
 /**
@@ -35,14 +60,10 @@ export const approximateTokenCount = (content: MessageContent): number =>
   Math.ceil(messageContentToText(content).length / 4);
 
 /**
- * Approximate the token count of the persisted conversation carried into the
- * next prompt by summing the per-message estimate. This is what sizes the
- * capacity indicator and the compaction decision: it is the accumulated history
- * the next prompt re-sends, not the transient tool-loop context of a single
- * internal sub-agent call (which never persists). Omits the fixed system-prompt
- * and tool-schema overhead, so it slightly under-counts the real prompt -
- * consistent with how compaction estimates the post-compaction size, and the
- * 90% threshold leaves headroom.
+ * Approximate the token count of the conversation carried into the next prompt
+ * by summing the per-message estimate. Omits the fixed system-prompt and
+ * tool-schema overhead, so it slightly under-counts the real prompt; the 90%
+ * compaction threshold leaves headroom.
  */
 export const approximateMessagesTokenCount = (messages: { content: MessageContent }[] | undefined): number =>
   (messages ?? []).reduce((sum, message) => sum + approximateTokenCount(message.content), 0);

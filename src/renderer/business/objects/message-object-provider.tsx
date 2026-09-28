@@ -1,7 +1,7 @@
-import { Interrupt } from "@langchain/langgraph";
 import { generateUuid } from "../../../common/utils/uuid";
 import { MessageType } from "./message-type";
 
+import type { ApprovalRequest } from "../agent/tools/approval";
 import type { MessageObject, RetryContext } from "./message-object";
 
 export function getTextMessage(message: string, sent: boolean): MessageObject {
@@ -35,16 +35,16 @@ export function getExplainMessage(message: string): MessageObject {
   };
 }
 
-export function getInterruptMessage(chunk: Interrupt, sent: boolean): MessageObject {
+export function getInterruptMessage(approval: ApprovalRequest, sent: boolean): MessageObject {
   return {
     messageId: generateUuid(),
     type: MessageType.INTERRUPT,
-    action: chunk.value.actionToApprove.action,
-    question: chunk.value.question,
-    text: chunk.value.requestString,
-    actionDetails: chunk.value.actionString,
-    resources: chunk.value.resourcesString,
-    options: chunk.value.options,
+    action: String(approval.actionToApprove.action),
+    question: approval.question,
+    text: approval.requestString,
+    actionDetails: approval.actionString,
+    resources: approval.resourcesString,
+    options: approval.options,
     approved: null,
     sent: sent,
   };

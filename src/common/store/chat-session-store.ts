@@ -6,7 +6,7 @@ import type { MessageObject } from "../../renderer/business/objects/message-obje
 
 export interface ChatSession {
   // The rendered chat transcript and the conversation id that ties it to the
-  // agent's LangGraph thread. Both make up the durable "session".
+  // agent's Strands session. Both make up the durable "session".
   messages: MessageObject[];
   conversationId: string;
   // Running token totals for this session, summed across every model turn.
@@ -42,8 +42,8 @@ const emptySession = (): ChatSession => ({
  * restart.
  *
  * The transcript previously lived in `window.localStorage`, which is not
- * durable across restarts in the Freelens renderer: the model-side LangGraph
- * state (persisted via `AgentStateStore`, an `ExtensionStore`) came back after a
+ * durable across restarts in the Freelens renderer: the model-side agent
+ * session (persisted via `AgentStateStore`, an `ExtensionStore`) came back after a
  * restart while the chat HTML did not. Backing the transcript with the same
  * host-managed mechanism keeps the two in sync.
  *

@@ -1,327 +1,87 @@
-import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
-import { Command, Interrupt } from "@langchain/langgraph";
 import { redactSecrets } from "../../../common/utils/redact";
-import { FreeLensAgent } from "../agent/freelens-agent-system";
-import { MPCAgent } from "../agent/mcp-agent";
+import { abandonPendingApprovals, buildResumeArgs } from "../agent/freelens-agent";
 import { approximateMessagesTokenCount } from "../provider/token-estimate";
-import { createStreamMergeState, extractReasoningText, mergeAiChunk } from "./stream-merge";
 import {
-  addTokenUsage,
-  emptyTokenUsage,
-  extractTokenUsageFromLLMResult,
-  isEmptyTokenUsage,
-  subtractTokenUsage,
-  type TokenUsage,
-} from "./token-usage";
+  type AgentChunk,
+  createStrandsStreamState,
+  interleaveSideChannel,
+  mapAgentStreamEvent,
+  SideChannel,
+} from "./strands-stream";
 
-import type { BaseMessage } from "@langchain/core/messages";
-import type { LLMResult } from "@langchain/core/outputs";
+import type { Agent, InvokeArgs, Model } from "@strands-agents/sdk";
 
-const MAX_GEMINI_STREAM_RETRIES = 3;
-const BASE_BACKOFF_MS = 700;
+export {
+  type AgentChunk,
+  type ApprovalChunk,
+  type ContextSizeChunk,
+  isApprovalChunk,
+  isContextSizeChunk,
+  isReasoningChunk,
+  isTokenUsageChunk,
+  type ReasoningChunk,
+  type TokenUsageChunk,
+} from "./strands-stream";
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// What to send to the agent: a new user prompt, or the answer ("yes"/"no") to
+// the pending tool approval.
+export type AgentInput = { kind: "message"; text: string } | { kind: "resume"; answer: string };
 
-const isGeminiTransientError = (error: unknown) => {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const message = error.message.toLowerCase();
-
-  return (
-    message.includes("failed to parse stream") ||
-    message.includes("503") ||
-    message.includes("unavailable") ||
-    message.includes("high demand") ||
-    message.includes("429") ||
-    message.includes("too many requests")
-  );
-};
-
-const getRetryDelay = (attempt: number) => {
-  const jitter = Math.floor(Math.random() * 250);
-
-  return BASE_BACKOFF_MS * 2 ** (attempt - 1) + jitter;
-};
-
-// A streamed chunk carrying the model's reasoning ("chain-of-thought"). Kept
-// distinct from the plain-string answer chunks so the UI can render it in a
-// separate, dimmed, collapsible block.
-export interface ReasoningChunk {
-  reasoning: string;
-}
-
-export const isReasoningChunk = (chunk: unknown): chunk is ReasoningChunk =>
-  typeof chunk === "object" &&
-  chunk !== null &&
-  "reasoning" in chunk &&
-  typeof (chunk as ReasoningChunk).reasoning === "string";
-
-// A streamed chunk carrying token usage to add onto the per-session counter (and
-// the cost derived from it) shown in the UI. Emitted live as a *delta* per
-// completed internal LLM call, so the counter and cost move during a turn
-// instead of only at the end (a single user turn fans out into several calls).
-// On a transient-error retry the failed attempt's already-counted deltas are
-// rolled back with a negative chunk before the run re-counts them, so retries
-// never double count. The chat service simply sums every chunk.
-export interface TokenUsageChunk {
-  tokenUsage: TokenUsage;
-}
-
-export const isTokenUsageChunk = (chunk: unknown): chunk is TokenUsageChunk =>
-  typeof chunk === "object" && chunk !== null && "tokenUsage" in chunk;
-
-// A streamed chunk carrying the size of the persisted conversation that the next
-// prompt re-sends. `contextTokens` is the persisted parent-thread text
-// (~4 chars/token) plus the measured fixed per-request overhead (system prompt +
-// tool schemas + tool-call structure), so it tracks the real next-prompt size
-// rather than the conversation text alone. It drives the capacity indicator and
-// the compaction decision; unlike a single call's input it excludes the
-// transient tool-loop context of the sub-agents, which never persists.
-// `peakInputTokens` is the largest single LLM call's input
-// in the run - surfaced only in the indicator tooltip, never used to size the
-// gauge or trigger compaction. Emitted live, once per completed LLM call, so the
-// indicator moves during a turn instead of only at the end.
-export interface ContextSizeChunk {
-  contextTokens: number;
-  peakInputTokens: number;
-}
-
-export const isContextSizeChunk = (chunk: unknown): chunk is ContextSizeChunk =>
-  typeof chunk === "object" && chunk !== null && "contextTokens" in chunk;
-
-/**
- * Accumulates the token usage reported by every model turn in a run via the
- * `handleLLMEnd` callback. The callback fires for each LLM call - including the
- * supervisor and analyzer turns the graph suppresses from the `messages` stream
- * with the `nostream` tag - so the counter reflects the whole run, not just the
- * single visible (conclusions / operator) turn. Config callbacks propagate to
- * the sub-agents through the forwarded run config, so their turns are caught too.
- */
-class TokenUsageCollector extends BaseCallbackHandler {
-  name = "freelens-token-usage-collector";
-  total: TokenUsage = emptyTokenUsage();
-  // Largest single call's input tokens seen in the run. This is a transient
-  // intra-turn spike (e.g. a sub-agent re-sending a big tool result) that does
-  // not persist, so it never sizes the gauge or the compaction decision - it is
-  // surfaced only in the indicator tooltip as "largest single request this turn".
-  peakInputTokens = 0;
-  // Incremented on every completed LLM call so the streaming loop can detect when
-  // a new internal call finished and refresh the live persisted-context reading.
-  callCount = 0;
-  // Largest fixed per-request overhead observed: the part of a real prompt that
-  // the ~4-chars/token text estimate cannot see - the node's system prompt, the
-  // tool-schema JSON, and tool-call arguments/structure that live outside message
-  // `content`. Measured per call as (real prompt_tokens) - (estimated tokens of
-  // the messages actually sent), so it is content-independent. Added to the
-  // persisted-context estimate so the gauge reflects the real next-prompt size
-  // rather than the conversation text alone (which under-counts badly on short
-  // sessions, where the fixed overhead dominates). Bounded by the largest tool
-  // set, so unlike the transient content spike it stays small and stable.
-  requestOverhead = 0;
-  // Estimated tokens of the messages handed to each in-flight call, keyed by the
-  // callback `runId`, so `handleLLMEnd` can pair the real input against the
-  // estimate to recover that call's fixed overhead.
-  private approxInputByRun = new Map<string, number>();
-
-  handleChatModelStart(_llm: unknown, messages: BaseMessage[][], runId: string): void {
-    this.approxInputByRun.set(runId, approximateMessagesTokenCount(messages.flat()));
-  }
-
-  handleLLMEnd(output: LLMResult, runId: string): void {
-    const usage = extractTokenUsageFromLLMResult(output);
-    if (usage) {
-      this.total = addTokenUsage(this.total, usage);
-      this.peakInputTokens = Math.max(this.peakInputTokens, usage.input);
-      this.callCount += 1;
-
-      const approxInput = this.approxInputByRun.get(runId);
-      if (approxInput !== undefined) {
-        this.requestOverhead = Math.max(this.requestOverhead, usage.input - approxInput);
-      }
-    }
-    this.approxInputByRun.delete(runId);
-  }
-}
+// Builds the model for a run, wiring the reasoning deltas it streams.
+export type ModelFactory = (onReasoning: (text: string) => void) => Model;
 
 export interface AgentService {
-  run(
-    agentInput: object | Command,
-    conversationId: string,
-  ): AsyncGenerator<string | ReasoningChunk | TokenUsageChunk | ContextSizeChunk | Interrupt, void, unknown>;
+  run(input: AgentInput): AsyncGenerator<AgentChunk, void, unknown>;
 }
 
 /**
- * This service takes an agent, runs it and streams the response back to the caller.
- * If the agent has any interrupts, it will yield those as well.
- * @returns
- * @param agent
+ * This service runs the single Freelens agent and streams its response back to
+ * the caller as UI chunks, including the approval requests that pause it.
+ *
+ * Transient model errors (throttling, overload) are retried by the Strands
+ * default retry strategy inside the agent loop.
  */
-export const useAgentService = (agent: FreeLensAgent | MPCAgent): AgentService => {
-  const run = async function* (agentInput: object | Command, conversationId: string) {
-    console.log("Starting Agent Service run for message: ", redactSecrets(agentInput));
+export const useAgentService = (agent: Agent, buildModel: ModelFactory): AgentService => {
+  const run = async function* (input: AgentInput) {
+    console.log("Starting Agent Service run for input: ", redactSecrets(input));
+    // Restore the persisted session (conversation + pending approvals) before
+    // deciding how to feed the input.
+    await agent.initialize();
 
-    let config = { thread_id: conversationId };
-    // Net token usage this run has already added to the per-session counter via
-    // emitted deltas. Tracked across attempts so a transient-error retry can roll
-    // back the failed attempt's contribution before the re-run re-counts it.
-    let storeContribution = emptyTokenUsage();
-    for (let attempt = 1; attempt <= MAX_GEMINI_STREAM_RETRIES + 1; attempt++) {
-      let hasYieldedContent = false;
-      // Tracks assistant message boundaries so distinct messages emitted within a
-      // single run are separated by a blank line instead of being glued together.
-      const mergeState = createStreamMergeState();
-      // Fresh per attempt so a transient-error retry discards the usage counted
-      // for the failed attempt rather than double counting it.
-      const tokenUsageCollector = new TokenUsageCollector();
-      // Number of completed LLM calls already reflected in an emitted context
-      // chunk, so the live reading is refreshed only when a new internal call
-      // finishes rather than on every streamed token.
-      let lastEmittedCallCount = 0;
-
-      // Read the persisted parent-thread context size (what the next prompt
-      // re-sends) and pair it with the run's peak single-call input for the
-      // tooltip. The persisted thread grows as the graph's nodes check point, so
-      // reading it after each completed call lets the indicator move during the
-      // turn instead of only at the end.
-      const readContextSize = async (): Promise<ContextSizeChunk> => {
-        const state = await agent.getState({ configurable: config });
-        // Size the gauge as the persisted conversation text plus the measured
-        // fixed per-request overhead (system prompt + tool schemas + tool-call
-        // structure). The text estimate alone omits that overhead, which on a
-        // short session dominates the real prompt - so it would otherwise read
-        // far too low (e.g. 41 tokens for a real 244-token request).
-        return {
-          contextTokens: approximateMessagesTokenCount(state?.values?.messages) + tokenUsageCollector.requestOverhead,
-          peakInputTokens: tokenUsageCollector.peakInputTokens,
-        };
-      };
-
-      // The token usage counted since the last emission, as a delta to add onto
-      // the live per-session counter. `storeContribution` follows the collector's
-      // running total within an attempt, so the next delta is exactly the newly
-      // counted usage. Returns null when nothing new has been counted.
-      const nextUsageDelta = (): TokenUsageChunk | null => {
-        const delta = subtractTokenUsage(tokenUsageCollector.total, storeContribution);
-        if (isEmptyTokenUsage(delta)) {
-          return null;
-        }
-        storeContribution = tokenUsageCollector.total;
-        return { tokenUsage: delta };
-      };
-
-      try {
-        const streamResponse = await agent.stream(agentInput, {
-          streamMode: "messages",
-          configurable: config,
-          callbacks: [tokenUsageCollector],
-        });
-
-        // streams LLM token by token to the UI
-        for await (const [message, metadata] of streamResponse) {
-          // Always emit the assistant's text content, even when the same chunk
-          // also carries tool calls. Some providers (e.g. DeepSeek via
-          // DsmlAwareChatOpenAI) deliver the preamble text and the tool call in
-          // a single chunk; dropping the whole chunk would hide the preamble the
-          // model wrote before invoking a tool. Tool-call arguments live in
-          // `tool_call_chunks`, not in `content`, so they are never emitted here.
-          if (message.getType() === "ai") {
-            // Surface the model's reasoning before its answer text. Providers
-            // expose it inconsistently: in `additional_kwargs`, in
-            // `response_metadata`, or as a `reasoning_content` field sitting
-            // directly on the message next to `content`. Pass all three so the
-            // reasoning is found wherever the gateway puts it. It may stream
-            // token by token or arrive alongside the answer; the UI concatenates
-            // the deltas into a collapsible block.
-            const reasoning = extractReasoningText(
-              message.content,
-              message.additional_kwargs,
-              message.response_metadata,
-              message as unknown as Record<string, unknown>,
-            );
-            if (reasoning.length > 0) {
-              hasYieldedContent = true;
-              yield { reasoning };
-            }
-
-            // The stream metadata identifies the graph node execution behind the
-            // chunk, which is what separates two assistant messages; the chunk id
-            // is not reliable (some gateways mint one per token).
-            const text = mergeAiChunk(mergeState, message, metadata);
-            if (text.length > 0) {
-              hasYieldedContent = true;
-              yield text;
-            }
-          }
-
-          // Refresh the live capacity reading and the token/cost counter whenever
-          // a new internal LLM call has finished, so both move during the turn
-          // rather than only at the end (a single user turn fans out into several
-          // calls). The usage delta is collected from the `handleLLMEnd` callback,
-          // so the supervisor and analyzer turns - suppressed from the `messages`
-          // stream by the `nostream` tag - are counted too, not just the single
-          // visible turn.
-          if (tokenUsageCollector.callCount > lastEmittedCallCount) {
-            lastEmittedCallCount = tokenUsageCollector.callCount;
-            yield await readContextSize();
-            const usageDelta = nextUsageDelta();
-            if (usageDelta) {
-              yield usageDelta;
-            }
-          }
-        }
-
-        yield "\n";
-
-        // Final, authoritative capacity reading once the run has settled: the
-        // persisted thread is now complete, so this is exactly what the next
-        // prompt re-sends and what the pre-send compaction decision acts on.
-        yield await readContextSize();
-
-        // Flush any usage from the last call(s) not yet reflected in an emitted
-        // delta (a final `handleLLMEnd` may fire after the stream's last message).
-        const finalUsageDelta = nextUsageDelta();
-        if (finalUsageDelta) {
-          yield finalUsageDelta;
-        }
-
-        // checks the agent state for any interrupts
-        const agentState = await agent.getState({ configurable: config });
-        // The snapshot's `values` are the graph channels, which include the key.
-        console.log("Agent state: ", redactSecrets(agentState));
-        if (agentState.next) {
-          console.log("Agent state next: ", agentState.next);
-          for (const task of agentState.tasks) {
-            if (task.interrupts) {
-              console.log("Agent state task interrupts: ", task.interrupts);
-              for (const interrupt of task.interrupts) {
-                console.log("Agent state task interrupt: ", interrupt);
-                yield interrupt;
-              }
-            }
-          }
-        }
-
+    let args: InvokeArgs;
+    if (input.kind === "resume") {
+      const resumeArgs = buildResumeArgs(agent, input.answer);
+      if (!resumeArgs) {
+        console.log("No pending approval to resume, ignoring answer: ", input.answer);
         return;
-      } catch (error) {
-        const canRetry = !hasYieldedContent && isGeminiTransientError(error) && attempt <= MAX_GEMINI_STREAM_RETRIES;
-
-        if (!canRetry) {
-          throw error;
-        }
-
-        // Roll back the usage this failed attempt already added to the live
-        // counter with a negative delta, so the re-run re-counts from scratch
-        // without double counting. The next attempt's fresh collector starts at
-        // zero, so `storeContribution` must too.
-        if (!isEmptyTokenUsage(storeContribution)) {
-          yield { tokenUsage: subtractTokenUsage(emptyTokenUsage(), storeContribution) };
-          storeContribution = emptyTokenUsage();
-        }
-
-        await wait(getRetryDelay(attempt));
       }
+      args = resumeArgs;
+    } else {
+      // A new prompt while an approval is pending means the user moved on
+      // without answering it: drop the paused tool call and continue.
+      abandonPendingApprovals(agent);
+      args = input.text;
+    }
+
+    // Rebuild the model per run so a model or endpoint change in the
+    // preferences applies to the next prompt. Its reasoning deltas are fed
+    // through a side channel and interleaved with the agent stream.
+    const reasoning = new SideChannel<string>();
+    agent.model = buildModel((text) => reasoning.push(text));
+
+    const state = createStrandsStreamState();
+    for await (const item of interleaveSideChannel(agent.stream(args), reasoning)) {
+      if ("side" in item) {
+        yield { reasoning: item.side };
+        continue;
+      }
+      yield* mapAgentStreamEvent(state, item.source);
+    }
+
+    // Providers that report no token usage still get a capacity reading,
+    // estimated from the conversation text (~4 chars/token).
+    if (!state.sawUsage) {
+      yield { contextTokens: approximateMessagesTokenCount(agent.messages), peakInputTokens: 0 };
     }
   };
 

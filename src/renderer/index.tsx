@@ -5,7 +5,6 @@
 
 import { Renderer } from "@freelensapp/extensions";
 import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
-import { ensureRunnableContextStorage } from "./business/agent/runnable-context";
 import { FreeLensAiIcon } from "./components/freelens-ai-icon";
 import { MenuEntry } from "./components/menu-entry";
 import { setExtensionPreferencesPath } from "./navigation/extension-preferences";
@@ -17,18 +16,14 @@ type KubeObjectMenuProps<TKubeObject extends KubeObject> = Renderer.Component.Ku
 
 export default class FreeLensAIRenderer extends Renderer.LensExtension {
   async onActivate() {
-    // Wire LangChain's AsyncLocalStorage run-context singleton before any agent
-    // graph runs. LangGraph's `interrupt()` (the write-tool approval gate) reads
-    // the run config from this singleton, which the renderer's browser bundle
-    // never initializes; without it the approval prompt cannot reach the UI.
-    ensureRunnableContextStorage();
     // Resolve the route to this extension's own preferences tab so the chat
     // "Configure agent" button can link straight to it.
     setExtensionPreferencesPath(this.sanitizedExtensionId);
     // @ts-ignore
     PreferencesStore.getInstanceOrCreate<PreferencesStore>().loadExtension(this);
-    // Durable, host-managed storage for the agents' LangGraph checkpointer
-    // state, so the conversation context survives an application restart.
+    // Durable, host-managed storage for the agent sessions (Strands
+    // `SessionManager` snapshots), so the conversation context and pending
+    // approvals survive an application restart.
     // @ts-ignore
     AgentStateStore.getInstanceOrCreate<AgentStateStore>().loadExtension(this);
     // Durable, host-managed storage for the rendered chat transcript and

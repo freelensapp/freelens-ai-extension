@@ -1,75 +1,88 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
-import { belongsToCluster } from "../../renderer/business/agent/checkpoint-namespace";
+import { belongsToClusterSession, type KeyValueBackend } from "../../renderer/business/agent/session-storage";
 
 export interface AgentStateModel {
-  // Serialized LangGraph checkpointer state, keyed by saver namespace. The
-  // namespace is cluster-qualified (e.g. "<clusterId>::freelens",
-  // "<clusterId>::mcp", see `checkpointNamespace`) so each cluster's agent
-  // memory is stored independently. Each value is produced by
-  // `serializeSaverState` in the renderer and is opaque to this store.
-  checkpoints: Record<string, string>;
+  // Strands session data written by the agent's `SessionManager` (agent
+  // snapshots and manifests), keyed by storage key. Keys embed the
+  // cluster-qualified session id (see `sessionIdFor`) so each cluster's agent
+  // memory is stored independently. Values are opaque JSON text.
+  sessions: Record<string, string>;
 }
 
 /**
- * Durable, host-managed persistence for the agents' LangGraph checkpointer
- * state. This is the Freelens-native place to store extension state: the host
- * writes it to a JSON file in the extension's data directory, so it survives an
- * application restart (unlike `MemorySaver`, whose state lives only in memory).
+ * Durable, host-managed persistence for the agent sessions. This is the
+ * Freelens-native place to store extension state: the host writes it to a JSON
+ * file in the extension's data directory, so the conversation (and any pending
+ * approval) survives an application restart.
  *
- * The renderer's `PersistentMemorySaver` reads/writes the serialized blob here;
- * the store itself never interprets it.
+ * The renderer's `KeyValueSessionStorage` reads/writes entries here on behalf of
+ * the Strands `SessionManager`; the store itself never interprets them.
+ * Checkpoints written by the former LangGraph agents are not portable to
+ * Strands and are dropped on load.
  */
-export class AgentStateStore extends Common.Store.ExtensionStore<AgentStateModel> {
-  checkpoints: Record<string, string> = {};
+export class AgentStateStore extends Common.Store.ExtensionStore<AgentStateModel> implements KeyValueBackend {
+  sessions: Record<string, string> = {};
 
   constructor() {
     super({
       configName: "freelens-ai-agent-state-store",
       defaults: {
-        checkpoints: {},
+        sessions: {},
       },
     });
     // Explicit annotation form instead of `@observable` decorators; see the
     // note in preferences-store.ts for why decorators do not work here.
     makeObservable(this, {
-      checkpoints: observable,
+      sessions: observable,
     });
   }
 
-  getCheckpoint(namespace: string): string | undefined {
-    return this.checkpoints[namespace];
+  getEntry(key: string): string | undefined {
+    return this.sessions[key];
   }
 
-  setCheckpoint(namespace: string, blob: string): void {
+  setEntry(key: string, value: string): void {
     // Replace the map so MobX sees a new reference and the host persists it.
-    this.checkpoints = { ...this.checkpoints, [namespace]: blob };
+    this.sessions = { ...this.sessions, [key]: value };
+  }
+
+  deleteEntry(key: string): void {
+    if (!(key in this.sessions)) {
+      return;
+    }
+    const { [key]: _removed, ...remaining } = this.sessions;
+    this.sessions = remaining;
+  }
+
+  entryKeys(): string[] {
+    return Object.keys(this.sessions);
   }
 
   clear(): void {
-    this.checkpoints = {};
+    this.sessions = {};
   }
 
-  // Drop only the checkpoints that belong to the given cluster, leaving every
+  // Drop only the sessions that belong to the given cluster, leaving every
   // other cluster's agent memory untouched. Used when the user clears the chat
   // so a "Clear" in one cluster does not wipe another cluster's conversation.
   clearForCluster(clusterId: string): void {
     const remaining: Record<string, string> = {};
-    for (const [namespace, blob] of Object.entries(this.checkpoints)) {
-      if (!belongsToCluster(namespace, clusterId)) {
-        remaining[namespace] = blob;
+    for (const [key, value] of Object.entries(this.sessions)) {
+      if (!belongsToClusterSession(key, clusterId)) {
+        remaining[key] = value;
       }
     }
-    this.checkpoints = remaining;
+    this.sessions = remaining;
   }
 
-  fromStore(model: AgentStateModel): void {
-    this.checkpoints = model.checkpoints ?? {};
+  fromStore(model: Partial<AgentStateModel>): void {
+    this.sessions = model.sessions ?? {};
   }
 
   toJSON(): AgentStateModel {
     return {
-      checkpoints: toJS(this.checkpoints),
+      sessions: toJS(this.sessions),
     };
   }
 }

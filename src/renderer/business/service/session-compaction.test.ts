@@ -93,31 +93,31 @@ describe("buildSummaryPrompt", () => {
 });
 
 describe("toSummarizableMessages", () => {
-  it("maps the message type and flattens string content", () => {
+  it("maps the message role and flattens string content", () => {
     const result = toSummarizableMessages([
-      { getType: () => "human", content: "list pods" },
-      { getType: () => "ai", content: "3 pods running" },
+      { role: "user", content: "list pods" },
+      { role: "assistant", content: "3 pods running" },
     ]);
     expect(result).toEqual([
-      { role: "human", content: "list pods" },
-      { role: "ai", content: "3 pods running" },
+      { role: "user", content: "list pods" },
+      { role: "assistant", content: "3 pods running" },
     ]);
   });
 
   it("flattens array content blocks to their text", () => {
     const result = toSummarizableMessages([
       {
-        getType: () => "human",
+        role: "user",
         content: [
-          { type: "text", text: "hello" },
-          { type: "text", text: " world" },
+          { type: "textBlock", text: "hello" },
+          { type: "textBlock", text: " world" },
         ],
       },
     ]);
-    expect(result).toEqual([{ role: "human", content: "hello world" }]);
+    expect(result).toEqual([{ role: "user", content: "hello world" }]);
   });
 
-  it("defaults the role to 'message' when the type is unavailable", () => {
+  it("defaults the role to 'message' when it is unavailable", () => {
     const result = toSummarizableMessages([{ content: "no type" }]);
     expect(result).toEqual([{ role: "message", content: "no type" }]);
   });

@@ -1,5 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
-import { tool } from "@langchain/core/tools";
+import { tool } from "@strands-agents/sdk";
 import { z } from "zod";
 import {
   createKubernetesResource as createKubernetesResourceImpl,
@@ -56,8 +56,11 @@ const subresourceSchema = z
       'Use "scale" to change replicas. Omit for a normal patch.',
   );
 
-export const getNamespaces = tool(
-  (): string[] => {
+export const getNamespaces = tool({
+  name: "getNamespaces",
+  description: "Get all namespaces of the Kubernetes cluster",
+  inputSchema: z.object({}),
+  callback: (): string[] => {
     /**
      * Get all namespaces of the Kubernetes cluster
      */
@@ -72,22 +75,25 @@ export const getNamespaces = tool(
     console.log("[Tool invocation result: getNamespaces] - ", getNamespacesToolResult);
     return getNamespacesToolResult;
   },
-  {
-    name: "getNamespaces",
-    description: "Get all namespaces of the Kubernetes cluster",
-  },
-);
+});
 
-export const getClusterVersion = tool(getClusterVersionImpl, {
+export const getClusterVersion = tool({
   name: "getClusterVersion",
   description:
     "Get the Kubernetes version of the currently connected cluster by querying the API server's /version endpoint " +
     "directly (the same server version that 'kubectl version' reports). Prefer this over inspecting node " +
     "kubeletVersions or other heuristics. Takes no arguments.",
+  inputSchema: z.object({}),
+  callback: () => getClusterVersionImpl(),
 });
 
-export const getWarningEventsByNamespace = tool(
-  ({ namespace }: { namespace: string }): string => {
+export const getWarningEventsByNamespace = tool({
+  name: "getEventsForNamespace",
+  description: "Get all events in status WARNING for a specific Kubernetes namespace",
+  inputSchema: z.object({
+    namespace: z.string(),
+  }),
+  callback: ({ namespace }): string => {
     /**
      * Get all events in status WARNING for a specific Kubernetes namespace
      */
@@ -115,39 +121,33 @@ export const getWarningEventsByNamespace = tool(
     console.log("[Tool invocation result: getWarningEventsForNamespace] - ", getWarningEventsByNsToolResult);
     return getWarningEventsByNsToolResult;
   },
-  {
-    name: "getEventsForNamespace",
-    description: "Get all events in status WARNING for a specific Kubernetes namespace",
-    schema: z.object({
-      namespace: z.string(),
-    }),
-  },
-);
+});
 
-export const listKubernetesResources = tool(listKubernetesResourcesImpl, {
+export const listKubernetesResources = tool({
   name: "listKubernetesResources",
   description:
     "List Kubernetes resources of a given kind, optionally scoped to a namespace. " +
     "metadata.managedFields is stripped by default to keep the output small. " +
     'Pass "fields" with JSONPath-style selectors (e.g. [".metadata.name", ".status.phase"]) to return only ' +
     "a subset of each resource instead of the full, verbose object.",
-  schema: z.object({
+  inputSchema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     namespace: z.string().optional().describe("The namespace to list namespaced resources in"),
     includeManagedFields: includeManagedFieldsSchema,
     fields: fieldsSchema,
   }),
+  callback: listKubernetesResourcesImpl,
 });
 
-export const getKubernetesResource = tool(getKubernetesResourceImpl, {
+export const getKubernetesResource = tool({
   name: "getKubernetesResource",
   description:
     "Get a single Kubernetes resource by name (namespace required for namespaced kinds). " +
     "metadata.managedFields is stripped by default to keep the output small. " +
     'Pass "fields" with JSONPath-style selectors (e.g. [".status.phase", ".spec.containers[*].image"]) to ' +
     "return only a subset of the resource instead of the full, verbose object.",
-  schema: z.object({
+  inputSchema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     name: z.string().describe("The name of the resource"),
@@ -155,12 +155,13 @@ export const getKubernetesResource = tool(getKubernetesResourceImpl, {
     includeManagedFields: includeManagedFieldsSchema,
     fields: fieldsSchema,
   }),
+  callback: getKubernetesResourceImpl,
 });
 
-export const createKubernetesResource = tool(createKubernetesResourceImpl, {
+export const createKubernetesResource = tool({
   name: "createKubernetesResource",
   description: "Create a Kubernetes resource of any kind from a manifest",
-  schema: z.object({
+  inputSchema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     name: z.string().optional().describe("The name of the resource (defaults to metadata.name in the manifest)"),
@@ -170,28 +171,30 @@ export const createKubernetesResource = tool(createKubernetesResourceImpl, {
       .describe("The namespace of the resource (defaults to metadata.namespace in the manifest)"),
     data: manifestSchema,
   }),
+  callback: createKubernetesResourceImpl,
 });
 
-export const updateKubernetesResource = tool(updateKubernetesResourceImpl, {
+export const updateKubernetesResource = tool({
   name: "updateKubernetesResource",
   description: "Update (replace, via PUT) an existing Kubernetes resource with a manifest",
-  schema: z.object({
+  inputSchema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     name: z.string().describe("The name of the resource to update"),
     namespace: z.string().optional().describe("The namespace of the resource (required for namespaced kinds)"),
     data: manifestSchema,
   }),
+  callback: updateKubernetesResourceImpl,
 });
 
-export const patchKubernetesResource = tool(patchKubernetesResourceImpl, {
+export const patchKubernetesResource = tool({
   name: "patchKubernetesResource",
   description:
     "Patch (via PATCH) an existing Kubernetes resource with a partial manifest. " +
     'Set the optional "subresource" to patch a subresource instead of the main resource: use "resize" to change ' +
     "the CPU/memory requests and limits of a running Pod in place (Kubernetes 1.33+) instead of recreating it, " +
     'or "scale" to change replicas.',
-  schema: z.object({
+  inputSchema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     name: z.string().describe("The name of the resource to patch"),
@@ -199,13 +202,14 @@ export const patchKubernetesResource = tool(patchKubernetesResourceImpl, {
     data: manifestSchema.describe("The partial Kubernetes manifest to merge into the resource"),
     subresource: subresourceSchema,
   }),
+  callback: patchKubernetesResourceImpl,
 });
 
-export const getPodLogs = tool(getPodLogsImpl, {
+export const getPodLogs = tool({
   name: "getPodLogs",
   description:
     "Read a one-shot snapshot of container logs from a pod. Namespace is required. If the container is omitted on a multi-container pod, the available containers are returned so one can be chosen. Use previous: true to read the last terminated instance (useful for CrashLoopBackOff). When you are looking for specific log content (errors, warnings, a keyword or pattern) PREFER passing filter with a regular expression to return only the matching lines (grep-style) instead of fetching the whole log and scanning it; read the full, unfiltered log only when the user asks for everything or a filtered read finds nothing.",
-  schema: z.object({
+  inputSchema: z.object({
     name: z.string().describe("The name of the pod"),
     namespace: z.string().describe("The namespace of the pod"),
     container: z
@@ -233,9 +237,10 @@ export const getPodLogs = tool(getPodLogsImpl, {
           "differ. Omit to return every line.",
       ),
   }),
+  callback: getPodLogsImpl,
 });
 
-export const deleteKubernetesResource = tool(deleteKubernetesResourceImpl, {
+export const deleteKubernetesResource = tool({
   name: "deleteKubernetesResource",
   description:
     "Delete a Kubernetes resource by name (namespace required for namespaced kinds). " +
@@ -244,7 +249,7 @@ export const deleteKubernetesResource = tool(deleteKubernetesResourceImpl, {
     '"force_finalize" clears the resource finalizers so an object stuck in Terminating can be removed ' +
     "(use only as a last resort, after a normal or force delete did not complete). " +
     "For pods prefer the dedicated deletePod tool, which can also evict respecting PodDisruptionBudgets.",
-  schema: z.object({
+  inputSchema: z.object({
     kind: kindSchema,
     apiVersion: apiVersionSchema,
     name: z.string().describe("The name of the resource to delete"),
@@ -258,9 +263,10 @@ export const deleteKubernetesResource = tool(deleteKubernetesResourceImpl, {
           '"force_finalize": clear finalizers to unstick a resource in Terminating (last resort).',
       ),
   }),
+  callback: deleteKubernetesResourceImpl,
 });
 
-export const deletePod = tool(deletePodImpl, {
+export const deletePod = tool({
   name: "deletePod",
   description:
     "Delete a single pod using a pod-specific variant. Namespace is required. " +
@@ -269,7 +275,7 @@ export const deletePod = tool(deletePodImpl, {
     "immediately with a zero grace period (use for pods stuck on an unreachable or NotReady node); " +
     '"delete_with_finalizers" deletes the pod and clears its finalizers (last resort for a pod stuck in Terminating). ' +
     "For a plain pod delete, use deleteKubernetesResource instead.",
-  schema: z.object({
+  inputSchema: z.object({
     name: z.string().describe("The name of the pod to delete"),
     namespace: z.string().describe("The namespace of the pod"),
     mode: z
@@ -280,16 +286,18 @@ export const deletePod = tool(deletePodImpl, {
           '"delete_with_finalizers": delete and clear finalizers to unstick a pod in Terminating (last resort).',
       ),
   }),
+  callback: deletePodImpl,
 });
 
-export const restartKubernetesResource = tool(restartKubernetesResourceImpl, {
+export const restartKubernetesResource = tool({
   name: "restartKubernetesResource",
   description: `Trigger a rollout restart of a workload (rolls its pods without deleting them directly), like "kubectl rollout restart". Namespace is required. Supported kinds: ${RESTARTABLE_KINDS.join(", ")}.`,
-  schema: z.object({
+  inputSchema: z.object({
     kind: z.string().describe(`The workload kind to restart. Supported kinds: ${RESTARTABLE_KINDS.join(", ")}.`),
     name: z.string().describe("The name of the workload to restart"),
     namespace: z.string().describe("The namespace of the workload"),
   }),
+  callback: restartKubernetesResourceImpl,
 });
 
 export const allToolFunctions = [

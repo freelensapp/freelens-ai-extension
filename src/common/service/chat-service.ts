@@ -1,4 +1,4 @@
-import { Command } from "@langchain/langgraph";
+import { APPROVE_OPTION } from "../../renderer/business/agent/tools/approval";
 import {
   getErrorMessage,
   getExplainMessage,
@@ -6,9 +6,12 @@ import {
 } from "../../renderer/business/objects/message-object-provider";
 import { MessageType } from "../../renderer/business/objects/message-type";
 import { DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
+import { useModelProvider } from "../../renderer/business/provider/model-provider";
 import { approximateTokenCount } from "../../renderer/business/provider/token-estimate";
 import {
-  AgentService,
+  type AgentInput,
+  type AgentService,
+  isApprovalChunk,
   isContextSizeChunk,
   isReasoningChunk,
   isTokenUsageChunk,
@@ -16,19 +19,11 @@ import {
 } from "../../renderer/business/service/agent-service";
 import { AiAnalysisService, useAiAnalysisService } from "../../renderer/business/service/ai-analysis-service";
 import { estimateNextPromptTokens, shouldCompactSession } from "../../renderer/business/service/session-compaction";
-import { ActionToApprove } from "../../renderer/components/chat";
 import { useApplicationStatusStore } from "../../renderer/context/application-context";
 import { PreferencesStore } from "../store";
 import useLog from "../utils/logger/logger-service";
 
 import type { MessageObject, RetryContext } from "../../renderer/business/objects/message-object";
-
-export interface ApprovalInterrupt {
-  question: string;
-  options: string[];
-  actionToApprove: ActionToApprove;
-  requestString: string;
-}
 
 const useChatService = () => {
   const { log } = useLog("useChatService");
@@ -42,7 +37,8 @@ const useChatService = () => {
 
     const message = error.message.toLowerCase();
     // Duck-type the OpenAI SDK error shape: APIError subclasses carry a numeric
-    // `status`. APIConnectionError has status === undefined (the request never
+    // `status`. Strands passes these through unchanged (throttling errors are
+    // wrapped, but keep "429" in their message). APIConnectionError has status === undefined (the request never
     // reached the endpoint at all), while InternalServerError has status >= 500
     // (the proxy returned a 502/5xx because it could not reach the upstream).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -111,7 +107,7 @@ const useChatService = () => {
           log.debug("Conversation is interrupted, resuming...");
           // Do not display the resume answer (e.g. "yes"/"no") as a user message:
           // the user picked it from the approval buttons, they did not type it.
-          runAgent(new Command({ resume: message.text }), { kind: "resume", text: message.text }).finally(() => {
+          runAgent({ kind: "resume", answer: message.text }, { kind: "resume", text: message.text }).finally(() => {
             applicationStatusStore.setLoading(false);
           });
         } else {
@@ -132,17 +128,11 @@ const useChatService = () => {
     }
   };
 
-  const _buildAgentInput = (text: string, summary: string | null = null) => ({
-    modelName: applicationStatusStore.selectedModel,
-    modelApiKey: applicationStatusStore.apiKey,
+  const _buildAgentInput = (text: string, summary: string | null = null): AgentInput => ({
+    kind: "message",
     // When the session was just compacted, prepend the summary so the agent keeps
     // the earlier context even though the model-side history was wiped.
-    messages: summary
-      ? [
-          { role: "user", content: `Summary of the earlier (compacted) conversation:\n${summary}` },
-          { role: "user", content: text },
-        ]
-      : [{ role: "user", content: text }],
+    text: summary ? `Summary of the earlier (compacted) conversation:\n${summary}\n\n${text}` : text,
   });
 
   // Estimate the next prompt's input tokens from the previous response and the
@@ -172,7 +162,7 @@ const useChatService = () => {
     if (retryContext.kind === "explain") {
       analyzeEvent(getExplainMessage(retryContext.text)).finally(() => applicationStatusStore.setLoading(false));
     } else if (retryContext.kind === "resume") {
-      runAgent(new Command({ resume: retryContext.text }), retryContext).finally(() =>
+      runAgent({ kind: "resume", answer: retryContext.text }, retryContext).finally(() =>
         applicationStatusStore.setLoading(false),
       );
     } else {
@@ -196,7 +186,7 @@ const useChatService = () => {
       applicationStatusStore.removeErrorMessages();
       applicationStatusStore.setLoading(true);
       log.debug("Resuming interrupted conversation with answer: ", option);
-      runAgent(new Command({ resume: option }), { kind: "resume", text: option }).finally(() => {
+      runAgent({ kind: "resume", answer: option }, { kind: "resume", text: option }).finally(() => {
         applicationStatusStore.setLoading(false);
       });
     } catch {
@@ -226,22 +216,12 @@ const useChatService = () => {
     }
   };
 
-  const isApprovalInterrupt = (value: unknown): value is ApprovalInterrupt => {
-    return (
-      typeof value === "object" &&
-      value !== null &&
-      "question" in value &&
-      "options" in value &&
-      "actionToApprove" in value &&
-      "requestString" in value
-    );
-  };
-
-  const runAgent = async (agentInput: object | Command, retryContext: RetryContext) => {
+  const runAgent = async (agentInput: AgentInput, retryContext: RetryContext) => {
     try {
       const activeAgent = await applicationStatusStore.getActiveAgent();
-      const agentService: AgentService = useAgentService(activeAgent);
-      const agentResponseStream = agentService.run(agentInput, applicationStatusStore.conversationId);
+      const { getModel } = useModelProvider();
+      const agentService: AgentService = useAgentService(activeAgent, (onReasoning) => getModel({ onReasoning }));
+      const agentResponseStream = agentService.run(agentInput);
       let endedWithInterrupt = false;
       let autoApproveAndResume = false;
       for await (const chunk of agentResponseStream) {
@@ -260,9 +240,7 @@ const useChatService = () => {
 
         // Token usage deltas are summed into the per-session counter (and the
         // cost derived from it) shown next to the model list. Emitted live per
-        // completed LLM call, so the counter and cost move during a turn; a
-        // negative delta on a transient-error retry rolls back the failed
-        // attempt's contribution.
+        // completed model call, so the counter and cost move during a turn.
         if (isTokenUsageChunk(chunk)) {
           applicationStatusStore.addTokenUsage(chunk.tokenUsage);
           continue;
@@ -278,24 +256,24 @@ const useChatService = () => {
           continue;
         }
 
-        // check if the chunk is an approval interrupt
-        if (isApprovalInterrupt(chunk.value)) {
+        // A tool approval request pauses the run until it is answered.
+        if (isApprovalChunk(chunk)) {
           log.debug("Approval interrupt received: ", chunk);
           if (applicationStatusStore.bypassApprovals) {
             log.debug("Bypass approvals mode enabled: auto-approving tool use");
-            const interruptMessage = getInterruptMessage(chunk, false);
+            const interruptMessage = getInterruptMessage(chunk.approval, false);
             interruptMessage.approved = true;
             _sendMessage(interruptMessage);
             autoApproveAndResume = true;
           } else {
-            _sendMessage(getInterruptMessage(chunk, false));
+            _sendMessage(getInterruptMessage(chunk.approval, false));
             endedWithInterrupt = true;
           }
         }
       }
       applicationStatusStore.setConversationInterrupted(endedWithInterrupt);
       if (autoApproveAndResume) {
-        await runAgent(new Command({ resume: "yes" }), retryContext);
+        await runAgent({ kind: "resume", answer: APPROVE_OPTION }, retryContext);
       }
     } catch (error) {
       log.error("Error while running Freelens Agent: ", error);

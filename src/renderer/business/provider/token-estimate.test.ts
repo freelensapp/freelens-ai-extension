@@ -22,6 +22,15 @@ describe("messageContentToText", () => {
     expect(messageContentToText(content)).toBe("caption");
   });
 
+  it("reads Strands text, tool-use and tool-result blocks", () => {
+    const content = [
+      { type: "textBlock", text: "checking " },
+      { type: "toolUseBlock", name: "getNamespaces", toolUseId: "t1", input: { a: 1 } },
+      { type: "toolResultBlock", toolUseId: "t1", status: "success", content: [{ type: "textBlock", text: "ok" }] },
+    ];
+    expect(messageContentToText(content)).toBe('checking {"a":1}ok');
+  });
+
   it("returns an empty string for an empty array", () => {
     expect(messageContentToText([])).toBe("");
   });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
-import { buildStrandsOpenAIModelOptions } from "./strands-openai-model";
+import { buildStrandsOpenAIModelOptions, extractChunkReasoning } from "./strands-openai-model";
 
 const baseOptions = {
   apiKey: "sk-test",
@@ -22,6 +22,11 @@ describe("buildStrandsOpenAIModelOptions", () => {
     expect(options.clientConfig?.defaultHeaders).toMatchObject({
       [UPSTREAM_BASE_URL_HEADER]: "https://api.openai.com/v1",
     });
+  });
+
+  it("allows the OpenAI client in the Electron renderer", () => {
+    const options = buildStrandsOpenAIModelOptions({ ...baseOptions, modelName: "gpt-4.1" });
+    expect(options.clientConfig?.dangerouslyAllowBrowser).toBe(true);
   });
 
   it("sends the proxy token header when a token is provided", () => {
@@ -72,5 +77,22 @@ describe("buildStrandsOpenAIModelOptions", () => {
   it("omits params entirely when nothing extra is configured", () => {
     const options = asChat(buildStrandsOpenAIModelOptions({ ...baseOptions, modelName: "gpt-5.5" }));
     expect(options.params).toBeUndefined();
+  });
+});
+
+describe("extractChunkReasoning", () => {
+  it("reads reasoning_content from the first choice delta", () => {
+    expect(extractChunkReasoning({ choices: [{ delta: { reasoning_content: "thinking" } }] })).toBe("thinking");
+  });
+
+  it("falls back to the reasoning field", () => {
+    expect(extractChunkReasoning({ choices: [{ delta: { reasoning: "why" } }] })).toBe("why");
+  });
+
+  it("returns an empty string for answer-only, usage-only and malformed chunks", () => {
+    expect(extractChunkReasoning({ choices: [{ delta: { content: "answer" } }] })).toBe("");
+    expect(extractChunkReasoning({ choices: [], usage: { prompt_tokens: 1 } })).toBe("");
+    expect(extractChunkReasoning({ choices: [{ delta: { reasoning_content: 42 } }] })).toBe("");
+    expect(extractChunkReasoning(null)).toBe("");
   });
 });

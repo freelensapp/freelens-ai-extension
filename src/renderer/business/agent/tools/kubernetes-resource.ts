@@ -1,7 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
-import { interrupt } from "@langchain/langgraph";
 import { stringify as stringifyYaml } from "yaml";
 import { PreferencesStore } from "../../../../common/store";
+import { DENIED_ACTION_MESSAGE, requestApproval } from "./approval";
 import { type KubernetesVersionInfo, summarizeClusterVersion } from "./cluster-version";
 import { buildFieldSelector } from "./field-filter";
 import {
@@ -29,6 +29,8 @@ import {
   resolveApiVersion,
   validateManifest,
 } from "./resource-handlers";
+
+import type { ToolContext } from "@strands-agents/sdk";
 
 type KubeApi = Renderer.K8sApi.KubeApi;
 type KubeObject = Renderer.K8sApi.KubeObject;
@@ -146,34 +148,6 @@ function resolveTarget(kind: string, apiVersion?: string): ResolvedTarget | stri
     return `Could not resolve a store for kind "${kind}".`;
   }
   return { api, store };
-}
-
-/**
- * Run the human-in-the-loop approval gate for a write operation. When
- * `resourcesYaml` is provided it carries the current full YAML of the resources
- * the action will change, presented as a folded backup so the change can be
- * reverted.
- */
-function requestApproval(action: string, payload: Record<string, unknown>, resourcesYaml?: string): boolean {
-  const actionToApprove = { action, ...payload };
-  // Render the payload as YAML, the native format of the Kubernetes world,
-  // so the approval prompt is highlighted as YAML rather than JSON.
-  const actionString = stringifyYaml(actionToApprove);
-  const interruptRequest = {
-    question: "Do you want to approve this action?",
-    options: ["yes", "no"],
-    actionToApprove,
-    // Structured fields consumed by the Interrupt component to render foldable
-    // "Action details" and "Resources that will be changed" sections.
-    actionString,
-    resourcesString: resourcesYaml,
-    // Markdown fallback for renderers that do not understand the structured
-    // fields (for example the MCP tool approval prompt).
-    requestString: "```yaml\n" + actionString + "```",
-  };
-  const review = interrupt(interruptRequest);
-  console.log("Tool call review: ", review);
-  return review === "yes";
 }
 
 /**
@@ -372,13 +346,10 @@ export async function getClusterVersion(): Promise<string> {
  * Create a resource. Known kinds are validated and prepared via their handler;
  * unknown kinds (CRDs) are applied as free YAML/JSON.
  */
-export async function createKubernetesResource({
-  kind,
-  apiVersion,
-  name,
-  namespace,
-  data,
-}: CreateResourceInput): Promise<string> {
+export async function createKubernetesResource(
+  { kind, apiVersion, name, namespace, data }: CreateResourceInput,
+  context?: ToolContext,
+): Promise<string> {
   console.log("[Tool invocation: createKubernetesResource] - kind:", kind);
   const target = resolveTarget(kind, apiVersion);
   if (typeof target === "string") {
@@ -399,13 +370,13 @@ export async function createKubernetesResource({
   }
 
   if (
-    !requestApproval(`CREATE ${kind.toUpperCase()}`, {
+    !requestApproval(context, `CREATE ${kind.toUpperCase()}`, {
       name: resourceName,
       namespace: resourceNamespace,
       data: manifest,
     })
   ) {
-    return "The user denied the action";
+    return DENIED_ACTION_MESSAGE;
   }
 
   try {
@@ -425,13 +396,10 @@ export async function createKubernetesResource({
  * Update a resource (maps to a PUT). Loads the existing object first, then
  * replaces it with the provided manifest.
  */
-export async function updateKubernetesResource({
-  kind,
-  apiVersion,
-  name,
-  namespace,
-  data,
-}: WriteResourceInput): Promise<string> {
+export async function updateKubernetesResource(
+  { kind, apiVersion, name, namespace, data }: WriteResourceInput,
+  context?: ToolContext,
+): Promise<string> {
   console.log("[Tool invocation: updateKubernetesResource] - kind:", kind, "name:", name);
   const target = resolveTarget(kind, apiVersion);
   if (typeof target === "string") {
@@ -449,8 +417,8 @@ export async function updateKubernetesResource({
   const manifest = prepareManifest(kind, validation.data);
 
   const backup = await captureResourceYaml(store, api.isNamespaced, name, namespace);
-  if (!requestApproval(`UPDATE ${kind.toUpperCase()}`, { name, namespace, data: manifest }, backup)) {
-    return "The user denied the action";
+  if (!requestApproval(context, `UPDATE ${kind.toUpperCase()}`, { name, namespace, data: manifest }, backup)) {
+    return DENIED_ACTION_MESSAGE;
   }
 
   try {
@@ -471,14 +439,10 @@ export async function updateKubernetesResource({
  * Patch a resource (maps to a PATCH). Loads the existing object first, then
  * applies the provided partial manifest as a merge patch.
  */
-export async function patchKubernetesResource({
-  kind,
-  apiVersion,
-  name,
-  namespace,
-  data,
-  subresource,
-}: WriteResourceInput): Promise<string> {
+export async function patchKubernetesResource(
+  { kind, apiVersion, name, namespace, data, subresource }: WriteResourceInput,
+  context?: ToolContext,
+): Promise<string> {
   const normalizedSubresource = normalizeSubresource(subresource);
   console.log(
     "[Tool invocation: patchKubernetesResource] - kind:",
@@ -500,12 +464,13 @@ export async function patchKubernetesResource({
   const backup = await captureResourceYaml(store, api.isNamespaced, name, namespace);
   if (
     !requestApproval(
+      context,
       `PATCH ${kind.toUpperCase()}`,
       { name, namespace, subresource: normalizedSubresource, data },
       backup,
     )
   ) {
-    return "The user denied the action";
+    return DENIED_ACTION_MESSAGE;
   }
 
   try {
@@ -550,13 +515,10 @@ export async function patchKubernetesResource({
  * - `force_finalize`: clear the object's finalizers via a merge patch so a
  *   resource stuck in `Terminating` can be removed (`store.patch`).
  */
-export async function deleteKubernetesResource({
-  kind,
-  apiVersion,
-  name,
-  namespace,
-  mode = DEFAULT_DELETE_MODE,
-}: DeleteResourceInput): Promise<string> {
+export async function deleteKubernetesResource(
+  { kind, apiVersion, name, namespace, mode = DEFAULT_DELETE_MODE }: DeleteResourceInput,
+  context?: ToolContext,
+): Promise<string> {
   console.log("[Tool invocation: deleteKubernetesResource] - kind:", kind, "name:", name, "mode:", mode);
   const target = resolveTarget(kind, apiVersion);
   if (typeof target === "string") {
@@ -568,8 +530,8 @@ export async function deleteKubernetesResource({
   }
 
   const backup = await captureResourceYaml(store, api.isNamespaced, name, namespace);
-  if (!requestApproval(`DELETE ${kind.toUpperCase()}`, { name, namespace, mode }, backup)) {
-    return "The user denied the action";
+  if (!requestApproval(context, `DELETE ${kind.toUpperCase()}`, { name, namespace, mode }, backup)) {
+    return DENIED_ACTION_MESSAGE;
   }
 
   try {
@@ -613,7 +575,7 @@ export async function deleteKubernetesResource({
  * - `delete_with_finalizers`: delete the pod and clear its finalizers so a pod
  *   stuck in `Terminating` is removed (`podsApi.deleteWithFinalizers`).
  */
-export async function deletePod({ name, namespace, mode }: DeletePodInput): Promise<string> {
+export async function deletePod({ name, namespace, mode }: DeletePodInput, context?: ToolContext): Promise<string> {
   console.log("[Tool invocation: deletePod] - name:", name, "namespace:", namespace, "mode:", mode);
   if (!namespace) {
     return `Pods are namespaced; please provide a namespace to delete "${name}".`;
@@ -623,8 +585,8 @@ export async function deletePod({ name, namespace, mode }: DeletePodInput): Prom
   const podsStore = Renderer.K8sApi.apiManager.getStore(podsApi);
   const backup = podsStore ? await captureResourceYaml(podsStore, podsApi.isNamespaced, name, namespace) : undefined;
 
-  if (!requestApproval(`DELETE POD (${mode})`, { name, namespace, mode }, backup)) {
-    return "The user denied the action";
+  if (!requestApproval(context, `DELETE POD (${mode})`, { name, namespace, mode }, backup)) {
+    return DENIED_ACTION_MESSAGE;
   }
 
   try {
@@ -651,7 +613,10 @@ export async function deletePod({ name, namespace, mode }: DeletePodInput): Prom
  * This rolls the pods without deleting them directly. Only restartable kinds are
  * accepted; a namespace is always required.
  */
-export async function restartKubernetesResource({ kind, name, namespace }: RestartResourceInput): Promise<string> {
+export async function restartKubernetesResource(
+  { kind, name, namespace }: RestartResourceInput,
+  context?: ToolContext,
+): Promise<string> {
   console.log("[Tool invocation: restartKubernetesResource] - kind:", kind, "name:", name, "namespace:", namespace);
   if (!isRestartableKind(kind)) {
     return `Restart is not supported for kind "${kind}". Supported kinds: ${RESTARTABLE_KINDS.join(", ")}.`;
@@ -666,8 +631,8 @@ export async function restartKubernetesResource({ kind, name, namespace }: Resta
 
   const store = Renderer.K8sApi.apiManager.getStore(api);
   const backup = store ? await captureResourceYaml(store, api.isNamespaced, name, namespace) : undefined;
-  if (!requestApproval(`RESTART ${kind.toUpperCase()}`, { name, namespace }, backup)) {
-    return "The user denied the action";
+  if (!requestApproval(context, `RESTART ${kind.toUpperCase()}`, { name, namespace }, backup)) {
+    return DENIED_ACTION_MESSAGE;
   }
 
   try {
@@ -686,7 +651,7 @@ export async function restartKubernetesResource({ kind, name, namespace }: Resta
  * `podLogsRequireApproval` preference), then fetches the logs and caps the
  * output so it cannot overflow the model context.
  */
-export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
+export async function getPodLogs(input: GetPodLogsInput, context?: ToolContext): Promise<string> {
   const { name, namespace, container, previous, timestamps } = input;
   console.log(
     "[Tool invocation: getPodLogs] - name:",
@@ -738,9 +703,9 @@ export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
 
   if (
     preferences.podLogsRequireApproval &&
-    !requestApproval("READ LOGS POD", { name, namespace, container: selectedContainer, previous })
+    !requestApproval(context, "READ LOGS POD", { name, namespace, container: selectedContainer, previous })
   ) {
-    return "The user denied the action";
+    return DENIED_ACTION_MESSAGE;
   }
 
   try {

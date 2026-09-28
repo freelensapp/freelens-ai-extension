@@ -1,15 +1,13 @@
 // Pure helpers for deciding when a chat session must be compacted and for
 // building the summarization prompt used to compact it.
 //
-// Kept free of host/MobX/network/LangChain-runtime dependencies so the decision
-// math and prompt assembly can be unit-tested in isolation (see
-// session-compaction.test.ts). The impure parts - reading the model-side
-// history, invoking the model to summarize, and wiping the LangGraph thread -
-// live in session-compaction-service.ts and application-context.tsx.
+// Kept free of host/MobX/network/SDK-runtime dependencies so the decision math
+// and prompt assembly can be unit-tested in isolation (see
+// session-compaction.test.ts). The impure parts - reading the agent history,
+// invoking the model to summarize, and resetting the agent session - live in
+// session-compaction-service.ts and application-context.tsx.
 
-import { messageContentToText } from "../provider/token-estimate";
-
-import type { MessageContent } from "@langchain/core/messages";
+import { type MessageContent, messageContentToText } from "../provider/token-estimate";
 
 import type { ModelPricing } from "../provider/model-pricing";
 
@@ -66,10 +64,10 @@ export interface SummarizableMessage {
   content: string;
 }
 
-// Minimal shape of the LangChain messages held in the agent's LangGraph state.
-// Only the fields read to render the conversation are described.
+// Minimal shape of the Strands messages held in the agent history. Only the
+// fields read to render the conversation are described.
 export interface HistoryMessageLike {
-  getType?: () => string;
+  role?: string;
   content: MessageContent;
 }
 
@@ -79,7 +77,7 @@ export interface HistoryMessageLike {
  */
 export const toSummarizableMessages = (messages: HistoryMessageLike[]): SummarizableMessage[] =>
   messages.map((message) => ({
-    role: typeof message.getType === "function" ? message.getType() : "message",
+    role: typeof message.role === "string" ? message.role : "message",
     content: messageContentToText(message.content),
   }));
 
