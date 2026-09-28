@@ -1,72 +1,59 @@
 import { describe, expect, it } from "vitest";
-import { AIProviders, type CustomModel } from "./ai-models";
+import { AIProviders, type ProviderConfig } from "./ai-models";
 import { buildAgentReadinessInput, isAgentConfigured } from "./chat-readiness";
 
-const openAiModels: CustomModel[] = [
-  { provider: AIProviders.OPEN_AI, name: "gpt-5.5" },
-  { provider: AIProviders.OPEN_AI, name: "gpt-5.4" },
-];
-
-describe("isAgentConfigured", () => {
-  it("is false when the model list is empty", () => {
-    expect(isAgentConfigured({ models: [], selectedModel: "", openAIKey: "sk-test" })).toBe(false);
-  });
-
-  it("is false when an OpenAI model is selected but no key is set", () => {
-    expect(isAgentConfigured({ models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "" })).toBe(false);
-  });
-
-  it("treats a whitespace-only key as unset", () => {
-    expect(isAgentConfigured({ models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "   " })).toBe(false);
-  });
-
-  it("is true when an OpenAI model has a stored key", () => {
-    expect(isAgentConfigured({ models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "sk-test" })).toBe(true);
-  });
-
-  it("is true when only the environment key is set", () => {
-    expect(
-      isAgentConfigured({ models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "", envOpenAIKey: "sk-env" }),
-    ).toBe(true);
-  });
-
-  it("falls back to the first model's provider when the selection does not match", () => {
-    expect(isAgentConfigured({ models: openAiModels, selectedModel: "unknown", openAIKey: "" })).toBe(false);
-    expect(isAgentConfigured({ models: openAiModels, selectedModel: "unknown", openAIKey: "sk-test" })).toBe(true);
-  });
+const provider = (overrides: Partial<ProviderConfig> = {}): ProviderConfig => ({
+  id: "openai",
+  name: "OpenAI",
+  type: AIProviders.OPEN_AI,
+  baseUrl: "",
+  apiKey: "sk-test",
+  models: ["gpt-5.5", "gpt-5.4"],
+  ...overrides,
 });
 
-describe("isAgentConfigured with an Anthropic model", () => {
-  const models: CustomModel[] = [
-    { provider: AIProviders.OPEN_AI, name: "gpt-5.5" },
-    { provider: AIProviders.ANTHROPIC, name: "claude-sonnet-4-5" },
-  ];
+const input = (providers: ProviderConfig[], selectedProviderId = "openai", selectedModel = "gpt-5.5") => ({
+  providers,
+  selectedProviderId,
+  selectedModel,
+  env: {},
+});
 
-  it("requires the Anthropic key, not the OpenAI one", () => {
-    expect(isAgentConfigured({ models, selectedModel: "claude-sonnet-4-5", openAIKey: "sk-test" })).toBe(false);
-    expect(
-      isAgentConfigured({ models, selectedModel: "claude-sonnet-4-5", openAIKey: "", anthropicKey: "sk-ant" }),
-    ).toBe(true);
+describe("isAgentConfigured", () => {
+  it("is not configured without providers", () => {
+    expect(isAgentConfigured(input([], "", ""))).toBe(false);
   });
 
-  it("accepts the Anthropic key from the environment", () => {
-    expect(
-      isAgentConfigured(
-        buildAgentReadinessInput(
-          { models, selectedModel: "claude-sonnet-4-5", openAIKey: "", anthropicKey: "" },
-          { ANTHROPIC_API_KEY: "sk-env" },
-        ),
-      ),
-    ).toBe(true);
+  it("is not configured without an API key", () => {
+    expect(isAgentConfigured(input([provider({ apiKey: "" })]))).toBe(false);
+    expect(isAgentConfigured(input([provider({ apiKey: "   " })]))).toBe(false);
   });
 
-  it("does not let the Anthropic key configure an OpenAI model", () => {
-    expect(isAgentConfigured({ models, selectedModel: "gpt-5.5", openAIKey: "", anthropicKey: "sk-ant" })).toBe(false);
+  it("is configured with a model and a key", () => {
+    expect(isAgentConfigured(input([provider()]))).toBe(true);
+  });
+
+  it("is not configured when the selected model or provider no longer exists", () => {
+    expect(isAgentConfigured(input([provider()], "openai", "removed"))).toBe(false);
+    expect(isAgentConfigured(input([provider()], "removed", "gpt-5.5"))).toBe(false);
+  });
+
+  it("uses the key of the selected model's provider only", () => {
+    const providers = [
+      provider({ apiKey: "" }),
+      provider({ id: "claude", type: AIProviders.ANTHROPIC, apiKey: "sk-ant", models: ["claude-sonnet-4-5"] }),
+    ];
+    expect(isAgentConfigured(input(providers, "claude", "claude-sonnet-4-5"))).toBe(true);
+    expect(isAgentConfigured(input(providers, "openai", "gpt-5.5"))).toBe(false);
   });
 });
 
 describe("buildAgentReadinessInput", () => {
-  const prefsWithoutStoredKey = { models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "" };
+  const prefsWithoutStoredKey = {
+    providers: [provider({ apiKey: "" })],
+    selectedProviderId: "openai",
+    selectedModel: "gpt-5.5",
+  };
 
   it("picks up the key from the environment", () => {
     expect(isAgentConfigured(buildAgentReadinessInput(prefsWithoutStoredKey, { OPENAI_API_KEY: "sk-env" }))).toBe(true);
@@ -82,11 +69,9 @@ describe("buildAgentReadinessInput", () => {
     expect(isAgentConfigured(buildAgentReadinessInput(prefsWithoutStoredKey, { OPENAI_API_KEY: "   " }))).toBe(false);
   });
 
-  it("keeps working with the stored key alone", () => {
-    expect(
-      isAgentConfigured(
-        buildAgentReadinessInput({ models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "sk-test" }, {}),
-      ),
-    ).toBe(true);
+  it("resolves an {env:NAME} key like the proxy", () => {
+    const prefs = { ...prefsWithoutStoredKey, providers: [provider({ apiKey: "{env:OPENCODE_API_KEY}" })] };
+    expect(isAgentConfigured(buildAgentReadinessInput(prefs, { OPENCODE_API_KEY: "sk-oc" }))).toBe(true);
+    expect(isAgentConfigured(buildAgentReadinessInput(prefs, { OPENAI_API_KEY: "sk-env" }))).toBe(false);
   });
 });

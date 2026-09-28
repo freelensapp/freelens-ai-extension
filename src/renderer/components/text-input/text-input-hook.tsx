@@ -2,6 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 import * as React from "react";
 import { PreferencesStore } from "../../../common/store";
 import { buildAgentReadinessInput, isAgentConfigured } from "../../business/provider/chat-readiness";
+import { listModels, modelKey } from "../../business/provider/provider-list";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { navigateToExtensionPreferences } from "../../navigation/navigate-to-extension-preferences";
 
@@ -30,10 +31,16 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
   const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
   const applicationStatusStore = useApplicationStatusStore();
 
-  const modelSelections = preferencesStore.models.map((model) => ({ value: model.name, label: model.name }));
+  // With several providers the label names the provider too, since two of them
+  // may offer a model with the same name.
+  const showProvider = preferencesStore.providers.filter((provider) => provider.models.length > 0).length > 1;
+  const modelSelections = listModels(preferencesStore.providers).map((option) => ({
+    value: modelKey(option),
+    label: showProvider ? `${option.providerName} / ${option.model}` : option.model,
+  }));
 
   // Show the model dropdown only when the agent is ready to chat. Otherwise
-  // (no models left, or no OpenAI key set) the UI offers a single button that
+  // (no models left, or no API key set for the selected model's provider) the UI offers a single button that
   // links to this extension's preferences.
   const agentConfigured = isAgentConfigured(buildAgentReadinessInput(preferencesStore));
 

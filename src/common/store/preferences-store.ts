@@ -1,28 +1,29 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
+import { createDefaultProviders, type ProviderConfig } from "../../renderer/business/provider/ai-models";
 import {
-  type CustomModel,
-  DEFAULT_ANTHROPIC_BASE_URL,
-  DEFAULT_MODELS,
-  DEFAULT_OPENAI_BASE_URL,
-} from "../../renderer/business/provider/ai-models";
-import { resolveSelectedModel } from "../../renderer/business/provider/model-list";
+  type LegacyProviderPreferences,
+  migrateLegacyProviders,
+  resolveSelection,
+  sanitizeProviders,
+} from "../../renderer/business/provider/provider-list";
 
 import type { MessageObject } from "../../renderer/business/objects/message-object";
 
-const DEFAULT_SELECTED_MODEL = DEFAULT_MODELS[0]?.name ?? "";
+const DEFAULT_SELECTION = resolveSelection(createDefaultProviders(), {});
 
-export interface PreferencesModel {
-  openAIKey: string;
-  openAIBaseUrl: string;
+// The old per-protocol fields (openAIKey, models, ...) are still read once to
+// build the provider list, then no longer written.
+export interface PreferencesModel extends LegacyProviderPreferences {
+  // Null until the provider list exists: preferences saved before it are then
+  // migrated from the old fields (see fromStore).
+  providers: ProviderConfig[] | null;
   openAIReasoningEffort: string;
-  anthropicKey: string;
-  anthropicBaseUrl: string;
   disableThinking: boolean;
   aiProxyPort: number | null;
   aiProxyToken: string | null;
+  selectedProviderId: string;
   selectedModel: string;
-  models: CustomModel[];
   mcpEnabled: boolean;
   mcpConfiguration: string;
   podLogsRequireApproval: boolean;
@@ -34,19 +35,17 @@ export const DEFAULT_POD_LOGS_TAIL_LINES = 1000;
 
 export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesModel> {
   // Persistent
-  openAIKey: string = "";
-  openAIBaseUrl: string = DEFAULT_OPENAI_BASE_URL;
+  providers: ProviderConfig[] = createDefaultProviders();
   openAIReasoningEffort: string = "";
-  anthropicKey: string = "";
-  anthropicBaseUrl: string = DEFAULT_ANTHROPIC_BASE_URL;
   disableThinking: boolean = false;
   aiProxyPort: number | null = null;
   // Per-launch shared secret required on every request to the local AI proxy.
   // Generated in the main process on activation and synced to the renderer via
   // this store; blocks other local processes that learn the port from using it.
   aiProxyToken: string | null = null;
-  selectedModel: string = DEFAULT_SELECTED_MODEL;
-  models: CustomModel[] = [...DEFAULT_MODELS];
+  // The chat's model: `selectedModel` of the provider `selectedProviderId`.
+  selectedProviderId: string = DEFAULT_SELECTION.providerId;
+  selectedModel: string = DEFAULT_SELECTION.model;
   mcpEnabled: boolean = false;
   mcpConfiguration: string = "";
   // When enabled, reading pod logs goes through the human-in-the-loop approval
@@ -66,16 +65,15 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     super({
       configName: "freelens-ai-preferences-store",
       defaults: {
-        openAIKey: "",
-        openAIBaseUrl: DEFAULT_OPENAI_BASE_URL,
+        providers: null,
         openAIReasoningEffort: "",
-        anthropicKey: "",
-        anthropicBaseUrl: DEFAULT_ANTHROPIC_BASE_URL,
         disableThinking: false,
         aiProxyPort: null,
         aiProxyToken: null,
-        selectedModel: DEFAULT_SELECTED_MODEL,
-        models: [...DEFAULT_MODELS],
+        // Empty so a selection saved before the provider list (model name only)
+        // is matched by name instead of against the default provider.
+        selectedProviderId: "",
+        selectedModel: DEFAULT_SELECTION.model,
         mcpEnabled: false,
         podLogsRequireApproval: true,
         podLogsTailLines: DEFAULT_POD_LOGS_TAIL_LINES,
@@ -100,16 +98,13 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     // explicit form reads the initialized field values directly and works
     // regardless of how the build emits class fields.
     makeObservable(this, {
-      openAIKey: observable,
-      openAIBaseUrl: observable,
+      providers: observable,
       openAIReasoningEffort: observable,
-      anthropicKey: observable,
-      anthropicBaseUrl: observable,
       disableThinking: observable,
       aiProxyPort: observable,
       aiProxyToken: observable,
+      selectedProviderId: observable,
       selectedModel: observable,
-      models: observable,
       mcpEnabled: observable,
       mcpConfiguration: observable,
       podLogsRequireApproval: observable,
@@ -125,19 +120,22 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   }
 
   fromStore(preferencesModel: PreferencesModel): void {
-    this.openAIKey = preferencesModel.openAIKey;
-    this.openAIBaseUrl = preferencesModel.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
+    this.providers = Array.isArray(preferencesModel.providers)
+      ? sanitizeProviders(preferencesModel.providers)
+      : migrateLegacyProviders(preferencesModel);
     this.openAIReasoningEffort = preferencesModel.openAIReasoningEffort ?? "";
-    // Absent from preferences saved before the Anthropic provider existed.
-    this.anthropicKey = preferencesModel.anthropicKey ?? "";
-    this.anthropicBaseUrl = preferencesModel.anthropicBaseUrl || DEFAULT_ANTHROPIC_BASE_URL;
     this.disableThinking = preferencesModel.disableThinking ?? false;
     this.aiProxyPort = preferencesModel.aiProxyPort ?? null;
     this.aiProxyToken = preferencesModel.aiProxyToken ?? null;
-    this.models = preferencesModel.models?.length ? preferencesModel.models : [...DEFAULT_MODELS];
     // Validate the selection against the available models; fall back to the
-    // first entry (replaces the old enum validation).
-    this.selectedModel = resolveSelectedModel(this.models, preferencesModel.selectedModel);
+    // first one. A selection saved before the provider list has no provider id
+    // and matches the first provider offering that model.
+    const selection = resolveSelection(this.providers, {
+      providerId: preferencesModel.selectedProviderId,
+      model: preferencesModel.selectedModel,
+    });
+    this.selectedProviderId = selection.providerId;
+    this.selectedModel = selection.model;
     this.mcpEnabled = preferencesModel.mcpEnabled;
     this.mcpConfiguration = preferencesModel.mcpConfiguration;
     this.podLogsRequireApproval = preferencesModel.podLogsRequireApproval ?? true;
@@ -149,22 +147,19 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   }
 
   toJSON(): PreferencesModel {
-    // `models` is an observable array; the host persists this value by sending
+    // `providers` is an observable array; the host persists this value by sending
     // it over IPC, which structure-clones it. A live MobX proxy cannot be
     // cloned ("An object could not be cloned"), so convert it to a plain array.
     // `toJS` must be applied to the observable itself: it is a no-op on a plain
     // wrapper object and does not recurse into non-observables.
     return {
-      openAIKey: this.openAIKey,
-      openAIBaseUrl: this.openAIBaseUrl,
+      providers: toJS(this.providers),
       openAIReasoningEffort: this.openAIReasoningEffort,
-      anthropicKey: this.anthropicKey,
-      anthropicBaseUrl: this.anthropicBaseUrl,
       disableThinking: this.disableThinking,
       aiProxyPort: this.aiProxyPort,
       aiProxyToken: this.aiProxyToken,
+      selectedProviderId: this.selectedProviderId,
       selectedModel: this.selectedModel,
-      models: toJS(this.models),
       mcpEnabled: this.mcpEnabled,
       mcpConfiguration: this.mcpConfiguration,
       podLogsRequireApproval: this.podLogsRequireApproval,

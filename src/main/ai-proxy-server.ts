@@ -21,6 +21,10 @@ const PROXY_TOKEN_HEADER = "x-ai-proxy-token";
 // browser CORS, so the user's credentials must never travel with it.
 const NO_AUTH_HEADER = "x-ai-proxy-no-auth";
 
+// Header carrying the id of the configured provider the request is for. The
+// proxy resolves that provider's API key here in the main process.
+const PROVIDER_ID_HEADER = "x-ai-provider-id";
+
 // Prefix of the Anthropic-compatible route. Its key travels as `x-api-key`
 // instead of the `Authorization: Bearer` used by OpenAI-compatible endpoints.
 export const ANTHROPIC_PREFIX = "anthropic";
@@ -35,11 +39,11 @@ const UPSTREAM_BY_PREFIX: Record<string, string> = {
 
 let proxyServerStarted = false;
 let proxyServerPort: number | null = null;
-// Resolves the upstream API key for a route prefix ("openai", "anthropic")
-// inside the main process so the secret never has to be sent from (or stored
-// in) the renderer. Evaluated per request so a key changed in preferences takes
-// effect immediately.
-export type ApiKeyResolver = (prefix: string) => string | undefined;
+// Resolves the upstream API key of the provider a request is for (the id sent
+// in PROVIDER_ID_HEADER, undefined when absent) inside the main process so the
+// secret never has to be sent from (or stored in) the renderer. Evaluated per
+// request so a key changed in preferences takes effect immediately.
+export type ApiKeyResolver = (providerId: string | undefined) => string | undefined;
 
 let resolveApiKey: ApiKeyResolver = () => undefined;
 
@@ -53,7 +57,7 @@ let proxyAuthToken: string | null = null;
 // proxy never advertises itself as open to every origin.
 const CORS_ALLOW_METHODS = "GET,POST,OPTIONS";
 const CORS_ALLOW_HEADERS =
-  "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,x-stainless-timeout,x-stainless-helper,x-stainless-helper-method,accept,user-agent,x-upstream-base-url,x-ai-proxy-token,x-ai-proxy-no-auth," +
+  "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,x-stainless-timeout,x-stainless-helper,x-stainless-helper-method,accept,user-agent,x-upstream-base-url,x-ai-proxy-token,x-ai-proxy-no-auth,x-ai-provider-id," +
   // Sent by the Anthropic SDK.
   "x-api-key,anthropic-version,anthropic-beta,anthropic-dangerous-direct-browser-access";
 
@@ -75,7 +79,12 @@ const hopByHopHeaders = new Set([
 const credentialHeaders = new Set(["authorization", "x-api-key"]);
 
 // The proxy's own headers: consumed here, never meaningful upstream.
-const internalProxyHeaders = new Set([UPSTREAM_BASE_URL_HEADER, PROXY_TOKEN_HEADER, NO_AUTH_HEADER]);
+const internalProxyHeaders = new Set([
+  UPSTREAM_BASE_URL_HEADER,
+  PROXY_TOKEN_HEADER,
+  NO_AUTH_HEADER,
+  PROVIDER_ID_HEADER,
+]);
 
 // Headers Chromium attaches to every renderer request. They describe the calling
 // page rather than the request itself, and an upstream that enforces an origin
@@ -191,7 +200,16 @@ const createUpstreamHeaders = (request: IncomingMessage, prefix: string, applyAu
     }
   }
 
-  return applyAuth ? applyManagedAuthorization(headers, resolveApiKey(prefix), prefix) : headers;
+  if (!applyAuth) {
+    return headers;
+  }
+
+  const providerId = request.headers[PROVIDER_ID_HEADER];
+  return applyManagedAuthorization(
+    headers,
+    resolveApiKey(typeof providerId === "string" ? providerId : undefined),
+    prefix,
+  );
 };
 
 const proxyRequest = async (request: IncomingMessage, response: ServerResponse) => {

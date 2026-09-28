@@ -17,9 +17,10 @@ import {
 import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
-import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../business/provider/ai-models";
+import { AIProviders, providerBaseUrl } from "../business/provider/ai-models";
 import { computeSessionCost, type ModelPricingMap } from "../business/provider/model-pricing";
 import { fetchModelPricing } from "../business/provider/model-pricing-provider";
+import { listModels, modelKey, parseModelKey } from "../business/provider/provider-list";
 import { approximateTokenCount } from "../business/provider/token-estimate";
 import { resolveMaxInputTokens } from "../business/service/session-compaction";
 import { useSessionCompactionService } from "../business/service/session-compaction-service";
@@ -36,7 +37,7 @@ import type { MessageObject } from "../business/objects/message-object";
 export type CompactionStatus = "compacting" | "compacted" | null;
 
 export interface AppContextType {
-  apiKey: string;
+  // Key of the selected model (see modelKey): provider id + model name.
   selectedModel: string;
   mcpEnabled: boolean;
   mcpConfiguration: string;
@@ -131,13 +132,18 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
 
   // Fetch model pricing on start and whenever the model list, endpoint, or proxy
   // changes. Best-effort: failures leave the map empty and the cost is hidden.
-  const modelNames = preferencesStore.models.map((model) => model.name);
+  const modelNames = [...new Set(listModels(preferencesStore.providers).map((option) => option.model))];
   const modelNamesKey = modelNames.join(",");
+  // LiteLLM-style `/model/info` probes: one per OpenAI-compatible provider.
+  const pricingEndpoints = preferencesStore.providers
+    .filter((provider) => provider.type === AIProviders.OPEN_AI)
+    .map((provider) => ({ providerId: provider.id, baseUrl: providerBaseUrl(provider) }));
+  const pricingEndpointsKey = pricingEndpoints.map(({ providerId, baseUrl }) => `${providerId}=${baseUrl}`).join(",");
   useEffect(() => {
     let cancelled = false;
     fetchModelPricing({
       modelNames,
-      openAIBaseUrl: preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
+      endpoints: pricingEndpoints,
       proxyPort: preferencesStore.aiProxyPort,
       proxyToken: preferencesStore.aiProxyToken,
     })
@@ -150,7 +156,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     return () => {
       cancelled = true;
     };
-  }, [modelNamesKey, preferencesStore.openAIBaseUrl, preferencesStore.aiProxyPort, preferencesStore.aiProxyToken]);
+  }, [modelNamesKey, pricingEndpointsKey, preferencesStore.aiProxyPort, preferencesStore.aiProxyToken]);
 
   const _loadChatMessages = () => {
     // Durable: persisted in the host-managed ChatSessionStore so the transcript
@@ -379,19 +385,10 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
 
   const getActiveAgent = () => getFreelensAgent(clusterId, conversationId);
 
-  const setSelectedModel = (selectedModel: string) => {
-    preferencesStore.selectedModel = selectedModel;
-  };
-
-  // The API key to use depends on the selected model's provider.
-  const getApiKeyForSelectedModel = (): string => {
-    const provider = preferencesStore.models.find((model) => model.name === preferencesStore.selectedModel)?.provider;
-    switch (provider) {
-      case AIProviders.ANTHROPIC:
-        return preferencesStore.anthropicKey;
-      default:
-        return preferencesStore.openAIKey;
-    }
+  const setSelectedModel = (selectedModelKey: string) => {
+    const { providerId, model } = parseModelKey(selectedModelKey);
+    preferencesStore.selectedProviderId = providerId;
+    preferencesStore.selectedModel = model;
   };
 
   const setExplainEvent = (messageObject: MessageObject) => {
@@ -418,8 +415,10 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   return (
     <AppContext.Provider
       value={{
-        apiKey: getApiKeyForSelectedModel(),
-        selectedModel: preferencesStore.selectedModel,
+        selectedModel: modelKey({
+          providerId: preferencesStore.selectedProviderId,
+          model: preferencesStore.selectedModel,
+        }),
         mcpEnabled: preferencesStore.mcpEnabled,
         mcpConfiguration: preferencesStore.mcpConfiguration,
         bypassApprovals: preferencesStore.bypassApprovals,

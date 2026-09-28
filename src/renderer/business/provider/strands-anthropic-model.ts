@@ -5,7 +5,7 @@
 // Anthropic-compatible upstream advertised via UPSTREAM_BASE_URL_HEADER.
 
 import { AnthropicModel } from "@strands-agents/sdk/models/anthropic";
-import { PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
+import { PROVIDER_ID_HEADER, PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
 
 import type { AnthropicModelOptions } from "@strands-agents/sdk/models/anthropic";
 
@@ -25,6 +25,8 @@ export interface StrandsAnthropicModelOptions {
   proxyBaseUrl: string;
   // Per-launch shared secret sent to the proxy so it accepts the request.
   proxyToken?: string | null;
+  // Id of the configured provider; the proxy injects that provider's API key.
+  providerId?: string;
   // When true, request the upstream to disable its "thinking" mode; forwarded
   // verbatim via `params` so it reaches the request body.
   disableThinking?: boolean;
@@ -36,6 +38,7 @@ export const buildStrandsAnthropicModelOptions = ({
   upstreamBaseUrl,
   proxyBaseUrl,
   proxyToken,
+  providerId,
   disableThinking,
 }: StrandsAnthropicModelOptions): AnthropicModelOptions => {
   const options: AnthropicModelOptions = {
@@ -53,6 +56,7 @@ export const buildStrandsAnthropicModelOptions = ({
       defaultHeaders: {
         [UPSTREAM_BASE_URL_HEADER]: upstreamBaseUrl,
         ...(proxyToken ? { [PROXY_TOKEN_HEADER]: proxyToken } : {}),
+        ...(providerId ? { [PROVIDER_ID_HEADER]: providerId } : {}),
       },
     },
   };

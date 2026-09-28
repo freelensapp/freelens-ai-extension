@@ -4,11 +4,20 @@ import * as React from "react";
 import {
   AIProviders,
   DEFAULT_ANTHROPIC_BASE_URL,
-  DEFAULT_MODELS,
-  DEFAULT_OPENAI_BASE_URL,
+  defaultBaseUrl,
+  PROVIDER_ENV_KEYS,
   PROVIDER_LABELS,
+  type ProviderConfig,
 } from "../../business/provider/ai-models";
-import { addModel, removeModelAt, resolveSelectedModel } from "../../business/provider/model-list";
+import {
+  addModel,
+  addProvider,
+  changeProviderType,
+  removeModel,
+  removeProvider,
+  resolveSelection,
+  updateProvider,
+} from "../../business/provider/provider-list";
 
 import type { SingleValue } from "react-select";
 
@@ -88,11 +97,122 @@ const PROVIDER_OPTIONS: SelectOption<AIProviders>[] = Object.values(AIProviders)
   label: PROVIDER_LABELS[provider],
 }));
 
+// Replace the provider list and keep the chat's selection valid: if the
+// selected model or provider was removed, fall back to the first model left.
+const setProviders = (preferencesStore: PreferencesStore, providers: ProviderConfig[]) => {
+  preferencesStore.providers = providers;
+  const selection = resolveSelection(providers, {
+    providerId: preferencesStore.selectedProviderId,
+    model: preferencesStore.selectedModel,
+  });
+  preferencesStore.selectedProviderId = selection.providerId;
+  preferencesStore.selectedModel = selection.model;
+};
+
+const PROVIDER_DESCRIPTIONS: Record<AIProviders, string> = {
+  [AIProviders.OPEN_AI]:
+    "OpenAI or any service exposing the OpenAI Chat Completions API (LiteLLM, vLLM, Ollama, OpenRouter, OpenCode, ...).",
+  [AIProviders.ANTHROPIC]: `Anthropic or any service exposing the Anthropic Messages API. The base URL excludes the "/v1" suffix, e.g. ${DEFAULT_ANTHROPIC_BASE_URL}.`,
+};
+
+interface ProviderCardProps {
+  preferencesStore: PreferencesStore;
+  provider: ProviderConfig;
+}
+
+const ProviderCard = observer(({ preferencesStore, provider }: ProviderCardProps) => {
+  const [newModelName, setNewModelName] = useState<string>("");
+
+  const update = (patch: Partial<Omit<ProviderConfig, "id">>) =>
+    setProviders(preferencesStore, updateProvider(preferencesStore.providers, provider.id, patch));
+
+  const handleAddModel = () => {
+    // `addModel` trims the name and ignores empty/duplicate entries.
+    setProviders(preferencesStore, addModel(preferencesStore.providers, provider.id, newModelName));
+    setNewModelName("");
+  };
+
+  return (
+    <div style={{ border: "1px solid var(--borderColor, #555)", borderRadius: 4, padding: 12, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: "bold" }}>Name</div>
+          <Input
+            placeholder={PROVIDER_LABELS[provider.type]}
+            value={provider.name}
+            onChange={(value: string) => update({ name: value })}
+          />
+        </div>
+        <div style={{ minWidth: 220 }}>
+          <div style={{ fontWeight: "bold" }}>API</div>
+          <Select
+            options={PROVIDER_OPTIONS}
+            value={provider.type}
+            onChange={(option: SingleValue<SelectOption<AIProviders>>) =>
+              option &&
+              setProviders(preferencesStore, changeProviderType(preferencesStore.providers, provider.id, option.value))
+            }
+            themeName="lens"
+          />
+        </div>
+        <Icon
+          material="delete"
+          interactive
+          tooltip="Remove provider"
+          onClick={() => setProviders(preferencesStore, removeProvider(preferencesStore.providers, provider.id))}
+        />
+      </div>
+      <div style={{ fontSize: 12, marginTop: 4, opacity: 0.7 }}>{PROVIDER_DESCRIPTIONS[provider.type]}</div>
+      <div style={{ marginTop: 8, fontWeight: "bold" }}>Base URL</div>
+      <Input
+        placeholder={defaultBaseUrl(provider.type)}
+        value={provider.baseUrl}
+        onChange={(value: string) => update({ baseUrl: value })}
+      />
+      <div style={{ marginTop: 8, fontWeight: "bold" }}>API key</div>
+      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
+        The key itself, or {"{env:NAME}"} to read it from the NAME environment variable. When empty,{" "}
+        {PROVIDER_ENV_KEYS[provider.type]} is used.
+      </div>
+      <Input
+        type="password"
+        placeholder="API key or {env:NAME}"
+        value={provider.apiKey}
+        onChange={(value: string) => update({ apiKey: value })}
+      />
+      <div style={{ marginTop: 8, fontWeight: "bold" }}>Models</div>
+      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>The model name is sent to the provider API.</div>
+      {provider.models.map((model) => (
+        <div key={model} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <span style={{ flex: 1, fontFamily: "monospace" }}>{model}</span>
+          <Icon
+            material="delete"
+            small
+            interactive
+            tooltip="Remove model"
+            onClick={() => setProviders(preferencesStore, removeModel(preferencesStore.providers, provider.id, model))}
+          />
+        </div>
+      ))}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+        <div style={{ flex: 1 }}>
+          <Input
+            placeholder="Model name, e.g. gpt-5.5 or claude-sonnet-4-5"
+            value={newModelName}
+            onChange={(value: string) => setNewModelName(value)}
+            onSubmit={handleAddModel}
+          />
+        </div>
+        <Button primary label="Add model" onClick={handleAddModel} />
+      </div>
+    </div>
+  );
+});
+
 export const PreferencesPage = observer(() => {
   const preferencesStore: PreferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
-  const [newModelProvider, setNewModelProvider] = useState<AIProviders>(AIProviders.OPEN_AI);
-  const [newModelName, setNewModelName] = useState<string>("");
+  const [newProviderType, setNewProviderType] = useState<AIProviders>(AIProviders.OPEN_AI);
 
   const customAgentRulesField = useStoreValueOnBlur(
     preferencesStore.customAgentRules,
@@ -103,47 +223,39 @@ export const PreferencesPage = observer(() => {
     (next) => void preferencesStore.updateMcpConfiguration(next),
   );
 
-  const handleAddModel = () => {
-    // `addModel` trims the name and ignores empty/duplicate entries.
-    preferencesStore.models = addModel(preferencesStore.models, newModelProvider, newModelName);
-    setNewModelName("");
-  };
-
-  const removeModel = (index: number) => {
-    preferencesStore.models = removeModelAt(preferencesStore.models, index);
-    // Re-validate the selection: if the removed entry was selected, fall back
-    // to a valid model (or "" when the list is now empty).
-    preferencesStore.selectedModel = resolveSelectedModel(preferencesStore.models, preferencesStore.selectedModel);
-  };
-
-  const resetModels = () => {
-    preferencesStore.models = [...DEFAULT_MODELS];
-    preferencesStore.selectedModel = resolveSelectedModel(preferencesStore.models, preferencesStore.selectedModel);
-  };
-
   return (
     <>
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>OpenAI-compatible endpoint</div>
-      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Used by the models added as &quot;OpenAI-compatible&quot;: OpenAI or any service exposing the OpenAI Chat
-        Completions API (LiteLLM, vLLM, Ollama, OpenRouter, ...).
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Providers</div>
+      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
+        Each provider is an endpoint with its own API, base URL, API key and models. The chat offers the models of every
+        provider.
       </div>
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>API key</div>
-      <Input
-        type="password"
-        placeholder="Put here your OpenAI-compatible API key"
-        value={preferencesStore.openAIKey}
-        onChange={(value: string) => (preferencesStore.openAIKey = value)}
-      />
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Base URL</div>
-      <Input
-        placeholder={DEFAULT_OPENAI_BASE_URL}
-        value={preferencesStore.openAIBaseUrl}
-        onChange={(value: string) => (preferencesStore.openAIBaseUrl = value)}
-      />
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Reasoning effort</div>
+      {preferencesStore.providers.map((provider) => (
+        <ProviderCard key={provider.id} preferencesStore={preferencesStore} provider={provider} />
+      ))}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ minWidth: 220 }}>
+          <Select
+            options={PROVIDER_OPTIONS}
+            value={newProviderType}
+            onChange={(option: SingleValue<SelectOption<AIProviders>>) =>
+              setNewProviderType(option?.value ?? AIProviders.OPEN_AI)
+            }
+            themeName="lens"
+          />
+        </div>
+        <Button
+          primary
+          label="Add provider"
+          onClick={() => setProviders(preferencesStore, addProvider(preferencesStore.providers, newProviderType))}
+        />
+      </div>
+
+      <HorizontalLine />
+
+      <div style={{ fontWeight: "bold" }}>Reasoning effort</div>
       <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Applied only to reasoning-capable models (o-series, gpt-5.x).
+        Applied only to reasoning-capable models (o-series, gpt-5.x) of OpenAI-compatible providers.
       </div>
       <Select
         options={REASONING_EFFORT_OPTIONS}
@@ -156,30 +268,9 @@ export const PreferencesPage = observer(() => {
 
       <HorizontalLine />
 
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>Anthropic-compatible endpoint</div>
-      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Used by the models added as &quot;Anthropic-compatible&quot;: Anthropic or any service exposing the Anthropic
-        Messages API. The base URL excludes the &quot;/v1&quot; suffix.
-      </div>
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>API key</div>
-      <Input
-        type="password"
-        placeholder="Put here your Anthropic-compatible API key"
-        value={preferencesStore.anthropicKey}
-        onChange={(value: string) => (preferencesStore.anthropicKey = value)}
-      />
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Base URL</div>
-      <Input
-        placeholder={DEFAULT_ANTHROPIC_BASE_URL}
-        value={preferencesStore.anthropicBaseUrl}
-        onChange={(value: string) => (preferencesStore.anthropicBaseUrl = value)}
-      />
-
-      <HorizontalLine />
-
       <div style={{ fontWeight: "bold" }}>Disable thinking mode</div>
       <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Ask both endpoints to turn off the model&apos;s thinking mode. Needed by some providers (e.g. DeepSeek via
+        Ask every provider to turn off the model&apos;s thinking mode. Needed by some providers (e.g. DeepSeek via
         LiteLLM) whose thinking mode rejects some tool-call requests.
       </div>
       <Switch
@@ -188,47 +279,6 @@ export const PreferencesPage = observer(() => {
         checked={preferencesStore.disableThinking}
         onChange={(checked: boolean) => (preferencesStore.disableThinking = checked)}
       />
-
-      <HorizontalLine />
-
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>Models</div>
-      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
-        Add or remove the models offered in the chat. The model name is sent to the provider API.
-      </div>
-      {preferencesStore.models.map((model, index) => (
-        <div
-          key={`${model.provider}/${model.name}`}
-          style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}
-        >
-          <span style={{ minWidth: 160, opacity: 0.7 }}>{PROVIDER_LABELS[model.provider] ?? model.provider}</span>
-          <span style={{ flex: 1, fontFamily: "monospace" }}>{model.name}</span>
-          <Icon material="delete" small interactive tooltip="Remove model" onClick={() => removeModel(index)} />
-        </div>
-      ))}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-        <div style={{ minWidth: 200 }}>
-          <Select
-            options={PROVIDER_OPTIONS}
-            value={newModelProvider}
-            onChange={(option: SingleValue<SelectOption<AIProviders>>) =>
-              setNewModelProvider(option?.value ?? AIProviders.OPEN_AI)
-            }
-            themeName="lens"
-          />
-        </div>
-        <div style={{ flex: 1 }}>
-          <Input
-            placeholder="Model name, e.g. gpt-5.5 or claude-sonnet-4-5"
-            value={newModelName}
-            onChange={(value: string) => setNewModelName(value)}
-            onSubmit={handleAddModel}
-          />
-        </div>
-        <Button primary label="Add" onClick={handleAddModel} />
-      </div>
-      <div style={{ marginTop: 8 }}>
-        <Button plain label="Reset to defaults" onClick={resetModels} />
-      </div>
 
       <HorizontalLine />
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
+import { PROVIDER_ID_HEADER, PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
 import { buildStrandsOpenAIModelOptions, extractChunkReasoning } from "./strands-openai-model";
 
 const baseOptions = {
@@ -21,6 +21,15 @@ describe("buildStrandsOpenAIModelOptions", () => {
     expect(options.clientConfig?.baseURL).toBe("http://127.0.0.1:1234/openai");
     expect(options.clientConfig?.defaultHeaders).toMatchObject({
       [UPSTREAM_BASE_URL_HEADER]: "https://api.openai.com/v1",
+    });
+  });
+
+  it("tells the proxy which provider's key to inject", () => {
+    expect(
+      buildStrandsOpenAIModelOptions({ ...baseOptions, modelName: "glm-5.1", providerId: "opencode" }).clientConfig
+        ?.defaultHeaders,
+    ).toMatchObject({
+      [PROVIDER_ID_HEADER]: "opencode",
     });
   });
 

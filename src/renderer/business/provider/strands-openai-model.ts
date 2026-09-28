@@ -10,7 +10,7 @@
 import { OpenAIModel } from "@strands-agents/sdk/models/openai";
 import OpenAI from "openai";
 import { isReasoningModel } from "./model-capabilities";
-import { PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
+import { PROVIDER_ID_HEADER, PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
 
 import type { OpenAIModelOptions } from "@strands-agents/sdk/models/openai";
 
@@ -25,6 +25,8 @@ export interface StrandsOpenAIModelOptions {
   proxyBaseUrl: string;
   // Per-launch shared secret sent to the proxy so it accepts the request.
   proxyToken?: string | null;
+  // Id of the configured provider; the proxy injects that provider's API key.
+  providerId?: string;
   // Optional reasoning effort; applied only to reasoning-capable models.
   reasoningEffort?: string;
   // When true, request the upstream to disable its "thinking" mode (provider
@@ -44,6 +46,7 @@ export const buildStrandsOpenAIModelOptions = ({
   upstreamBaseUrl,
   proxyBaseUrl,
   proxyToken,
+  providerId,
   reasoningEffort,
   disableThinking,
 }: Omit<StrandsOpenAIModelOptions, "onReasoning">): OpenAIModelOptions => {
@@ -66,6 +69,7 @@ export const buildStrandsOpenAIModelOptions = ({
       defaultHeaders: {
         [UPSTREAM_BASE_URL_HEADER]: upstreamBaseUrl,
         ...(proxyToken ? { [PROXY_TOKEN_HEADER]: proxyToken } : {}),
+        ...(providerId ? { [PROVIDER_ID_HEADER]: providerId } : {}),
       },
     },
   };

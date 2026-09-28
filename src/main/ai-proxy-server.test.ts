@@ -119,6 +119,7 @@ describe("isForwardableRequestHeader", () => {
       "x-upstream-base-url",
       "x-ai-proxy-token",
       "x-ai-proxy-no-auth",
+      "x-ai-provider-id",
     ]) {
       expect(isForwardableRequestHeader(header, authenticated)).toBe(false);
     }
@@ -195,9 +196,8 @@ describe("proxied response headers", () => {
   let proxyPort: number;
 
   beforeAll(async () => {
-    const port = await startAiProxyServer(PROXY_TOKEN, (prefix) =>
-      prefix === ANTHROPIC_PREFIX ? "sk-ant-managed" : "sk-openai-managed",
-    );
+    const keys: Record<string, string> = { claude: "sk-ant-managed", gpt: "sk-openai-managed" };
+    const port = await startAiProxyServer(PROXY_TOKEN, (providerId) => (providerId ? keys[providerId] : undefined));
 
     if (port === null) {
       throw new Error("The AI proxy server did not report a port.");
@@ -269,7 +269,11 @@ describe("proxied response headers", () => {
     await requestThroughProxy(
       proxyPort,
       "/anthropic/v1/messages",
-      { "x-upstream-base-url": "https://gateway.example.com/anthropic", "x-api-key": "freelens-proxy-managed" },
+      {
+        "x-upstream-base-url": "https://gateway.example.com/anthropic",
+        "x-api-key": "freelens-proxy-managed",
+        "x-ai-provider-id": "claude",
+      },
       { noAuth: false },
     );
 
@@ -284,10 +288,43 @@ describe("proxied response headers", () => {
     const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await requestThroughProxy(proxyPort, "/openai/chat/completions", {}, { noAuth: false });
+    await requestThroughProxy(proxyPort, "/openai/chat/completions", { "x-ai-provider-id": "gpt" }, { noAuth: false });
 
     const upstreamHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
     expect(upstreamHeaders.get("authorization")).toBe("Bearer sk-openai-managed");
     expect(upstreamHeaders.get("x-api-key")).toBeNull();
+    expect(upstreamHeaders.get("x-ai-provider-id")).toBeNull();
+  });
+
+  it("sends each provider its own key", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    // An Anthropic-compatible provider's key on the OpenAI route is still
+    // looked up by provider id, not by route.
+    await requestThroughProxy(
+      proxyPort,
+      "/openai/chat/completions",
+      { "x-ai-provider-id": "claude" },
+      { noAuth: false },
+    );
+
+    const upstreamHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(upstreamHeaders.get("authorization")).toBe("Bearer sk-ant-managed");
+  });
+
+  it("sends no managed key for an unknown provider", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await requestThroughProxy(
+      proxyPort,
+      "/openai/chat/completions",
+      { "x-ai-provider-id": "removed" },
+      { noAuth: false },
+    );
+
+    const upstreamHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(upstreamHeaders.get("authorization")).toBeNull();
   });
 });

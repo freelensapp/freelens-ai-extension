@@ -1,6 +1,6 @@
 import { PreferencesStore } from "../../../common/store";
-import { AIProviders, endpointBaseUrl } from "./ai-models";
-import { findProvider } from "./model-list";
+import { AIProviders, type ProviderConfig, providerBaseUrl } from "./ai-models";
+import { findProvider } from "./provider-list";
 import { createStrandsAnthropicModel } from "./strands-anthropic-model";
 import { createStrandsOpenAIModel } from "./strands-openai-model";
 
@@ -25,54 +25,54 @@ export interface GetModelOptions {
   onReasoning?: (text: string) => void;
 }
 
+// The provider of the model selected in the chat, if it still exists.
+export const selectedProvider = (preferencesStore: PreferencesStore): ProviderConfig | undefined =>
+  findProvider(preferencesStore.providers, preferencesStore.selectedProviderId);
+
 // Base URL of the endpoint the selected model is sent to, for error messages.
-export const selectedEndpointBaseUrl = (preferencesStore: PreferencesStore): string =>
-  endpointBaseUrl(
-    findProvider(preferencesStore.models, preferencesStore.selectedModel) ?? AIProviders.OPEN_AI,
-    preferencesStore,
-  );
+export const selectedEndpointBaseUrl = (preferencesStore: PreferencesStore): string => {
+  const provider = selectedProvider(preferencesStore);
+  return provider ? providerBaseUrl(provider) : "(no provider selected)";
+};
 
 export const useModelProvider = () => {
   // @ts-ignore
   const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
   // Builds a Strands model for the currently selected model. Called per run so
-  // a model or endpoint change in the preferences applies to the next prompt.
+  // a model or provider change in the preferences applies to the next prompt.
   const getModel = ({ onReasoning }: GetModelOptions = {}): Model => {
     const modelName = preferencesStore.selectedModel;
+    const provider = selectedProvider(preferencesStore);
 
     // Guard the empty-list / no-selection case: the chat UI offers a
     // "Configure models in preferences" button instead of a dropdown when no
     // model is available, but bail out clearly if we are still reached.
-    if (!modelName) {
-      throw new Error("No model selected. Add a model in the extension preferences.");
+    if (!modelName || !provider) {
+      throw new Error("No model selected. Add a provider and a model in the extension preferences.");
     }
 
-    const provider = findProvider(preferencesStore.models, modelName) ?? AIProviders.OPEN_AI;
+    const common = {
+      modelName,
+      apiKey: PROXY_MANAGED_API_KEY,
+      providerId: provider.id,
+      upstreamBaseUrl: providerBaseUrl(provider),
+      proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
+      proxyToken: preferencesStore.aiProxyToken,
+      disableThinking: preferencesStore.disableThinking,
+    };
 
-    switch (provider) {
+    switch (provider.type) {
       case AIProviders.OPEN_AI:
         return createStrandsOpenAIModel({
-          modelName,
-          apiKey: PROXY_MANAGED_API_KEY,
-          upstreamBaseUrl: endpointBaseUrl(provider, preferencesStore),
-          proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
-          proxyToken: preferencesStore.aiProxyToken,
+          ...common,
           reasoningEffort: preferencesStore.openAIReasoningEffort,
-          disableThinking: preferencesStore.disableThinking,
           onReasoning,
         });
       case AIProviders.ANTHROPIC:
-        return createStrandsAnthropicModel({
-          modelName,
-          apiKey: PROXY_MANAGED_API_KEY,
-          upstreamBaseUrl: endpointBaseUrl(provider, preferencesStore),
-          proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
-          proxyToken: preferencesStore.aiProxyToken,
-          disableThinking: preferencesStore.disableThinking,
-        });
+        return createStrandsAnthropicModel(common);
       default:
-        throw new Error(`Unsupported provider: ${provider}`);
+        throw new Error(`Unsupported provider type: ${provider.type}`);
     }
   };
 

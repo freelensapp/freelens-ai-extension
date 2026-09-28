@@ -3,25 +3,36 @@
 // model-pricing.ts; this module owns only the (impure) network access.
 //
 // Two sources, in order of preference per model:
-//   1. The endpoint's own `/model/info` (LiteLLM proxies expose prices there).
-//      Fetched with a short timeout so a slow/absent endpoint never blocks the
-//      UI.
+//   1. The endpoints' own `/model/info` (LiteLLM proxies expose prices there),
+//      one probe per OpenAI-compatible provider. Fetched with a short timeout so
+//      a slow/absent endpoint never blocks the UI.
 //   2. The public LiteLLM `model_prices_and_context_window.json`, routed through
 //      the proxy with the no-auth header so the user's API key is never sent to
 //      GitHub.
 
 import { DEFAULT_OPENAI_BASE_URL } from "./ai-models";
 import { buildModelPricingMap, type ModelPricingMap, parseModelInfoResponse, parsePriceMap } from "./model-pricing";
-import { PROXY_NO_AUTH_HEADER, PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
+import {
+  PROVIDER_ID_HEADER,
+  PROXY_NO_AUTH_HEADER,
+  PROXY_TOKEN_HEADER,
+  UPSTREAM_BASE_URL_HEADER,
+} from "./openai-fields";
 
 // Short cap on the `/model/info` probe: a missing or slow endpoint must not hold
 // up the cost display. The public price list has no explicit timeout beyond the
 // platform default.
 const MODEL_INFO_TIMEOUT_MS = 2000;
 
+// An OpenAI-compatible provider whose `/model/info` is probed for prices.
+export interface PricingEndpoint {
+  providerId: string;
+  baseUrl: string;
+}
+
 export interface FetchModelPricingOptions {
   modelNames: string[];
-  openAIBaseUrl: string;
+  endpoints: PricingEndpoint[];
   proxyPort: number | null;
   proxyToken: string | null;
 }
@@ -50,19 +61,20 @@ const fetchJson = async (url: string, headers: Record<string, string>, timeoutMs
 // the endpoint is the public OpenAI API (no such route), is slow, or errors.
 const fetchEndpointPricing = async (
   origin: string,
-  openAIBaseUrl: string,
+  { providerId, baseUrl }: PricingEndpoint,
   proxyToken: string,
 ): Promise<ModelPricingMap> => {
   // Skip the probe for the stock OpenAI endpoint, which has no `/model/info`.
-  if (!openAIBaseUrl || openAIBaseUrl === DEFAULT_OPENAI_BASE_URL) {
+  if (!baseUrl || baseUrl === DEFAULT_OPENAI_BASE_URL) {
     return {};
   }
 
   const json = await fetchJson(
     `${origin}/openai/model/info`,
     {
-      [UPSTREAM_BASE_URL_HEADER]: openAIBaseUrl,
+      [UPSTREAM_BASE_URL_HEADER]: baseUrl,
       [PROXY_TOKEN_HEADER]: proxyToken,
+      [PROVIDER_ID_HEADER]: providerId,
     },
     MODEL_INFO_TIMEOUT_MS,
   );
@@ -84,7 +96,7 @@ const fetchPublicPricing = async (origin: string, proxyToken: string): Promise<M
  */
 export const fetchModelPricing = async ({
   modelNames,
-  openAIBaseUrl,
+  endpoints,
   proxyPort,
   proxyToken,
 }: FetchModelPricingOptions): Promise<ModelPricingMap> => {
@@ -93,7 +105,11 @@ export const fetchModelPricing = async ({
   }
 
   const origin = proxyOrigin(proxyPort);
-  const primary = await fetchEndpointPricing(origin, openAIBaseUrl, proxyToken);
+  // Probed in parallel; on a name clash the first provider in the list wins.
+  const endpointMaps = await Promise.all(
+    endpoints.map((endpoint) => fetchEndpointPricing(origin, endpoint, proxyToken)),
+  );
+  const primary: ModelPricingMap = Object.assign({}, ...endpointMaps.reverse());
 
   // Only fetch the (large) public list when a configured model is still
   // unpriced after the endpoint probe.

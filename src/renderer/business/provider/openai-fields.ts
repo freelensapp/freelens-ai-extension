@@ -13,3 +13,7 @@ export const PROXY_TOKEN_HEADER = "x-ai-proxy-token";
 // Header that tells the proxy to fetch a public resource without attaching the
 // managed API key (see model-pricing-provider.ts).
 export const PROXY_NO_AUTH_HEADER = "x-ai-proxy-no-auth";
+
+// Header carrying the id of the configured provider a request is for; the proxy
+// injects that provider's API key in the main process.
+export const PROVIDER_ID_HEADER = "x-ai-provider-id";
