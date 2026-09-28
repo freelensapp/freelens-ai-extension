@@ -152,7 +152,9 @@ not support this tool_choice`, enable **Disable thinking mode** in the
 preferences; it is sent to both endpoints.
 
 DeepSeek models must be served by an endpoint that parses their native tool
-calls: markup leaked into the answer text is no longer recovered.
+calls: markup leaked into the answer text is no longer recovered. See
+[DeepSeek DSML tool-call recovery](docs/DSML_TOOL_CALL_RECOVERY.md) for how to
+add the recovery back.
 
 ### Ollama
 [Ollama](https://ollama.com) exposes a natively OpenAI-compatible endpoint, so
