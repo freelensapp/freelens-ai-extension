@@ -383,13 +383,12 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     preferencesStore.selectedModel = selectedModel;
   };
 
-  // The API key to use depends on the selected model's provider. Only OpenAI is
-  // active for now; other providers are derived here once re-added.
+  // The API key to use depends on the selected model's provider.
   const getApiKeyForSelectedModel = (): string => {
     const provider = preferencesStore.models.find((model) => model.name === preferencesStore.selectedModel)?.provider;
     switch (provider) {
-      case AIProviders.OPEN_AI:
-        return preferencesStore.openAIKey;
+      case AIProviders.ANTHROPIC:
+        return preferencesStore.anthropicKey;
       default:
         return preferencesStore.openAIKey;
     }

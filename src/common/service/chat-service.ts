@@ -5,8 +5,7 @@ import {
   getInterruptMessage,
 } from "../../renderer/business/objects/message-object-provider";
 import { MessageType } from "../../renderer/business/objects/message-type";
-import { DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
-import { useModelProvider } from "../../renderer/business/provider/model-provider";
+import { selectedEndpointBaseUrl, useModelProvider } from "../../renderer/business/provider/model-provider";
 import { approximateTokenCount } from "../../renderer/business/provider/token-estimate";
 import {
   type AgentInput,
@@ -55,7 +54,7 @@ const useChatService = () => {
     if (isConnectionFailure) {
       // @ts-ignore
       const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
-      const baseUrl = preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
+      const baseUrl = selectedEndpointBaseUrl(preferencesStore);
       const proxyHint =
         preferencesStore.aiProxyPort === null
           ? "the local AI proxy is not running yet"
@@ -68,7 +67,7 @@ const useChatService = () => {
     if (typeof errorStatus === "number" && errorStatus >= 500) {
       // @ts-ignore
       const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
-      const baseUrl = preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
+      const baseUrl = selectedEndpointBaseUrl(preferencesStore);
       return `The AI proxy could not reach the upstream endpoint ${baseUrl}. Check that the endpoint is running and the base URL is correct. Original error: ${error.message}`;
     }
 

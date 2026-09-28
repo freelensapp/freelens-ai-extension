@@ -1,6 +1,11 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
-import { type CustomModel, DEFAULT_MODELS, DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
+import {
+  type CustomModel,
+  DEFAULT_ANTHROPIC_BASE_URL,
+  DEFAULT_MODELS,
+  DEFAULT_OPENAI_BASE_URL,
+} from "../../renderer/business/provider/ai-models";
 import { resolveSelectedModel } from "../../renderer/business/provider/model-list";
 
 import type { MessageObject } from "../../renderer/business/objects/message-object";
@@ -11,6 +16,8 @@ export interface PreferencesModel {
   openAIKey: string;
   openAIBaseUrl: string;
   openAIReasoningEffort: string;
+  anthropicKey: string;
+  anthropicBaseUrl: string;
   disableThinking: boolean;
   aiProxyPort: number | null;
   aiProxyToken: string | null;
@@ -30,6 +37,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   openAIKey: string = "";
   openAIBaseUrl: string = DEFAULT_OPENAI_BASE_URL;
   openAIReasoningEffort: string = "";
+  anthropicKey: string = "";
+  anthropicBaseUrl: string = DEFAULT_ANTHROPIC_BASE_URL;
   disableThinking: boolean = false;
   aiProxyPort: number | null = null;
   // Per-launch shared secret required on every request to the local AI proxy.
@@ -60,6 +69,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         openAIKey: "",
         openAIBaseUrl: DEFAULT_OPENAI_BASE_URL,
         openAIReasoningEffort: "",
+        anthropicKey: "",
+        anthropicBaseUrl: DEFAULT_ANTHROPIC_BASE_URL,
         disableThinking: false,
         aiProxyPort: null,
         aiProxyToken: null,
@@ -92,6 +103,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       openAIKey: observable,
       openAIBaseUrl: observable,
       openAIReasoningEffort: observable,
+      anthropicKey: observable,
+      anthropicBaseUrl: observable,
       disableThinking: observable,
       aiProxyPort: observable,
       aiProxyToken: observable,
@@ -115,6 +128,9 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this.openAIKey = preferencesModel.openAIKey;
     this.openAIBaseUrl = preferencesModel.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
     this.openAIReasoningEffort = preferencesModel.openAIReasoningEffort ?? "";
+    // Absent from preferences saved before the Anthropic provider existed.
+    this.anthropicKey = preferencesModel.anthropicKey ?? "";
+    this.anthropicBaseUrl = preferencesModel.anthropicBaseUrl || DEFAULT_ANTHROPIC_BASE_URL;
     this.disableThinking = preferencesModel.disableThinking ?? false;
     this.aiProxyPort = preferencesModel.aiProxyPort ?? null;
     this.aiProxyToken = preferencesModel.aiProxyToken ?? null;
@@ -142,6 +158,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       openAIKey: this.openAIKey,
       openAIBaseUrl: this.openAIBaseUrl,
       openAIReasoningEffort: this.openAIReasoningEffort,
+      anthropicKey: this.anthropicKey,
+      anthropicBaseUrl: this.anthropicBaseUrl,
       disableThinking: this.disableThinking,
       aiProxyPort: this.aiProxyPort,
       aiProxyToken: this.aiProxyToken,

@@ -21,8 +21,13 @@ const PROXY_TOKEN_HEADER = "x-ai-proxy-token";
 // browser CORS, so the user's credentials must never travel with it.
 const NO_AUTH_HEADER = "x-ai-proxy-no-auth";
 
+// Prefix of the Anthropic-compatible route. Its key travels as `x-api-key`
+// instead of the `Authorization: Bearer` used by OpenAI-compatible endpoints.
+export const ANTHROPIC_PREFIX = "anthropic";
+
 const UPSTREAM_BY_PREFIX: Record<string, string> = {
   openai: "https://api.openai.com/v1",
+  [ANTHROPIC_PREFIX]: "https://api.anthropic.com",
   // Public LiteLLM model price + context-window list. Fetched with the no-auth
   // header so the user's API key is never sent to GitHub.
   litellm: "https://raw.githubusercontent.com/BerriAI/litellm/main",
@@ -30,10 +35,13 @@ const UPSTREAM_BY_PREFIX: Record<string, string> = {
 
 let proxyServerStarted = false;
 let proxyServerPort: number | null = null;
-// Resolves the upstream API key inside the main process so the secret never has
-// to be sent from (or stored in) the renderer. Evaluated per request so a key
-// changed in preferences takes effect immediately.
-let resolveApiKey: () => string | undefined = () => undefined;
+// Resolves the upstream API key for a route prefix ("openai", "anthropic")
+// inside the main process so the secret never has to be sent from (or stored
+// in) the renderer. Evaluated per request so a key changed in preferences takes
+// effect immediately.
+export type ApiKeyResolver = (prefix: string) => string | undefined;
+
+let resolveApiKey: ApiKeyResolver = () => undefined;
 
 // Per-launch shared secret. The renderer (see model-provider.ts) sends it on
 // every request; the proxy rejects any request whose token does not match the
@@ -45,7 +53,9 @@ let proxyAuthToken: string | null = null;
 // proxy never advertises itself as open to every origin.
 const CORS_ALLOW_METHODS = "GET,POST,OPTIONS";
 const CORS_ALLOW_HEADERS =
-  "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,accept,user-agent,x-upstream-base-url,x-ai-proxy-token,x-ai-proxy-no-auth";
+  "authorization,content-type,x-stainless-os,x-stainless-runtime-version,x-stainless-package-version,x-stainless-runtime,x-stainless-arch,x-stainless-retry-count,x-stainless-lang,x-stainless-timeout,x-stainless-helper,x-stainless-helper-method,accept,user-agent,x-upstream-base-url,x-ai-proxy-token,x-ai-proxy-no-auth," +
+  // Sent by the Anthropic SDK.
+  "x-api-key,anthropic-version,anthropic-beta,anthropic-dangerous-direct-browser-access";
 
 const hopByHopHeaders = new Set([
   "connection",
@@ -59,6 +69,10 @@ const hopByHopHeaders = new Set([
   "transfer-encoding",
   "upgrade",
 ]);
+
+// Headers carrying an API key: Authorization (OpenAI-compatible) and x-api-key
+// (Anthropic-compatible).
+const credentialHeaders = new Set(["authorization", "x-api-key"]);
 
 // The proxy's own headers: consumed here, never meaningful upstream.
 const internalProxyHeaders = new Set([UPSTREAM_BASE_URL_HEADER, PROXY_TOKEN_HEADER, NO_AUTH_HEADER]);
@@ -95,8 +109,9 @@ export const isForwardableResponseHeader = (name: string): boolean => {
  * Pure predicate telling whether a client REQUEST header can be forwarded to the
  * upstream. Drops hop-by-hop headers, the proxy's own headers, and the browser
  * context the renderer cannot suppress; `applyAuth: false` (the no-auth routes)
- * additionally drops Authorization so neither the managed key nor the renderer's
- * placeholder reaches a public resource. Everything else - `content-type`,
+ * additionally drops the credential headers (Authorization, x-api-key) so
+ * neither the managed key nor the renderer's placeholder reaches a public
+ * resource. Everything else - `content-type`,
  * `accept`, the OpenAI SDK's `x-stainless-*` - passes through untouched.
  */
 export const isForwardableRequestHeader = (name: string, { applyAuth }: { applyAuth: boolean }): boolean => {
@@ -110,7 +125,7 @@ export const isForwardableRequestHeader = (name: string, { applyAuth }: { applyA
     return false;
   }
 
-  return applyAuth || key !== "authorization";
+  return applyAuth || !credentialHeaders.has(key);
 };
 
 // Normalize the possibly-array Origin header to a single value.
@@ -142,19 +157,26 @@ const readRequestBody = async (request: IncomingMessage) => {
   return chunks.length > 0 ? Buffer.concat(chunks) : undefined;
 };
 
-// Override the Authorization header with the API key resolved in the main
-// process. The renderer sends only a placeholder, so the real key never travels
-// through (or is exposed to) the renderer / DevTools. No-op when no key is set,
-// letting the upstream reject the request with its own 401.
-export const applyManagedAuthorization = (headers: Headers, apiKey: string | undefined): Headers => {
-  if (apiKey) {
+// Override the credential header with the API key resolved in the main process:
+// `x-api-key` on the Anthropic route, `Authorization: Bearer` otherwise. The
+// renderer sends only a placeholder, so the real key never travels through (or
+// is exposed to) the renderer / DevTools. No-op when no key is set, letting the
+// upstream reject the request with its own 401.
+export const applyManagedAuthorization = (headers: Headers, apiKey: string | undefined, prefix = ""): Headers => {
+  if (!apiKey) {
+    return headers;
+  }
+
+  if (prefix === ANTHROPIC_PREFIX) {
+    headers.set("x-api-key", apiKey);
+  } else {
     headers.set("authorization", `Bearer ${apiKey}`);
   }
 
   return headers;
 };
 
-const createUpstreamHeaders = (request: IncomingMessage, applyAuth: boolean) => {
+const createUpstreamHeaders = (request: IncomingMessage, prefix: string, applyAuth: boolean) => {
   const headers = new Headers();
 
   for (const [key, value] of Object.entries(request.headers)) {
@@ -169,7 +191,7 @@ const createUpstreamHeaders = (request: IncomingMessage, applyAuth: boolean) => 
     }
   }
 
-  return applyAuth ? applyManagedAuthorization(headers, resolveApiKey()) : headers;
+  return applyAuth ? applyManagedAuthorization(headers, resolveApiKey(prefix), prefix) : headers;
 };
 
 const proxyRequest = async (request: IncomingMessage, response: ServerResponse) => {
@@ -206,7 +228,7 @@ const proxyRequest = async (request: IncomingMessage, response: ServerResponse) 
 
   const upstreamResponse = await fetch(upstreamUrl, {
     method,
-    headers: createUpstreamHeaders(request, applyAuth),
+    headers: createUpstreamHeaders(request, prefix, applyAuth),
     body,
   });
 
@@ -228,10 +250,7 @@ const proxyRequest = async (request: IncomingMessage, response: ServerResponse) 
   Readable.fromWeb(upstreamResponse.body as any).pipe(response);
 };
 
-export const startAiProxyServer = async (
-  authToken: string,
-  apiKeyResolver: () => string | undefined = () => undefined,
-) => {
+export const startAiProxyServer = async (authToken: string, apiKeyResolver: ApiKeyResolver = () => undefined) => {
   proxyAuthToken = authToken;
   resolveApiKey = apiKeyResolver;
 

@@ -1,7 +1,13 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
-import { AIProviders, DEFAULT_MODELS, PROVIDER_LABELS } from "../../business/provider/ai-models";
+import {
+  AIProviders,
+  DEFAULT_ANTHROPIC_BASE_URL,
+  DEFAULT_MODELS,
+  DEFAULT_OPENAI_BASE_URL,
+  PROVIDER_LABELS,
+} from "../../business/provider/ai-models";
 import { addModel, removeModelAt, resolveSelectedModel } from "../../business/provider/model-list";
 
 import type { SingleValue } from "react-select";
@@ -117,17 +123,21 @@ export const PreferencesPage = observer(() => {
 
   return (
     <>
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>OpenAI</div>
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>OpenAI-compatible endpoint</div>
+      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
+        Used by the models added as &quot;OpenAI-compatible&quot;: OpenAI or any service exposing the OpenAI Chat
+        Completions API (LiteLLM, vLLM, Ollama, OpenRouter, ...).
+      </div>
       <div style={{ marginTop: 8, fontWeight: "bold" }}>API key</div>
       <Input
         type="password"
-        placeholder="Put here your OpenAI API key"
+        placeholder="Put here your OpenAI-compatible API key"
         value={preferencesStore.openAIKey}
         onChange={(value: string) => (preferencesStore.openAIKey = value)}
       />
       <div style={{ marginTop: 8, fontWeight: "bold" }}>Base URL</div>
       <Input
-        placeholder="https://api.openai.com/v1"
+        placeholder={DEFAULT_OPENAI_BASE_URL}
         value={preferencesStore.openAIBaseUrl}
         onChange={(value: string) => (preferencesStore.openAIBaseUrl = value)}
       />
@@ -143,10 +153,34 @@ export const PreferencesPage = observer(() => {
         }
         themeName="lens"
       />
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Disable thinking mode</div>
+
+      <HorizontalLine />
+
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Anthropic-compatible endpoint</div>
       <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Turn off the model&apos;s thinking mode. Required by some providers (e.g. DeepSeek via LiteLLM) whose thinking
-        mode conflicts with the forced tool selection used for structured output.
+        Used by the models added as &quot;Anthropic-compatible&quot;: Anthropic or any service exposing the Anthropic
+        Messages API. The base URL excludes the &quot;/v1&quot; suffix.
+      </div>
+      <div style={{ marginTop: 8, fontWeight: "bold" }}>API key</div>
+      <Input
+        type="password"
+        placeholder="Put here your Anthropic-compatible API key"
+        value={preferencesStore.anthropicKey}
+        onChange={(value: string) => (preferencesStore.anthropicKey = value)}
+      />
+      <div style={{ marginTop: 8, fontWeight: "bold" }}>Base URL</div>
+      <Input
+        placeholder={DEFAULT_ANTHROPIC_BASE_URL}
+        value={preferencesStore.anthropicBaseUrl}
+        onChange={(value: string) => (preferencesStore.anthropicBaseUrl = value)}
+      />
+
+      <HorizontalLine />
+
+      <div style={{ fontWeight: "bold" }}>Disable thinking mode</div>
+      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
+        Ask both endpoints to turn off the model&apos;s thinking mode. Needed by some providers (e.g. DeepSeek via
+        LiteLLM) whose thinking mode rejects some tool-call requests.
       </div>
       <Switch
         style={{ marginBottom: 8 }}
@@ -166,13 +200,13 @@ export const PreferencesPage = observer(() => {
           key={`${model.provider}/${model.name}`}
           style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}
         >
-          <span style={{ minWidth: 80, opacity: 0.7 }}>{PROVIDER_LABELS[model.provider] ?? model.provider}</span>
+          <span style={{ minWidth: 160, opacity: 0.7 }}>{PROVIDER_LABELS[model.provider] ?? model.provider}</span>
           <span style={{ flex: 1, fontFamily: "monospace" }}>{model.name}</span>
           <Icon material="delete" small interactive tooltip="Remove model" onClick={() => removeModel(index)} />
         </div>
       ))}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-        <div style={{ minWidth: 120 }}>
+        <div style={{ minWidth: 200 }}>
           <Select
             options={PROVIDER_OPTIONS}
             value={newModelProvider}
@@ -184,7 +218,7 @@ export const PreferencesPage = observer(() => {
         </div>
         <div style={{ flex: 1 }}>
           <Input
-            placeholder="Model name, e.g. gpt-5.5"
+            placeholder="Model name, e.g. gpt-5.5 or claude-sonnet-4-5"
             value={newModelName}
             onChange={(value: string) => setNewModelName(value)}
             onSubmit={handleAddModel}

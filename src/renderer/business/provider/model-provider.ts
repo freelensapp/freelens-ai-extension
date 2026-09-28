@@ -1,12 +1,14 @@
 import { PreferencesStore } from "../../../common/store";
-import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "./ai-models";
+import { AIProviders, endpointBaseUrl } from "./ai-models";
 import { findProvider } from "./model-list";
+import { createStrandsAnthropicModel } from "./strands-anthropic-model";
 import { createStrandsOpenAIModel } from "./strands-openai-model";
 
 import type { Model } from "@strands-agents/sdk";
 
-// Placeholder key sent to the SDK so it populates the Authorization header; the
-// AI proxy overrides it with the real key resolved in the main process, so the
+// Placeholder key sent to the SDK so it populates the credential header
+// (Authorization or x-api-key); the AI proxy overrides it with the real key
+// resolved in the main process, so the
 // secret never travels through the renderer.
 const PROXY_MANAGED_API_KEY = "freelens-proxy-managed";
 
@@ -22,6 +24,13 @@ export interface GetModelOptions {
   // Receives the reasoning deltas streamed by the model, when it exposes them.
   onReasoning?: (text: string) => void;
 }
+
+// Base URL of the endpoint the selected model is sent to, for error messages.
+export const selectedEndpointBaseUrl = (preferencesStore: PreferencesStore): string =>
+  endpointBaseUrl(
+    findProvider(preferencesStore.models, preferencesStore.selectedModel) ?? AIProviders.OPEN_AI,
+    preferencesStore,
+  );
 
 export const useModelProvider = () => {
   // @ts-ignore
@@ -46,12 +55,21 @@ export const useModelProvider = () => {
         return createStrandsOpenAIModel({
           modelName,
           apiKey: PROXY_MANAGED_API_KEY,
-          upstreamBaseUrl: preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
+          upstreamBaseUrl: endpointBaseUrl(provider, preferencesStore),
           proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
           proxyToken: preferencesStore.aiProxyToken,
           reasoningEffort: preferencesStore.openAIReasoningEffort,
           disableThinking: preferencesStore.disableThinking,
           onReasoning,
+        });
+      case AIProviders.ANTHROPIC:
+        return createStrandsAnthropicModel({
+          modelName,
+          apiKey: PROXY_MANAGED_API_KEY,
+          upstreamBaseUrl: endpointBaseUrl(provider, preferencesStore),
+          proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
+          proxyToken: preferencesStore.aiProxyToken,
+          disableThinking: preferencesStore.disableThinking,
         });
       default:
         throw new Error(`Unsupported provider: ${provider}`);

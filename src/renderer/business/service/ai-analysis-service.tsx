@@ -48,7 +48,7 @@ export const useAiAnalysisService = (): AiAnalysisService => {
     }
 
     // Same readiness check as the chat input, so a key provided only through the
-    // OPENAI_API_KEY environment variable works here too.
+    // OPENAI_API_KEY / ANTHROPIC_API_KEY environment variables works here too.
     const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
     if (!isAgentConfigured(buildAgentReadinessInput(preferencesStore))) {
       throw new Error("The agent is not configured. Use the settings to add a model and register the API key.");

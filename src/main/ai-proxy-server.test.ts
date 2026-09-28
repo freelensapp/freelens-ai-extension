@@ -1,6 +1,7 @@
 import { request as httpRequest } from "node:http";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  ANTHROPIC_PREFIX,
   applyCorsHeaders,
   applyManagedAuthorization,
   isForwardableRequestHeader,
@@ -53,6 +54,13 @@ describe("applyManagedAuthorization", () => {
     const headers = new Headers({ authorization: "Bearer freelens-proxy-managed" });
     applyManagedAuthorization(headers, "sk-real");
     expect(headers.get("authorization")).toBe("Bearer sk-real");
+  });
+
+  it("sends the key as x-api-key on the Anthropic route", () => {
+    const headers = new Headers({ "x-api-key": "freelens-proxy-managed" });
+    applyManagedAuthorization(headers, "sk-ant-real", ANTHROPIC_PREFIX);
+    expect(headers.get("x-api-key")).toBe("sk-ant-real");
+    expect(headers.get("authorization")).toBeNull();
   });
 
   it("leaves the headers untouched when no key is resolved", () => {
@@ -130,6 +138,11 @@ describe("isForwardableRequestHeader", () => {
     expect(isForwardableRequestHeader("Authorization", { applyAuth: false })).toBe(false);
     expect(isForwardableRequestHeader("content-type", { applyAuth: false })).toBe(true);
   });
+
+  it("keeps x-api-key only on authenticated routes", () => {
+    expect(isForwardableRequestHeader("x-api-key", authenticated)).toBe(true);
+    expect(isForwardableRequestHeader("x-api-key", { applyAuth: false })).toBe(false);
+  });
 });
 
 const PROXY_TOKEN = "test-proxy-token";
@@ -142,7 +155,12 @@ interface ProxiedResponse {
 
 // Real HTTP call against the proxy, so the assertions cover the headers the
 // server actually puts on the wire.
-const requestThroughProxy = (port: number, path: string, extraHeaders: Record<string, string> = {}) =>
+const requestThroughProxy = (
+  port: number,
+  path: string,
+  extraHeaders: Record<string, string> = {},
+  { noAuth = true }: { noAuth?: boolean } = {},
+) =>
   new Promise<ProxiedResponse>((resolve, reject) => {
     const clientRequest = httpRequest(
       {
@@ -152,7 +170,7 @@ const requestThroughProxy = (port: number, path: string, extraHeaders: Record<st
         method: "GET",
         headers: {
           "x-ai-proxy-token": PROXY_TOKEN,
-          "x-ai-proxy-no-auth": "1",
+          ...(noAuth ? { "x-ai-proxy-no-auth": "1" } : {}),
           ...extraHeaders,
         },
       },
@@ -177,7 +195,9 @@ describe("proxied response headers", () => {
   let proxyPort: number;
 
   beforeAll(async () => {
-    const port = await startAiProxyServer(PROXY_TOKEN);
+    const port = await startAiProxyServer(PROXY_TOKEN, (prefix) =>
+      prefix === ANTHROPIC_PREFIX ? "sk-ant-managed" : "sk-openai-managed",
+    );
 
     if (port === null) {
       throw new Error("The AI proxy server did not report a port.");
@@ -240,5 +260,34 @@ describe("proxied response headers", () => {
     expect(upstreamHeaders.get("sec-fetch-mode")).toBeNull();
     expect(upstreamHeaders.get("sec-ch-ua-platform")).toBeNull();
     expect(upstreamHeaders.get("content-type")).toBe("application/json");
+  });
+
+  it("injects the Anthropic key as x-api-key on the Anthropic route", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await requestThroughProxy(
+      proxyPort,
+      "/anthropic/v1/messages",
+      { "x-upstream-base-url": "https://gateway.example.com/anthropic", "x-api-key": "freelens-proxy-managed" },
+      { noAuth: false },
+    );
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toBe("https://gateway.example.com/anthropic/v1/messages");
+    const upstreamHeaders = init?.headers as Headers;
+    expect(upstreamHeaders.get("x-api-key")).toBe("sk-ant-managed");
+    expect(upstreamHeaders.get("authorization")).toBeNull();
+  });
+
+  it("injects the OpenAI key as a bearer token on the OpenAI route", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await requestThroughProxy(proxyPort, "/openai/chat/completions", {}, { noAuth: false });
+
+    const upstreamHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(upstreamHeaders.get("authorization")).toBe("Bearer sk-openai-managed");
+    expect(upstreamHeaders.get("x-api-key")).toBeNull();
   });
 });
