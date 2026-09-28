@@ -156,6 +156,23 @@ calls: markup leaked into the answer text is no longer recovered. See
 [DeepSeek DSML tool-call recovery](docs/DSML_TOOL_CALL_RECOVERY.md) for how to
 add the recovery back.
 
+### OpenCode
+[OpenCode Go](https://opencode.ai/docs/go/) serves some models through an
+OpenAI-compatible API and others through an Anthropic-compatible API, with the
+same key:
+
+- OpenAI-compatible **Base URL**: `https://opencode.ai/zen/go/v1` (models such
+  as `glm-5.1`, `kimi-k2.6`).
+- Anthropic-compatible **Base URL**: `https://opencode.ai/zen/go`, without
+  `/v1` (models such as `minimax-m2.7`).
+- Set the OpenCode key as the **API key in both sections**; each endpoint uses
+  only its own key.
+
+The [OpenCode console inference API](https://opencode.ai/v2/docs/console/inference/)
+works the same way with `https://opencode.ai/inference/openai/v1` and
+`https://opencode.ai/inference/anthropic`, and a console service account key.
+Go keys and console keys are not interchangeable.
+
 ### Ollama
 [Ollama](https://ollama.com) exposes a natively OpenAI-compatible endpoint, so
 no gateway is needed to reach a model running on your own machine.
@@ -187,6 +204,8 @@ provide the keys through environment variables instead:
 
 - OPENAI_API_KEY = ...
 - ANTHROPIC_API_KEY = ...
+
+An environment variable takes precedence over the key set in the preferences.
 
 A model is only offered in the chat dropdown once its provider has a key set; if
 no model is available, the chat shows a button that takes you to the preferences
