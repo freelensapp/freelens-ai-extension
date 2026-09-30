@@ -16,6 +16,9 @@ describe("isReasoningModel", () => {
     "gpt-5.4",
     "gpt-5.5",
     "gpt-5.4-mini",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     "gpt-6-sol",
     "gpt-6-luna",
     "gpt-6-astra",
@@ -37,6 +40,12 @@ describe("isReasoningModel", () => {
 
 describe("requiresResponsesApi", () => {
   it.each([
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.5",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     "gpt-6-sol",
     "gpt-6-luna",
     "gpt-6-astra",
@@ -47,13 +56,15 @@ describe("requiresResponsesApi", () => {
   });
 
   it.each([
-    "gpt-5.5",
-    "gpt-5.6-sol",
+    "gpt-5",
+    "gpt-5.3",
+    "gpt-5.3-mini",
     "gpt-4o",
     "o3-mini",
     "deepseek-v4-pro",
     "qwen3-235b",
     "gpt-60",
+    "gpt-50.4",
     "",
   ])("keeps Chat Completions for %s", (name) => {
     expect(requiresResponsesApi(name)).toBe(false);

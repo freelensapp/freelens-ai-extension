@@ -64,7 +64,7 @@ provider and renders the response. The agent logic (the LangGraph supervisor,
 the cluster tools, structured output, and human-in-the-loop approvals) runs
 inside the extension, and only the model inference is delegated to the provider.
 
-- **Talks the OpenAI Responses and Chat Completions APIs.** GPT-6 models use
+- **Talks the OpenAI Responses and Chat Completions APIs.** GPT-5.4 and later models use
   Responses for tool calling with reasoning; other models keep Chat Completions.
   The extension is built on the
   OpenAI client and the OpenAI-compatible wire format. It works with OpenAI
@@ -120,12 +120,12 @@ The list comes seeded with these OpenAI models, which you can change at any time
 Existing saved model lists are preserved. Add the new models in preferences or
 use **Reset to defaults** to load the updated list. GPT-5.5 remains the initial
 selection. GPT-6 Sol, Luna, and Astra can also be added by their API model IDs.
-GPT-5.6 Sol, Terra, and Luna use the existing Chat Completions path with reasoning
-and tool calling.
+GPT-5.4, GPT-5.5, GPT-5.6 Sol/Terra/Luna, and GPT-6 models use Responses so
+tool calling works with reasoning enabled.
 With reasoning effort set to **Default**, no effort is sent, so the provider's
 default applies (medium for GPT-6 and GPT-6.1 Sol).
 
-GPT-6 requests use `store: false` and replay conversation history from the
+Responses requests use `store: false` and replay conversation history from the
 extension's local checkpoints, including encrypted reasoning returned by the API.
 
 Model-specific behavior (for example, sending a reasoning effort instead of a
@@ -147,7 +147,7 @@ gateway (for example `http://localhost:4000/v1`) and use the model names exposed
 by that gateway. Requests are routed through the extension's local proxy, so the
 custom base URL works without any code changes.
 
-For GPT-6 model names, the gateway must also implement the OpenAI Responses
+For GPT-5.4 and later model names, the gateway must also implement the OpenAI Responses
 endpoint (`/v1/responses`). Chat Completions-only endpoints continue to work
 with other model families.
 

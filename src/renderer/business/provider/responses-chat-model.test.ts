@@ -5,8 +5,9 @@ import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { deserializeSaverState, serializeSaverState } from "../agent/checkpoint-serialization";
-import { recoverSupervisorRouting } from "../agent/supervisor-routing";
+import { useAgentSupervisor } from "../agent/supervisor-agent";
 import { useAiAnalysisService } from "../service/ai-analysis-service";
+import { createStreamMergeState, mergeAiChunk } from "../service/stream-merge";
 import { extractTokenUsage } from "../service/token-usage";
 import { useModelProvider } from "./model-provider";
 import { OfflineTokenChatOpenAI } from "./offline-token-chat-model";
@@ -26,6 +27,11 @@ const baseOptions = {
   proxyBaseUrl: "http://127.0.0.1:1234",
   proxyToken: "test-proxy-token",
 };
+
+const sse = (events: Record<string, unknown>[]) =>
+  new Response(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
+    headers: { "Content-Type": "text/event-stream" },
+  });
 
 // Real SDK parsing of mocked Responses SSE, without an API key or a cluster.
 const responseStream = (output: Record<string, unknown>[], index: number) => {
@@ -47,15 +53,18 @@ const responseStream = (output: Record<string, unknown>[], index: number) => {
     if (item.type === "function_call") {
       events.push({ type: "response.function_call_arguments.delta", output_index, delta: item.arguments });
     } else if (item.type === "message") {
-      for (const part of item.content as { text: string }[]) {
-        events.push({ type: "response.output_text.delta", output_index, content_index: 0, delta: part.text });
+      for (const part of item.content as { type: string; text?: string; refusal?: string }[]) {
+        if (part.type === "refusal") {
+          events.push({ type: "response.refusal.delta", output_index, content_index: 0, delta: part.refusal });
+          events.push({ type: "response.refusal.done", output_index, content_index: 0, refusal: part.refusal });
+        } else {
+          events.push({ type: "response.output_text.delta", output_index, content_index: 0, delta: part.text });
+        }
       }
     }
   });
   events.push({ type: "response.completed", response });
-  return new Response(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
-    headers: { "Content-Type": "text/event-stream" },
-  });
+  return sse(events);
 };
 
 const answer = [
@@ -69,13 +78,7 @@ const answer = [
 ];
 
 describe("Responses chat model", () => {
-  it.each([
-    "gpt-5.5",
-    "gpt-5.6-sol",
-    "gpt-5.6-terra",
-    "gpt-5.6-luna",
-    "llama3.2",
-  ])("keeps %s on Chat Completions", async (modelName) => {
+  it.each(["gpt-5.3", "llama3.2"])("keeps %s on Chat Completions", async (modelName) => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -192,7 +195,15 @@ describe("Responses chat model", () => {
     });
   });
 
-  it("converts the supervisor's forced tool choice and recovers its routing", async () => {
+  it.each([
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.5",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-6.1-sol",
+  ])("routes the real %s supervisor through Responses with reasoning and tools", async (modelName) => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       responseStream(
         [
@@ -207,37 +218,102 @@ describe("Responses chat model", () => {
         1,
       ),
     );
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort: "high" });
+    const model = new OfflineTokenChatOpenAI({
+      ...fields,
+      streaming: true,
+      configuration: { ...fields.configuration, fetch },
+    });
+    vi.mocked(useModelProvider).mockReturnValue({ getModel: () => model });
+    const supervisor = await useAgentSupervisor().getAgent(["analyzer"], ["Inspect cluster resources"]);
+    const response = await supervisor!.invoke({ messages: [new HumanMessage("Inspect pods")] });
+    expect(String(fetch.mock.calls[0][0])).toBe(`${baseOptions.proxyBaseUrl}/openai/responses`);
+    const body = JSON.parse(String(fetch.mock.calls[0][1]?.body));
+    expect(body.tool_choice).toEqual({ type: "function", name: "extract" });
+    expect(body.reasoning).toEqual({ effort: "high" });
+    expect(body.tools).toMatchObject([{ type: "function", name: "extract", strict: false }]);
+    expect(response).toEqual({
+      reflection: "Inspect pods",
+      goto: "analyzer",
+    });
+  });
+
+  it.each(["", "Partial answer"])("propagates response.failed after output %j", async (partial) => {
+    const error = { code: "server_error", message: "The server had an error while processing your request." };
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async () =>
+        sse([
+          { type: "response.created", response: { id: "resp_failed", model: "gpt-6.1-sol", output: [] } },
+          ...(partial
+            ? [{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: partial }]
+            : []),
+          { type: "response.failed", response: { id: "resp_failed", status: "failed", error, output: [] } },
+        ]),
+      );
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-6.1-sol" });
     const model = new OfflineTokenChatOpenAI({
       ...fields,
       streaming: true,
       configuration: { ...fields.configuration, fetch },
     });
-    const response = await model
-      .bindTools(
-        [
-          {
-            type: "function",
-            function: {
-              name: "extract",
-              parameters: {
-                type: "object",
-                properties: { reflection: { type: "string" }, goto: { type: "string" } },
-                required: ["reflection", "goto"],
-              },
-            },
-          },
-        ],
-        { tool_choice: "extract" },
-      )
-      .invoke("Inspect pods");
-    const body = JSON.parse(String(fetch.mock.calls[0][1]?.body));
-    expect(body.tool_choice).toEqual({ type: "function", name: "extract" });
-    expect(body).not.toHaveProperty("reasoning");
-    expect(recoverSupervisorRouting(response, ["analyzer", "__end__"], ["analyzer"])).toEqual({
-      reflection: "Inspect pods",
-      goto: "analyzer",
+    vi.mocked(useModelProvider).mockReturnValue({ getModel: () => model });
+    const chunks: string[] = [];
+    const analyze = async () => {
+      for await (const chunk of useAiAnalysisService().analyze("Inspect pods")) chunks.push(chunk);
+    };
+    await expect(analyze()).rejects.toMatchObject({ name: error.code, message: error.message });
+    expect(chunks.join("")).toBe(partial);
+    await expect(model.invoke("Inspect pods")).rejects.toMatchObject({ name: error.code, message: error.message });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])("shows refusal text in invoke with streaming=%s and preserves metadata", async (streaming) => {
+    const refusal = "I cannot help with that request.";
+    const output = [{ ...answer[0], content: [{ type: "refusal", refusal }] }];
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      return body.stream
+        ? responseStream(output, 1)
+        : new Response(
+            JSON.stringify({
+              id: "resp_refusal",
+              model: "gpt-6.1-sol",
+              status: "completed",
+              output,
+              output_text: "",
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          );
     });
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-6.1-sol" });
+    const model = new OfflineTokenChatOpenAI({
+      ...fields,
+      streaming,
+      configuration: { ...fields.configuration, fetch },
+    });
+    const response = await model.invoke("Inspect pods");
+    expect(messageContentToText(response.content)).toBe(refusal);
+    expect(response.additional_kwargs.refusal).toBe(refusal);
+    expect(response.response_metadata.output).toEqual(output);
+    vi.mocked(useModelProvider).mockReturnValue({ getModel: () => model });
+    const chunks: string[] = [];
+    for await (const chunk of useAiAnalysisService().analyze("Inspect pods")) chunks.push(chunk);
+    expect(chunks.join("")).toBe(refusal);
+
+    const graph = new StateGraph(MessagesAnnotation)
+      .addNode("agent", async (state) => ({ messages: [await model.invoke(state.messages)] }))
+      .addEdge("__start__", "agent")
+      .addEdge("agent", "__end__")
+      .compile();
+    const merged: string[] = [];
+    const state = createStreamMergeState();
+    for await (const [chunk, metadata] of await graph.stream(
+      { messages: [new HumanMessage("Inspect pods")] },
+      { streamMode: "messages" },
+    ))
+      merged.push(mergeAiChunk(state, chunk, metadata));
+    expect(merged.join("")).toBe(refusal);
   });
 
   it("renders Responses text blocks in the analysis service", async () => {
