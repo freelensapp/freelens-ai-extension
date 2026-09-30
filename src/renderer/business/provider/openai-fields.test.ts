@@ -36,16 +36,40 @@ describe("buildOpenAIChatFields", () => {
     expect(fields.reasoning).toBeUndefined();
   });
 
-  it("sets reasoning effort and omits temperature for reasoning models", () => {
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-5.5", reasoningEffort: "high" });
+  it.each(["gpt-5.5", "gpt-6-sol", "gpt-6.1-sol"])("sets effort and omits temperature for %s", (modelName) => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort: "high" });
     expect(fields.reasoning?.effort).toBe("high");
     expect(fields.temperature).toBeUndefined();
   });
 
-  it("omits reasoning effort when it is not configured", () => {
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-5.5", reasoningEffort: "" });
+  it.each(["gpt-5.5", "gpt-6-sol", "gpt-6.1-sol"])("keeps the provider's default effort for %s", (modelName) => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort: "" });
     expect(fields.reasoning).toBeUndefined();
     expect(fields.temperature).toBeUndefined();
+  });
+
+  it.each([
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-6-astra",
+    "gpt-6.1-sol",
+  ])("uses stateless Responses and non-strict tools for %s", (modelName) => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName });
+    expect(fields.useResponsesApi).toBe(true);
+    expect(fields.supportsStrictToolCalling).toBe(false);
+    expect(fields.modelKwargs).toEqual({ store: false });
+  });
+
+  it.each([
+    "gpt-5.5",
+    "gpt-5.6-sol",
+    "llama3.2",
+    "deepseek-v4-pro",
+  ])("preserves Chat Completions options for %s", (modelName) => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName });
+    expect(fields.useResponsesApi).toBeUndefined();
+    expect(fields.supportsStrictToolCalling).toBeUndefined();
+    expect(fields.modelKwargs).toBeUndefined();
   });
 
   it("disables thinking via modelKwargs when requested", () => {

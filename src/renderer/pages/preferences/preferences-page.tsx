@@ -133,7 +133,7 @@ export const PreferencesPage = observer(() => {
       />
       <div style={{ marginTop: 8, fontWeight: "bold" }}>Reasoning effort</div>
       <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Applied only to reasoning-capable models (o-series, gpt-5.x).
+        Applied only to reasoning-capable models (o-series, gpt-5.x, gpt-6.x).
       </div>
       <Select
         options={REASONING_EFFORT_OPTIONS}

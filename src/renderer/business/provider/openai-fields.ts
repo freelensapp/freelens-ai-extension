@@ -3,7 +3,7 @@
 // reasoning-effort vs temperature heuristic) can be unit-tested without the
 // MobX store or instantiating a real client.
 
-import { isReasoningModel } from "./model-capabilities";
+import { isReasoningModel, requiresResponsesApi } from "./model-capabilities";
 
 import type { ChatOpenAIFields } from "@langchain/openai";
 
@@ -75,6 +75,14 @@ export const buildOpenAIChatFields = ({
     }
   } else {
     fields.temperature = 0;
+  }
+
+  if (requiresResponsesApi(modelName)) {
+    fields.useResponsesApi = true;
+    // Keep optional tool arguments and locally checkpointed conversation state.
+    fields.supportsStrictToolCalling = false;
+    // LangChain 1.5.3 does not recognize GPT-6 reasoning parameters yet.
+    fields.modelKwargs = { store: false, ...(fields.reasoning ? { reasoning: fields.reasoning } : {}) };
   }
 
   // Sent via `modelKwargs` so it reaches the upstream request body verbatim

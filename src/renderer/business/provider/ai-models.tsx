@@ -19,6 +19,7 @@ export const DEFAULT_MODELS: CustomModel[] = [
   { provider: AIProviders.OPEN_AI, name: "gpt-5.5" },
   { provider: AIProviders.OPEN_AI, name: "gpt-5.4" },
   { provider: AIProviders.OPEN_AI, name: "gpt-5.4-mini" },
+  { provider: AIProviders.OPEN_AI, name: "gpt-6.1-sol" },
 ];
 
 export const PROVIDER_LABELS: Record<AIProviders, string> = {

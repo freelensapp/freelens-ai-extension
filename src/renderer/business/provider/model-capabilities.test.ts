@@ -3,6 +3,7 @@ import {
   emitsDsmlToolCalls,
   isReasoningModel,
   requiresAutoToolChoice,
+  requiresResponsesApi,
   supportsTemperature,
 } from "./model-capabilities";
 
@@ -15,6 +16,10 @@ describe("isReasoningModel", () => {
     "gpt-5.4",
     "gpt-5.5",
     "gpt-5.4-mini",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-6-astra",
+    "gpt-6.1-sol",
   ])("treats %s as a reasoning model", (name) => {
     expect(isReasoningModel(name)).toBe(true);
   });
@@ -27,6 +32,31 @@ describe("isReasoningModel", () => {
     "",
   ])("treats %s as a non-reasoning model", (name) => {
     expect(isReasoningModel(name)).toBe(false);
+  });
+});
+
+describe("requiresResponsesApi", () => {
+  it.each([
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-6-astra",
+    "gpt-6.1-sol",
+    "openai/GPT-6.1-sol",
+  ])("uses Responses for %s", (name) => {
+    expect(requiresResponsesApi(name)).toBe(true);
+  });
+
+  it.each([
+    "gpt-5.5",
+    "gpt-5.6-sol",
+    "gpt-4o",
+    "o3-mini",
+    "deepseek-v4-pro",
+    "qwen3-235b",
+    "gpt-60",
+    "",
+  ])("keeps Chat Completions for %s", (name) => {
+    expect(requiresResponsesApi(name)).toBe(false);
   });
 });
 

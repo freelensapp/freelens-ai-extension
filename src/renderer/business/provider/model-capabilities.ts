@@ -2,12 +2,15 @@
 // a hardcoded enum, so adding a new model needs no code changes. Extend the
 // pattern table below when a new family needs different handling.
 
-// OpenAI reasoning models (o-series, gpt-5.x) reject `temperature` and instead
+// GPT-6 models need Responses for tool calls with reasoning enabled.
+export const requiresResponsesApi = (modelName: string): boolean => /gpt-6(?:[.-]|$)/i.test(modelName);
+
+// OpenAI reasoning models (o-series, gpt-5.x, gpt-6.x) reject `temperature` and instead
 // accept a `reasoningEffort`. Non-reasoning models are the inverse.
 const REASONING_MODEL_PATTERNS: RegExp[] = [/^o\d/i, /gpt-5/i];
 
 export const isReasoningModel = (modelName: string): boolean =>
-  REASONING_MODEL_PATTERNS.some((pattern) => pattern.test(modelName));
+  requiresResponsesApi(modelName) || REASONING_MODEL_PATTERNS.some((pattern) => pattern.test(modelName));
 
 export const supportsTemperature = (modelName: string): boolean => !isReasoningModel(modelName);
 
