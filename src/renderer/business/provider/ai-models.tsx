@@ -19,6 +19,9 @@ export const DEFAULT_MODELS: CustomModel[] = [
   { provider: AIProviders.OPEN_AI, name: "gpt-5.5" },
   { provider: AIProviders.OPEN_AI, name: "gpt-5.4" },
   { provider: AIProviders.OPEN_AI, name: "gpt-5.4-mini" },
+  { provider: AIProviders.OPEN_AI, name: "gpt-5.6-sol" },
+  { provider: AIProviders.OPEN_AI, name: "gpt-5.6-terra" },
+  { provider: AIProviders.OPEN_AI, name: "gpt-5.6-luna" },
   { provider: AIProviders.OPEN_AI, name: "gpt-6.1-sol" },
 ];
 

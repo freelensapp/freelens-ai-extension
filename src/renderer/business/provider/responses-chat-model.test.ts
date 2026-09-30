@@ -69,7 +69,13 @@ const answer = [
 ];
 
 describe("Responses chat model", () => {
-  it.each(["gpt-5.5", "llama3.2"])("keeps %s on Chat Completions", async (modelName) => {
+  it.each([
+    "gpt-5.5",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "llama3.2",
+  ])("keeps %s on Chat Completions", async (modelName) => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -89,7 +95,7 @@ describe("Responses chat model", () => {
     const response = await model.invoke("Inspect pods");
     expect(String(fetch.mock.calls[0][0])).toBe(`${baseOptions.proxyBaseUrl}/openai/chat/completions`);
     const body = JSON.parse(String(fetch.mock.calls[0][1]?.body));
-    if (modelName === "gpt-5.5") {
+    if (modelName !== "llama3.2") {
       expect(body.reasoning_effort).toBe("high");
       expect(body).not.toHaveProperty("temperature");
     } else {

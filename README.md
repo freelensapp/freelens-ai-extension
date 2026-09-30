@@ -112,11 +112,16 @@ The list comes seeded with these OpenAI models, which you can change at any time
 - ***gpt-5.5***
 - ***gpt-5.4***
 - ***gpt-5.4-mini***
+- ***gpt-5.6-sol***
+- ***gpt-5.6-terra***
+- ***gpt-5.6-luna***
 - ***gpt-6.1-sol***
 
-Existing saved model lists are preserved. Add `gpt-6.1-sol` in preferences or
+Existing saved model lists are preserved. Add the new models in preferences or
 use **Reset to defaults** to load the updated list. GPT-5.5 remains the initial
 selection. GPT-6 Sol, Luna, and Astra can also be added by their API model IDs.
+GPT-5.6 Sol, Terra, and Luna use the existing Chat Completions path with reasoning
+and tool calling.
 With reasoning effort set to **Default**, no effort is sent, so the provider's
 default applies (medium for GPT-6 and GPT-6.1 Sol).
 
