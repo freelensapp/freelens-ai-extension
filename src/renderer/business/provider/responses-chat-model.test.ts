@@ -108,6 +108,51 @@ describe("Responses chat model", () => {
     expect(messageContentToText(response.content)).toBe("One pod is running.");
   });
 
+  it.each([
+    "gpt-5.4",
+    "gpt-5.4-mini",
+  ])("keeps the real %s supervisor on Chat Completions with Default effort", async (modelName) => {
+    const routing = { reflection: "Inspect pods", goto: "analyzer" };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "chat_route",
+          object: "chat.completion",
+          model: modelName,
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_route",
+                    type: "function",
+                    function: { name: "extract", arguments: JSON.stringify(routing) },
+                  },
+                ],
+              },
+              finish_reason: "tool_calls",
+            },
+          ],
+          usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort: "" });
+    const model = new OfflineTokenChatOpenAI({ ...fields, configuration: { ...fields.configuration, fetch } });
+    vi.mocked(useModelProvider).mockReturnValue({ getModel: () => model });
+    const supervisor = await useAgentSupervisor().getAgent(["analyzer"], ["Inspect cluster resources"]);
+    expect(await supervisor!.invoke({ messages: [new HumanMessage("Inspect pods")] })).toEqual(routing);
+    expect(String(fetch.mock.calls[0][0])).toBe(`${baseOptions.proxyBaseUrl}/openai/chat/completions`);
+    const body = JSON.parse(String(fetch.mock.calls[0][1]?.body));
+    expect(body.tool_choice).toEqual({ type: "function", function: { name: "extract" } });
+    expect(body).not.toHaveProperty("reasoning_effort");
+    expect(body).not.toHaveProperty("temperature");
+  });
+
   it("preserves tool calls and encrypted reasoning across approval and a checkpoint restart", async () => {
     const reasoning = { type: "reasoning", id: "rs_test", summary: [], encrypted_content: "encrypted-test" };
     const call = { type: "function_call", id: "fc_test", call_id: "call_test", name: "inspect", arguments: "{}" };

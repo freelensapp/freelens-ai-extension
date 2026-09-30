@@ -49,8 +49,7 @@ describe("buildOpenAIChatFields", () => {
   });
 
   it.each([
-    "gpt-5.4",
-    "gpt-5.4-mini",
+    "gpt-5.4-pro",
     "gpt-5.5",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
@@ -66,11 +65,27 @@ describe("buildOpenAIChatFields", () => {
     expect(fields.modelKwargs).toEqual({ store: false });
   });
 
-  it.each(["gpt-5.3", "llama3.2", "deepseek-v4-pro"])("preserves Chat Completions options for %s", (modelName) => {
+  it.each([
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.3",
+    "llama3.2",
+    "deepseek-v4-pro",
+  ])("preserves Chat Completions options for %s", (modelName) => {
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName });
     expect(fields.useResponsesApi).toBeUndefined();
     expect(fields.supportsStrictToolCalling).toBeUndefined();
     expect(fields.modelKwargs).toBeUndefined();
+  });
+
+  it.each(["low", "medium", "high"])("uses Responses for GPT-5.4 with effort %s", (reasoningEffort) => {
+    for (const modelName of ["gpt-5.4", "gpt-5.4-mini"]) {
+      const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort });
+      expect(fields.useResponsesApi).toBe(true);
+      expect(fields.supportsStrictToolCalling).toBe(false);
+      expect(fields.modelKwargs).toEqual({ store: false, reasoning: { effort: reasoningEffort } });
+      expect(fields.temperature).toBeUndefined();
+    }
   });
 
   it("disables thinking via modelKwargs when requested", () => {

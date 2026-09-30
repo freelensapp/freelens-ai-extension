@@ -3,9 +3,16 @@
 // pattern table below when a new family needs different handling.
 
 // Starting with GPT-5.4, tool calls with reasoning enabled require Responses.
-export const requiresResponsesApi = (modelName: string): boolean => {
+export const requiresResponsesApi = (modelName: string, reasoningEffort?: string): boolean => {
   const version = /gpt-(5|6)(?:\.(\d+))?(?:[.-]|$)/i.exec(modelName);
-  return version !== null && (version[1] === "6" || Number(version[2]) >= 4);
+  if (version === null) return false;
+  if (version[1] === "6") return true;
+  // GPT-5.4 defaults to none; GPT-5.5+ defaults to reasoning. Pro requires Responses.
+  const minor = Number(version[2]);
+  return (
+    minor >= 4 &&
+    (/-pro(?:[.-]|$)/i.test(modelName) || (reasoningEffort !== "none" && (Boolean(reasoningEffort) || minor >= 5)))
+  );
 };
 
 // OpenAI reasoning models (o-series, gpt-5.x, gpt-6.x) reject `temperature` and instead

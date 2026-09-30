@@ -77,7 +77,7 @@ export const buildOpenAIChatFields = ({
     fields.temperature = 0;
   }
 
-  if (requiresResponsesApi(modelName)) {
+  if (requiresResponsesApi(modelName, reasoningEffort)) {
     fields.useResponsesApi = true;
     // Keep optional tool arguments and locally checkpointed conversation state.
     fields.supportsStrictToolCalling = false;

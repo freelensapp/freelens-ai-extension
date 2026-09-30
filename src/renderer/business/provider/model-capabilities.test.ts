@@ -40,8 +40,7 @@ describe("isReasoningModel", () => {
 
 describe("requiresResponsesApi", () => {
   it.each([
-    "gpt-5.4",
-    "gpt-5.4-mini",
+    "gpt-5.4-pro",
     "gpt-5.5",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
@@ -56,6 +55,10 @@ describe("requiresResponsesApi", () => {
   });
 
   it.each([
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-2026-03-05",
+    "openai/GPT-5.4-mini",
     "gpt-5",
     "gpt-5.3",
     "gpt-5.3-mini",
@@ -68,6 +71,16 @@ describe("requiresResponsesApi", () => {
     "",
   ])("keeps Chat Completions for %s", (name) => {
     expect(requiresResponsesApi(name)).toBe(false);
+  });
+
+  it.each(["low", "medium", "high"])("uses Responses for GPT-5.4 with effort %s", (effort) => {
+    for (const name of ["gpt-5.4", "gpt-5.4-mini"]) {
+      expect(requiresResponsesApi(name, effort)).toBe(true);
+    }
+  });
+
+  it.each(["gpt-5.4", "gpt-5.4-mini", "gpt-5.5"])("keeps Chat Completions for %s with no reasoning", (name) => {
+    expect(requiresResponsesApi(name, "none")).toBe(false);
   });
 });
 
