@@ -187,19 +187,25 @@ describe("Responses chat model", () => {
     expect(body).not.toHaveProperty("temperature");
   });
 
-  it("preserves tool calls and encrypted reasoning across approval and a checkpoint restart", async () => {
+  it.each([
+    false,
+    true,
+  ])("preserves tool calls, reasoning, and approval restart with streaming=%s", async (streaming) => {
     const reasoning = { type: "reasoning", id: "rs_test", summary: [], encrypted_content: "encrypted-test" };
     const call = { type: "function_call", id: "fc_test", call_id: "call_test", name: "inspect", arguments: "{}" };
     const outputs = [[reasoning, call], answer];
     const requests: { url: string; body: Record<string, unknown>; headers: Headers }[] = [];
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (url, init) => {
       requests.push({ url: String(url), body: JSON.parse(String(init?.body)), headers: new Headers(init?.headers) });
-      return responseStream(outputs[requests.length - 1], requests.length);
+      const events = responseEvents(outputs[requests.length - 1], requests.length);
+      return JSON.parse(String(init?.body)).stream
+        ? sse(events)
+        : new Response(JSON.stringify(events.at(-1)?.response), { headers: { "Content-Type": "application/json" } });
     });
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-6.1-sol", reasoningEffort: "high" });
     const model = new OfflineTokenChatOpenAI({
       ...fields,
-      streaming: true,
+      streaming,
       configuration: { ...fields.configuration, fetch },
     });
     const execute = vi.fn(async () => "One pod is running.");
@@ -247,7 +253,7 @@ describe("Responses chat model", () => {
       expect(request.headers.get(PROXY_TOKEN_HEADER)).toBe(baseOptions.proxyToken);
       expect(request.body).toMatchObject({
         model: "gpt-6.1-sol",
-        stream: true,
+        stream: streaming,
         store: false,
         reasoning: { effort: "high" },
         parallel_tool_calls: false,
@@ -594,51 +600,73 @@ describe("Responses chat model", () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
-  it.each([
-    { blocks: [["A", "B"], ["C"]], phases: true },
-    { blocks: [["A", "B"], ["C"]], phases: false },
-    {
-      blocks: [
-        ["A0", "A1"],
-        ["B0", "B1"],
-      ],
-      phases: true,
-    },
-    {
-      blocks: [
-        ["A0", "A1"],
-        ["B0", "B1"],
-      ],
-      phases: false,
-    },
-  ])("keeps multiple text blocks in order through invoke, checkpoints, and downstream context: %j", async ({
-    blocks,
-    phases,
-  }) => {
-    const output = blocks.map((parts, output_index) => ({
+  // Exhaust all text/refusal combinations up to two blocks in one or two messages.
+  // Lowercase symbols in the edge cases represent empty text/refusal blocks.
+  const messageLayouts = ["", "T", "R", "TT", "TR", "RT", "RR"];
+  const contentLayouts = [
+    ...messageLayouts.map((message) => [message]),
+    ...messageLayouts.flatMap((first) => messageLayouts.map((second) => [first, second])),
+    ["TRT"],
+    ["RTR"],
+    ["tRT"],
+    ["rTR"],
+    ["TRt"],
+    ["RTr"],
+    ["T", "", "R"],
+    ["R", "tr", "T"],
+  ];
+  it.each(
+    contentLayouts.flatMap((layout) =>
+      [false, true].flatMap((phases) => [false, true].map((streaming) => ({ layout, phases, streaming }))),
+    ),
+  )("preserves visible content, annotations, history, and checkpoints: %j", async ({ layout, phases, streaming }) => {
+    const messages = layout.map((parts, output_index) => ({
       ...answer[0],
       id: `msg_blocks_${output_index}`,
       ...(phases ? { phase: output_index === 0 ? "commentary" : "final_answer" } : {}),
-      content: parts.map((text, content_index) => ({
-        type: "output_text",
-        text,
-        annotations: [
-          {
-            type: "url_citation",
-            url: `https://example.com/${output_index}/${content_index}`,
-            title: "Source",
-            start_index: 0,
-            end_index: text.length,
-          },
-        ],
-      })),
+      content: [...parts].map((kind, content_index) => {
+        const text = kind === kind.toUpperCase() ? `${kind}${output_index}:${content_index}.` : "";
+        return kind.toUpperCase() === "R"
+          ? { type: "refusal", refusal: text }
+          : {
+              type: "output_text",
+              text,
+              annotations: text
+                ? [
+                    {
+                      type: "url_citation",
+                      url: `https://example.com/${output_index}/${content_index}`,
+                      title: "Source",
+                      start_index: 0,
+                      end_index: text.length,
+                    },
+                  ]
+                : [],
+            };
+      }),
     }));
+    const output = messages.flatMap((message, index) => [
+      {
+        type: "reasoning",
+        id: `rs_${index}`,
+        summary: [{ type: "summary_text", text: "Reasoning summary" }],
+        encrypted_content: `encrypted-${index}`,
+      },
+      message,
+    ]);
     const events = responseEvents(output, 1).flatMap((event) => {
-      if (event.type !== "response.output_text.delta") return [event];
-      const part = output[event.output_index as number].content[event.content_index as number];
+      if (event.type !== "response.output_text.delta" && event.type !== "response.refusal.delta") return [event];
+      const delta = String(event.delta);
+      const chunks = [
+        { ...event, delta: delta.slice(0, 1) },
+        { ...event, delta: delta.slice(1) },
+      ];
+      if (event.type === "response.refusal.delta") return chunks;
+      const message = messages.find((item) => item.id === event.item_id)!;
+      const part = message.content[event.content_index as number];
+      if (!part.annotations?.length) return chunks;
       return [
-        { ...event, delta: part.text.slice(0, 1) },
-        { ...event, delta: part.text.slice(1) },
+        ...chunks,
         {
           type: "response.output_text.annotation.added",
           output_index: event.output_index,
@@ -649,7 +677,13 @@ describe("Responses chat model", () => {
         },
       ];
     });
-    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => sse(events));
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async (_url, init) =>
+        JSON.parse(String(init?.body)).stream
+          ? sse(events)
+          : new Response(JSON.stringify(events.at(-1)?.response), { headers: { "Content-Type": "application/json" } }),
+      );
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-6.1-sol" });
     const makeModel = (streaming?: boolean) =>
       new OfflineTokenChatOpenAI({
@@ -657,23 +691,29 @@ describe("Responses chat model", () => {
         ...(streaming === undefined ? {} : { streaming }),
         configuration: { ...fields.configuration, fetch },
       });
-    const expected = blocks.map((parts) => parts.join("")).join("\n\n");
-    const result = await makeModel(true).invoke("Inspect pods");
+    const expected = messages
+      .map((message) => message.content.map((part) => part.text ?? part.refusal).join(""))
+      .filter(Boolean)
+      .join("\n\n");
+    const model = makeModel(streaming);
+    const result = await model.invoke("Inspect pods");
     expect(messageContentToText(result.content)).toBe(expected);
     expect(result.response_metadata.output).toEqual(output);
-    for (const [output_index, item] of output.entries()) {
-      for (const [content_index, part] of item.content.entries()) {
+    for (const part of messages.flatMap((message) => message.content)) {
+      if (part.text && part.annotations) {
         expect(result.content).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
-              index: `${output_index}:${content_index}`,
-              text: `${output_index > 0 && content_index === 0 ? "\n\n" : ""}${part.text}`,
+              text: expect.stringContaining(part.text),
               annotations: [expect.objectContaining({ url: part.annotations[0].url })],
             }),
           ]),
         );
       }
     }
+    await model.invoke([new HumanMessage("Inspect pods"), result, new HumanMessage("Continue")]);
+    const replay = JSON.parse(String(fetch.mock.calls[1][1]?.body));
+    expect(replay.input.slice(1, -1)).toEqual(output);
 
     const inner = createReactAgent({ llm: makeModel(), tools: [] });
     let finalContent = "";
@@ -681,11 +721,13 @@ describe("Responses chat model", () => {
     const buildGraph = (saver: MemorySaver) =>
       new StateGraph(MessagesAnnotation)
         .addNode("agent", async (state, config) => {
-          const reply = await inner.invoke(state, config);
+          const reply = await inner.invoke(state, {
+            ...config,
+            ...(streaming ? {} : { tags: ["nostream", "langsmith:hidden"] }),
+          });
           const last = reply.messages.at(-1)!;
           finalContent = messageContentToText(last.content);
           expect(last.response_metadata).toMatchObject({ output });
-          // Match the application's config forwarding and result wrapping.
           return { messages: [new HumanMessage({ content: last.content })] };
         })
         .addNode("next", (state) => {
@@ -699,15 +741,15 @@ describe("Responses chat model", () => {
     const saver = new MemorySaver();
     const graph = buildGraph(saver);
     const config = { configurable: { thread_id: "blocks-test" } };
-    const mergeState = createStreamMergeState();
-    let visible = "";
-    for await (const [chunk, metadata] of await graph.stream(
-      { messages: [new HumanMessage("Inspect pods")] },
-      { ...config, streamMode: "messages" },
-    )) {
-      if (chunk.getType() === "ai") visible += mergeAiChunk(mergeState, chunk, metadata);
-    }
-    expect(visible).toBe(expected);
+    const input = { messages: [new HumanMessage("Inspect pods")] };
+    if (streaming) {
+      const mergeState = createStreamMergeState();
+      let visible = "";
+      for await (const [chunk, metadata] of await graph.stream(input, { ...config, streamMode: "messages" })) {
+        if (chunk.getType() === "ai") visible += mergeAiChunk(mergeState, chunk, metadata);
+      }
+      expect(visible).toBe(expected);
+    } else await graph.invoke(input, config);
     expect(finalContent).toBe(expected);
     expect(downstreamContent).toBe(expected);
     const checkpoint = await graph.getState(config);
@@ -719,8 +761,8 @@ describe("Responses chat model", () => {
     );
     const restoredCheckpoint = await buildGraph(restored).getState(config);
     expect(messageContentToText(restoredCheckpoint.values.messages.at(-1).content)).toBe(expected);
-    expect(fetch).toHaveBeenCalledTimes(2);
-    for (const [, init] of fetch.mock.calls) expect(JSON.parse(String(init?.body)).stream).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    for (const [, init] of fetch.mock.calls) expect(JSON.parse(String(init?.body)).stream).toBe(streaming);
   });
 
   it("renders Responses text blocks in the analysis service", async () => {

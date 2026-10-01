@@ -38,9 +38,20 @@ const showResponseMessages = (generation: ChatGeneration): void => {
   let hasText = false;
   // Reuse LangChain's content conversion, retaining the original output for replay.
   generation.message.content = response.output.flatMap((item) => {
-    const part = { message: convertResponsesMessageToAIMessage({ ...response, output: [item] }), text: "" };
-    showRefusal(part);
-    const content = part.message.content;
+    const content = convertResponsesMessageToAIMessage({
+      ...response,
+      output: [
+        item.type === "message"
+          ? {
+              ...item,
+              // Render each refusal in place before LangChain collapses them into one metadata field.
+              content: item.content.map((part) =>
+                part.type === "refusal" ? { type: "output_text", text: part.refusal, annotations: [] } : part,
+              ),
+            }
+          : item,
+      ],
+    }).content;
     if (item.type !== "message" || !messageContentToText(content)) {
       return typeof content === "string" ? [{ type: "text", text: content }] : content;
     }
