@@ -49,6 +49,7 @@ export class ResponsesChatOpenAI extends ChatOpenAIResponses {
     }
     const stream = await super.completionWithRetry({ ...request, stream: true }, options);
     return (async function* () {
+      let completed = false;
       for await (const event of stream) {
         if (
           event.type === "response.failed" ||
@@ -56,8 +57,14 @@ export class ResponsesChatOpenAI extends ChatOpenAIResponses {
           event.type === "response.completed"
         ) {
           requireCompletedResponse(event.response);
+          completed = event.type === "response.completed";
         }
         yield event;
+      }
+      if (!completed) {
+        const error = new Error("OpenAI response stream ended before response.completed.");
+        error.name = "response_stream_incomplete";
+        throw error;
       }
     })();
   }

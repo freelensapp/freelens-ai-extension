@@ -348,10 +348,11 @@ describe("Responses chat model", () => {
   });
 
   it.each([
-    { streaming: false, messagesMode: false },
-    { streaming: true, messagesMode: false },
-    { streaming: true, messagesMode: true },
-  ])("rejects incomplete tool arguments before execution: %j", async ({ streaming, messagesMode }) => {
+    { streaming: false, messagesMode: false, missingTerminal: false },
+    { streaming: true, messagesMode: false, missingTerminal: false },
+    { streaming: true, messagesMode: true, missingTerminal: false },
+    { streaming: true, messagesMode: true, missingTerminal: true },
+  ])("rejects incomplete tool arguments before execution: %j", async ({ streaming, messagesMode, missingTerminal }) => {
     const call = {
       type: "function_call",
       id: "fc_incomplete",
@@ -367,6 +368,9 @@ describe("Responses chat model", () => {
       incomplete_details: { reason: "max_output_tokens" },
     };
     events[events.length - 1] = { type: "response.incomplete", response: incomplete };
+    if (missingTerminal) {
+      events.pop();
+    }
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockImplementation(async (_url, init) =>
@@ -405,12 +409,37 @@ describe("Responses chat model", () => {
       }
     };
     await expect(run()).rejects.toMatchObject({
-      name: "response_incomplete",
-      message: expect.stringContaining("max_output_tokens"),
+      name: missingTerminal ? "response_stream_incomplete" : "response_incomplete",
+      message: expect.stringContaining(missingTerminal ? "response.completed" : "max_output_tokens"),
     });
     expect(execute).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledOnce();
     expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).stream).toBe(streaming);
+  });
+
+  it.each(["", "Partial answer"])("rejects SSE EOF without completion after output %j", async (partial) => {
+    const output = partial
+      ? [{ ...answer[0], content: [{ type: "output_text", text: partial, annotations: [] }] }]
+      : [];
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async () => sse(responseEvents(output, 1).slice(0, -1)));
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-6.1-sol" });
+    const model = new OfflineTokenChatOpenAI({
+      ...fields,
+      streaming: true,
+      configuration: { ...fields.configuration, fetch },
+    });
+    vi.mocked(useModelProvider).mockReturnValue({ getModel: () => model });
+    const chunks: string[] = [];
+    const analyze = async () => {
+      for await (const chunk of useAiAnalysisService().analyze("Inspect pods")) chunks.push(chunk);
+    };
+    const error = { name: "response_stream_incomplete", message: expect.stringContaining("response.completed") };
+    await expect(analyze()).rejects.toMatchObject(error);
+    expect(chunks.join("")).toBe(partial);
+    await expect(model.invoke("Inspect pods")).rejects.toMatchObject(error);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it.each([false, true])("shows refusal text in invoke with streaming=%s and preserves metadata", async (streaming) => {
