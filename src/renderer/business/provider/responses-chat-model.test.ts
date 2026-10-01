@@ -490,6 +490,110 @@ describe("Responses chat model", () => {
     expect(merged.join("")).toBe(refusal);
   });
 
+  it.each([
+    { streaming: false, phases: true, refusal: false, emptyFirst: false },
+    { streaming: true, phases: true, refusal: false, emptyFirst: false },
+    { streaming: false, phases: false, refusal: false, emptyFirst: false },
+    { streaming: true, phases: false, refusal: false, emptyFirst: false },
+    { streaming: false, phases: true, refusal: true, emptyFirst: false },
+    { streaming: true, phases: true, refusal: true, emptyFirst: false },
+    { streaming: false, phases: true, refusal: false, emptyFirst: true },
+    { streaming: true, phases: true, refusal: false, emptyFirst: true },
+  ])("preserves assistant output boundaries in invoke, AI Explain, and LangGraph: %j", async ({
+    streaming,
+    phases,
+    refusal,
+    emptyFirst,
+  }) => {
+    const finalText = refusal ? "I cannot help with that request." : "### Result\nOne pod is running.";
+    const output = [
+      {
+        ...answer[0],
+        id: "msg_commentary",
+        ...(phases ? { phase: "commentary" } : {}),
+        content: emptyFirst ? [] : [{ type: "output_text", text: "Inspecting pods.", annotations: [] }],
+      },
+      {
+        ...answer[0],
+        id: "msg_final",
+        ...(phases ? { phase: "final_answer" } : {}),
+        content: refusal
+          ? [{ type: "refusal", refusal: finalText }]
+          : [
+              {
+                type: "output_text",
+                text: finalText,
+                annotations: [
+                  {
+                    type: "url_citation",
+                    url: "https://example.com/pods",
+                    title: "Pods",
+                    start_index: 11,
+                    end_index: 14,
+                  },
+                ],
+              },
+            ],
+      },
+    ];
+    const events = responseEvents(output, 1).flatMap((event) =>
+      event.type === "response.output_text.delta"
+        ? [
+            { ...event, delta: String(event.delta).slice(0, 3) },
+            { ...event, delta: String(event.delta).slice(3) },
+          ]
+        : [event],
+    );
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async (_url, init) =>
+        JSON.parse(String(init?.body)).stream
+          ? sse(events)
+          : new Response(JSON.stringify(events.at(-1)?.response), { headers: { "Content-Type": "application/json" } }),
+      );
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-6.1-sol" });
+    const model = new OfflineTokenChatOpenAI({
+      ...fields,
+      streaming,
+      configuration: { ...fields.configuration, fetch },
+    });
+    const expected = `${emptyFirst ? "" : "Inspecting pods.\n\n"}${finalText}`;
+    const result = await model.invoke("Inspect pods");
+    expect(messageContentToText(result.content)).toBe(expected);
+    expect(result.response_metadata.output).toEqual(output);
+    if (refusal) expect(result.additional_kwargs.refusal).toBe(finalText);
+    if (!streaming && !refusal) {
+      expect(result.content).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            annotations: [expect.objectContaining({ type: "citation", url: "https://example.com/pods" })],
+          }),
+        ]),
+      );
+    }
+
+    vi.mocked(useModelProvider).mockReturnValue({ getModel: () => model });
+    const analysis: string[] = [];
+    for await (const chunk of useAiAnalysisService().analyze("Inspect pods")) analysis.push(chunk);
+    expect(analysis.join("")).toBe(expected);
+
+    const graph = new StateGraph(MessagesAnnotation)
+      .addNode("agent", async (state) => ({ messages: [await model.invoke(state.messages)] }))
+      .addEdge("__start__", "agent")
+      .addEdge("agent", "__end__")
+      .compile();
+    const state = createStreamMergeState();
+    const merged: string[] = [];
+    for await (const [chunk, metadata] of await graph.stream(
+      { messages: [new HumanMessage("Inspect pods")] },
+      { streamMode: "messages" },
+    )) {
+      merged.push(mergeAiChunk(state, chunk, metadata));
+    }
+    expect(merged.join("")).toBe(expected);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
   it("renders Responses text blocks in the analysis service", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       responseStream(

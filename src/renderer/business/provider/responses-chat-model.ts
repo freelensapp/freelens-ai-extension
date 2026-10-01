@@ -1,4 +1,10 @@
-import { ChatOpenAIResponses } from "@langchain/openai";
+import {
+  ChatOpenAIResponses,
+  convertMessagesToResponsesInput,
+  convertResponsesDeltaToChatGenerationChunk,
+  convertResponsesMessageToAIMessage,
+  wrapOpenAIClientError,
+} from "@langchain/openai";
 import { messageContentToText } from "./token-estimate";
 
 import type { CallbackManagerForLLMRun } from "@langchain/core/callbacks/manager";
@@ -25,6 +31,24 @@ const showRefusal = (generation: ChatGeneration): void => {
       typeof content === "string" ? content + refusal : [...content, { type: "text", text: refusal }];
     generation.text = messageContentToText(generation.message.content);
   }
+};
+
+const showResponseMessages = (generation: ChatGeneration): void => {
+  const response = generation.message.response_metadata as OpenAIClient.Responses.Response;
+  let hasText = false;
+  // Reuse LangChain's content conversion, retaining the original output for replay.
+  generation.message.content = response.output.flatMap((item) => {
+    const part = { message: convertResponsesMessageToAIMessage({ ...response, output: [item] }), text: "" };
+    showRefusal(part);
+    const content = part.message.content;
+    if (item.type !== "message" || !messageContentToText(content)) {
+      return typeof content === "string" ? [{ type: "text", text: content }] : content;
+    }
+    const separator = hasText ? [{ type: "text", text: "\n\n" }] : [];
+    hasText = true;
+    return [...separator, ...(typeof content === "string" ? [{ type: "text", text: content }] : content)];
+  });
+  generation.text = messageContentToText(generation.message.content);
 };
 
 // LangChain 1.5.3 accepts incomplete responses and keeps refusal text only in metadata.
@@ -74,9 +98,45 @@ export class ResponsesChatOpenAI extends ChatOpenAIResponses {
     options: this["ParsedCallOptions"],
     runManager?: CallbackManagerForLLMRun,
   ): AsyncGenerator<ChatGenerationChunk> {
-    for await (const chunk of super._streamResponseChunks(messages, options, runManager)) {
-      showRefusal(chunk);
-      yield chunk;
+    const stream = await this.completionWithRetry(
+      {
+        ...this.invocationParams(options),
+        input: convertMessagesToResponsesInput({ messages, zdrEnabled: this.zdrEnabled ?? false, model: this.model }),
+        stream: true,
+      },
+      options,
+    );
+    // LangChain drops output_index during conversion; keep it until text is rendered.
+    let lastTextOutputIndex: number | undefined;
+    try {
+      for await (const event of stream) {
+        if (options.signal?.aborted) return;
+        const chunk = convertResponsesDeltaToChatGenerationChunk(event);
+        if (!chunk) continue;
+        showRefusal(chunk);
+        if (messageContentToText(chunk.message.content) && "output_index" in event) {
+          if (lastTextOutputIndex !== undefined && event.output_index !== lastTextOutputIndex) {
+            const content = chunk.message.content;
+            chunk.message.content =
+              typeof content === "string"
+                ? `\n\n${content}`
+                : content.map((part) => (part.type === "text" ? { ...part, text: `\n\n${part.text}` } : part));
+            chunk.text = messageContentToText(chunk.message.content);
+          }
+          lastTextOutputIndex = event.output_index;
+        }
+        yield chunk;
+        await runManager?.handleLLMNewToken(
+          chunk.text || "",
+          { prompt: options.promptIndex ?? 0, completion: 0 },
+          undefined,
+          undefined,
+          undefined,
+          { chunk },
+        );
+      }
+    } catch (error) {
+      throw wrapOpenAIClientError(error);
     }
   }
 
@@ -87,7 +147,7 @@ export class ResponsesChatOpenAI extends ChatOpenAIResponses {
   ): Promise<ChatResult> {
     const result = await super._generate(messages, options, runManager);
     if (!this.invocationParams(options).stream) {
-      result.generations.forEach(showRefusal);
+      result.generations.forEach(showResponseMessages);
     }
     return result;
   }
