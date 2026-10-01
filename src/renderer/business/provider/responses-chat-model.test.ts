@@ -34,7 +34,7 @@ const sse = (events: Record<string, unknown>[]) =>
   });
 
 // Real SDK parsing of mocked Responses SSE, without an API key or a cluster.
-const responseStream = (output: Record<string, unknown>[], index: number) => {
+const responseEvents = (output: Record<string, unknown>[], index: number) => {
   const response = {
     id: `resp_${index}`,
     object: "response",
@@ -43,29 +43,63 @@ const responseStream = (output: Record<string, unknown>[], index: number) => {
     output,
     usage: { input_tokens: 20, output_tokens: 5, total_tokens: 25, input_tokens_details: { cached_tokens: 4 } },
   };
-  const events: Record<string, unknown>[] = [{ type: "response.created", response: { ...response, output: [] } }];
+  const events: Record<string, unknown>[] = [
+    { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
+  ];
   output.forEach((item, output_index) => {
     events.push({
       type: "response.output_item.added",
       output_index,
-      item: item.type === "function_call" ? { ...item, arguments: "" } : item,
+      item:
+        item.type === "function_call"
+          ? { ...item, arguments: "", status: "in_progress" }
+          : item.type === "message"
+            ? { ...item, content: [], status: "in_progress" }
+            : item,
     });
     if (item.type === "function_call") {
-      events.push({ type: "response.function_call_arguments.delta", output_index, delta: item.arguments });
+      events.push({
+        type: "response.function_call_arguments.delta",
+        item_id: item.id,
+        output_index,
+        delta: item.arguments,
+      });
     } else if (item.type === "message") {
-      for (const part of item.content as { type: string; text?: string; refusal?: string }[]) {
+      for (const [content_index, part] of (
+        item.content as { type: string; text?: string; refusal?: string }[]
+      ).entries()) {
         if (part.type === "refusal") {
-          events.push({ type: "response.refusal.delta", output_index, content_index: 0, delta: part.refusal });
-          events.push({ type: "response.refusal.done", output_index, content_index: 0, refusal: part.refusal });
+          events.push({
+            type: "response.refusal.delta",
+            item_id: item.id,
+            output_index,
+            content_index,
+            delta: part.refusal,
+          });
+          events.push({
+            type: "response.refusal.done",
+            item_id: item.id,
+            output_index,
+            content_index,
+            refusal: part.refusal,
+          });
         } else {
-          events.push({ type: "response.output_text.delta", output_index, content_index: 0, delta: part.text });
+          events.push({
+            type: "response.output_text.delta",
+            item_id: item.id,
+            output_index,
+            content_index,
+            delta: part.text,
+          });
         }
       }
     }
   });
   events.push({ type: "response.completed", response });
-  return sse(events);
+  return events;
 };
+
+const responseStream = (output: Record<string, unknown>[], index: number) => sse(responseEvents(output, index));
 
 const answer = [
   {
@@ -311,6 +345,72 @@ describe("Responses chat model", () => {
     expect(chunks.join("")).toBe(partial);
     await expect(model.invoke("Inspect pods")).rejects.toMatchObject({ name: error.code, message: error.message });
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { streaming: false, messagesMode: false },
+    { streaming: true, messagesMode: false },
+    { streaming: true, messagesMode: true },
+  ])("rejects incomplete tool arguments before execution: %j", async ({ streaming, messagesMode }) => {
+    const call = {
+      type: "function_call",
+      id: "fc_incomplete",
+      call_id: "call_incomplete",
+      name: "inspect",
+      arguments: streaming ? '{"namespace":"production"' : '{"namespace":"production"}',
+      status: "incomplete",
+    };
+    const events = responseEvents([call], 1);
+    const incomplete = {
+      ...(events.at(-1)?.response as Record<string, unknown>),
+      status: "incomplete",
+      incomplete_details: { reason: "max_output_tokens" },
+    };
+    events[events.length - 1] = { type: "response.incomplete", response: incomplete };
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async (_url, init) =>
+        JSON.parse(String(init?.body)).stream
+          ? sse(events)
+          : new Response(JSON.stringify(incomplete), { headers: { "Content-Type": "application/json" } }),
+      );
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-6.1-sol" });
+    const model = new OfflineTokenChatOpenAI({
+      ...fields,
+      streaming,
+      configuration: { ...fields.configuration, fetch },
+    });
+    const execute = vi.fn(async () => "One pod is running.");
+    const inspect = tool(execute, {
+      name: "inspect",
+      description: "Inspect resources",
+      schema: z.object({ namespace: z.string().optional(), selector: z.string().optional() }),
+    });
+    const boundModel = model.bindTools([inspect]);
+    const graph = new StateGraph(MessagesAnnotation)
+      .addNode("agent", async (state) => ({ messages: [await boundModel.invoke(state.messages)] }))
+      .addNode("tools", new ToolNode([inspect]))
+      .addEdge("__start__", "agent")
+      .addEdge("agent", "tools")
+      .addEdge("tools", "__end__")
+      .compile();
+    const run = async () => {
+      const input = { messages: [new HumanMessage("Inspect production pods")] };
+      if (messagesMode) {
+        for await (const _chunk of await graph.stream(input, { streamMode: "messages" })) {
+          // Consume the entire stream so terminal validation runs.
+        }
+      } else {
+        await graph.invoke(input);
+      }
+    };
+    await expect(run()).rejects.toMatchObject({
+      name: "response_incomplete",
+      message: expect.stringContaining("max_output_tokens"),
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).stream).toBe(streaming);
   });
 
   it.each([false, true])("shows refusal text in invoke with streaming=%s and preserves metadata", async (streaming) => {

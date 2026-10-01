@@ -6,6 +6,17 @@ import type { BaseMessage } from "@langchain/core/messages";
 import type { ChatGeneration, ChatGenerationChunk, ChatResult } from "@langchain/core/outputs";
 import type { OpenAIClient } from "@langchain/openai";
 
+const requireCompletedResponse = (response: OpenAIClient.Responses.Response): void => {
+  if (response.status === "completed" && !response.error) {
+    return;
+  }
+  const status = response.status ?? "not_completed";
+  const reason = response.incomplete_details?.reason;
+  const error = new Error(response.error?.message ?? `OpenAI response ${status}${reason ? `: ${reason}` : "."}`);
+  error.name = response.error?.code ?? `response_${status}`;
+  throw error;
+};
+
 const showRefusal = (generation: ChatGeneration): void => {
   const refusal = generation.message.additional_kwargs.refusal;
   if (typeof refusal === "string") {
@@ -16,7 +27,7 @@ const showRefusal = (generation: ChatGeneration): void => {
   }
 };
 
-// LangChain 1.5.3 drops response.failed and keeps refusal text only in metadata.
+// LangChain 1.5.3 accepts incomplete responses and keeps refusal text only in metadata.
 // Adapt the Responses worker so invoke, stream, and LangGraph callbacks agree.
 export class ResponsesChatOpenAI extends ChatOpenAIResponses {
   override completionWithRetry(
@@ -32,15 +43,19 @@ export class ResponsesChatOpenAI extends ChatOpenAIResponses {
     options?: OpenAIClient.RequestOptions,
   ): Promise<AsyncIterable<OpenAIClient.Responses.ResponseStreamEvent> | OpenAIClient.Responses.Response> {
     if (!request.stream) {
-      return super.completionWithRetry({ ...request, stream: false }, options);
+      const response = await super.completionWithRetry({ ...request, stream: false }, options);
+      requireCompletedResponse(response);
+      return response;
     }
     const stream = await super.completionWithRetry({ ...request, stream: true }, options);
     return (async function* () {
       for await (const event of stream) {
-        if (event.type === "response.failed") {
-          const error = new Error(event.response.error?.message ?? "OpenAI response failed.");
-          error.name = event.response.error?.code ?? "response_failed";
-          throw error;
+        if (
+          event.type === "response.failed" ||
+          event.type === "response.incomplete" ||
+          event.type === "response.completed"
+        ) {
+          requireCompletedResponse(event.response);
         }
         yield event;
       }
