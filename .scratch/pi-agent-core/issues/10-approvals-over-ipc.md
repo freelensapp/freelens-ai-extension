@@ -17,5 +17,9 @@ existing interrupt UI in the renderer, no survival across restart). Open:
   resource) and who computes it.
 - Behaviour when the frame closes or the user never answers: deny, timeout, or
   abort the run.
-- Whether pi-coding-agent's session API exposes the hook, or it must be wired
-  through a pi extension.
+- ~~Whether pi-coding-agent's session API exposes the hook, or it must be
+  wired through a pi extension.~~ Answered by the spike
+  ([06](06-spike-pi-in-main.md)): use an inline extension factory on
+  `DefaultResourceLoader` with `pi.on("tool_call", handler)`. The handler can
+  await, can return `{ block: true, reason }` (the model sees the reason), and
+  can change `event.input` in place.

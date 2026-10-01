@@ -7,8 +7,8 @@ Label: wayfinder:map
 A buildable spec, handed to `/to-spec` and `/to-tickets`: one pi agent running in
 the extension main process on the `pi-coding-agent` SDK, with the cluster tools
 and approvals, streaming into the existing chat UI over IPC, on any pi built-in
-provider plus custom OpenAI-compatible ones, with chats saved as pi JSON
-sessions, and no LangChain/LangGraph left.
+provider (API key or OAuth/subscription login) plus custom OpenAI-compatible
+ones, with chats saved as pi JSON sessions, and no LangChain/LangGraph left.
 
 ## Notes
 
@@ -36,7 +36,17 @@ sessions, and no LangChain/LangGraph left.
 - [Where the map lives](issues/04-where-map-lives.md): local markdown under
   `.scratch/pi-agent-core/`.
 - [Providers in the first version](issues/05-providers-first-version.md): every
-  pi built-in API-key provider plus custom OpenAI-compatible ones.
+  pi built-in provider, including OAuth/subscription logins, plus custom
+  OpenAI-compatible ones.
+- [Spike: pi-coding-agent in Freelens main](issues/06-spike-pi-in-main.md):
+  pi bundles into our CJS main output and runs under Electron 39 (Freelens
+  1.8). The tested session had inline tools, a blocking `tool_call` approval
+  hook and JSONL sessions. OAuth flows need `registerBunOAuthFlows()` to load
+  from the bundle. The production build is about 13 MB unpacked.
+- [What pi replaces](issues/14-what-pi-replaces.md): anything pi already does
+  is deleted, not ported: compaction, checkpoints, the model layer, LiteLLM
+  pricing, the local AI proxy and the LangChain workarounds. Tools are
+  rewritten on typebox. AI Explain moves to main on pi.
 - [Freelens main-process API for cluster access and IPC](issues/07-research-freelens-main-api.md):
   main can list clusters and do CRUD per cluster id via `Main.K8s` (no pod
   logs); main-to-renderer IPC is broadcast-only; `getExtensionFileFolder()`
@@ -45,22 +55,13 @@ sessions, and no LangChain/LangGraph left.
 ## Not yet specified
 
 - **The single agent's system prompt and tool set.** Today the prompts are
-  split across analyzer, conclusions, general-purpose and kubernetes-operator
-  agents. Merging them depends on the tool execution and IPC decisions.
-- **Tool schemas.** The tools use zod; pi tools use typebox. Whether to
-  rewrite schemas or convert them, and where the pure helpers
-  (`field-filter`, `project-resource`, `resource-handlers`) end up.
-- **What happens to the LangChain-era helpers:** `leaked-tool-calls`,
-  `dsml-aware-chat-model`, `offline-token-chat-model`, `runnable-context`,
-  `model-capabilities`, LiteLLM pricing and the token-usage UI. Some may be
-  covered by pi (cost per message, reasoning effort), some may still be needed.
-- **AI Explain** (`src/renderer/business/service/ai-analysis-service.tsx`) and
-  session compaction (`session-compaction-service.ts`) also call `getModel()`.
-  Whether they move to main on pi, or keep a thin renderer path.
-- **Fate of the local AI proxy** (`src/main/ai-proxy-server.ts`) once keys live
-  in main next to pi.
-- **Build order and LangChain removal**, i.e. how the spec slices into tracer
-  bullets. Settled by `/to-tickets`, after the map is clear.
+  split across the analyzer, conclusions, general-purpose and
+  kubernetes-operator agents. Merging them depends on the tool execution and
+  IPC decisions.
+- **Build order and LangChain removal**: how the spec slices into tracer
+  bullets. `/to-tickets` settles this once the map is clear. The first slice
+  should also cover the HITL part the spike left open: `pnpm pack:dev` with pi
+  in `src/main`, installed in a real Freelens.
 
 ## Out of scope
 
@@ -70,5 +71,8 @@ sessions, and no LangChain/LangGraph left.
   ported.
 - Converting existing LangGraph checkpoints: see
   [Existing saved chats](issues/03-existing-saved-chats.md).
-- OAuth / subscription provider logins: later, as pi extensions or auth
-  features; the first version is API-key providers plus custom ones.
+- Loading **file-based** pi extensions (installed from npm or `~/.pi`). From
+  our CJS bundle, pi's jiti loader hits `import.meta.resolve` and
+  `require.resolve("typebox")`, so only bundled inline extension factories
+  work ([spike](issues/06-spike-pi-in-main.md)). When MCP or sub-agents come
+  back, start with an inline factory, for example `createMcpExtension()`.
