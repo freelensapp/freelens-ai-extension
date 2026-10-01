@@ -1,7 +1,7 @@
 import { HumanMessage, isAIMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { Command, interrupt, MemorySaver, MessagesAnnotation, StateGraph } from "@langchain/langgraph";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
+import { createReactAgent, ToolNode } from "@langchain/langgraph/prebuilt";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { deserializeSaverState, serializeSaverState } from "../agent/checkpoint-serialization";
@@ -592,6 +592,135 @@ describe("Responses chat model", () => {
     }
     expect(merged.join("")).toBe(expected);
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    { blocks: [["A", "B"], ["C"]], phases: true },
+    { blocks: [["A", "B"], ["C"]], phases: false },
+    {
+      blocks: [
+        ["A0", "A1"],
+        ["B0", "B1"],
+      ],
+      phases: true,
+    },
+    {
+      blocks: [
+        ["A0", "A1"],
+        ["B0", "B1"],
+      ],
+      phases: false,
+    },
+  ])("keeps multiple text blocks in order through invoke, checkpoints, and downstream context: %j", async ({
+    blocks,
+    phases,
+  }) => {
+    const output = blocks.map((parts, output_index) => ({
+      ...answer[0],
+      id: `msg_blocks_${output_index}`,
+      ...(phases ? { phase: output_index === 0 ? "commentary" : "final_answer" } : {}),
+      content: parts.map((text, content_index) => ({
+        type: "output_text",
+        text,
+        annotations: [
+          {
+            type: "url_citation",
+            url: `https://example.com/${output_index}/${content_index}`,
+            title: "Source",
+            start_index: 0,
+            end_index: text.length,
+          },
+        ],
+      })),
+    }));
+    const events = responseEvents(output, 1).flatMap((event) => {
+      if (event.type !== "response.output_text.delta") return [event];
+      const part = output[event.output_index as number].content[event.content_index as number];
+      return [
+        { ...event, delta: part.text.slice(0, 1) },
+        { ...event, delta: part.text.slice(1) },
+        {
+          type: "response.output_text.annotation.added",
+          output_index: event.output_index,
+          content_index: event.content_index,
+          item_id: event.item_id,
+          annotation_index: 0,
+          annotation: part.annotations[0],
+        },
+      ];
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => sse(events));
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-6.1-sol" });
+    const makeModel = (streaming?: boolean) =>
+      new OfflineTokenChatOpenAI({
+        ...fields,
+        ...(streaming === undefined ? {} : { streaming }),
+        configuration: { ...fields.configuration, fetch },
+      });
+    const expected = blocks.map((parts) => parts.join("")).join("\n\n");
+    const result = await makeModel(true).invoke("Inspect pods");
+    expect(messageContentToText(result.content)).toBe(expected);
+    expect(result.response_metadata.output).toEqual(output);
+    for (const [output_index, item] of output.entries()) {
+      for (const [content_index, part] of item.content.entries()) {
+        expect(result.content).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              index: `${output_index}:${content_index}`,
+              text: `${output_index > 0 && content_index === 0 ? "\n\n" : ""}${part.text}`,
+              annotations: [expect.objectContaining({ url: part.annotations[0].url })],
+            }),
+          ]),
+        );
+      }
+    }
+
+    const inner = createReactAgent({ llm: makeModel(), tools: [] });
+    let finalContent = "";
+    let downstreamContent = "";
+    const buildGraph = (saver: MemorySaver) =>
+      new StateGraph(MessagesAnnotation)
+        .addNode("agent", async (state, config) => {
+          const reply = await inner.invoke(state, config);
+          const last = reply.messages.at(-1)!;
+          finalContent = messageContentToText(last.content);
+          expect(last.response_metadata).toMatchObject({ output });
+          // Match the application's config forwarding and result wrapping.
+          return { messages: [new HumanMessage({ content: last.content })] };
+        })
+        .addNode("next", (state) => {
+          downstreamContent = messageContentToText(state.messages.at(-1)!.content);
+          return {};
+        })
+        .addEdge("__start__", "agent")
+        .addEdge("agent", "next")
+        .addEdge("next", "__end__")
+        .compile({ checkpointer: saver });
+    const saver = new MemorySaver();
+    const graph = buildGraph(saver);
+    const config = { configurable: { thread_id: "blocks-test" } };
+    const mergeState = createStreamMergeState();
+    let visible = "";
+    for await (const [chunk, metadata] of await graph.stream(
+      { messages: [new HumanMessage("Inspect pods")] },
+      { ...config, streamMode: "messages" },
+    )) {
+      if (chunk.getType() === "ai") visible += mergeAiChunk(mergeState, chunk, metadata);
+    }
+    expect(visible).toBe(expected);
+    expect(finalContent).toBe(expected);
+    expect(downstreamContent).toBe(expected);
+    const checkpoint = await graph.getState(config);
+    expect(messageContentToText(checkpoint.values.messages.at(-1).content)).toBe(expected);
+    const restored = new MemorySaver();
+    Object.assign(
+      restored,
+      deserializeSaverState(serializeSaverState({ storage: saver.storage, writes: saver.writes })),
+    );
+    const restoredCheckpoint = await buildGraph(restored).getState(config);
+    expect(messageContentToText(restoredCheckpoint.values.messages.at(-1).content)).toBe(expected);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetch.mock.calls) expect(JSON.parse(String(init?.body)).stream).toBe(true);
   });
 
   it("renders Responses text blocks in the analysis service", async () => {

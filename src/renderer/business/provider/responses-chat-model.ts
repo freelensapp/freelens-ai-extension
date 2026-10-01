@@ -113,6 +113,14 @@ export class ResponsesChatOpenAI extends ChatOpenAIResponses {
         if (options.signal?.aborted) return;
         const chunk = convertResponsesDeltaToChatGenerationChunk(event);
         if (!chunk) continue;
+        // Content indices restart in each output message; qualify them for LangChain concat.
+        if ("output_index" in event && Array.isArray(chunk.message.content)) {
+          chunk.message.content = chunk.message.content.map((part) =>
+            part.type === "text" && part.index !== undefined
+              ? { ...part, index: `${event.output_index}:${part.index}` }
+              : part,
+          );
+        }
         showRefusal(chunk);
         if (messageContentToText(chunk.message.content) && "output_index" in event) {
           if (lastTextOutputIndex !== undefined && event.output_index !== lastTextOutputIndex) {
