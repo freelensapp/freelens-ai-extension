@@ -4,6 +4,7 @@ import useLog from "../../../common/utils/logger/logger-service";
 import { buildAgentReadinessInput, isAgentConfigured } from "../provider/chat-readiness";
 import { useModelProvider } from "../provider/model-provider";
 import { ANALYSIS_PROMPT_TEMPLATE } from "../provider/prompt-template-provider";
+import { messageContentToText } from "../provider/token-estimate";
 
 const MAX_GEMINI_STREAM_RETRIES = 3;
 const BASE_BACKOFF_MS = 700;
@@ -68,9 +69,10 @@ export const useAiAnalysisService = (): AiAnalysisService => {
         const streamResponse = await chain.stream({ context: message });
 
         for await (const chunk of streamResponse) {
-          if (chunk?.content) {
+          const text = messageContentToText(chunk.content);
+          if (text) {
             hasYieldedContent = true;
-            yield String(chunk.content);
+            yield text;
           }
         }
 

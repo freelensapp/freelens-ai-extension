@@ -2,12 +2,27 @@
 // a hardcoded enum, so adding a new model needs no code changes. Extend the
 // pattern table below when a new family needs different handling.
 
-// OpenAI reasoning models (o-series, gpt-5.x) reject `temperature` and instead
+export const isGpt54Pro = (modelName: string): boolean => /gpt-5\.4-pro(?:[.-]|$)/i.test(modelName);
+
+// Starting with GPT-5.4, tool calls with reasoning enabled require Responses.
+export const requiresResponsesApi = (modelName: string, reasoningEffort?: string): boolean => {
+  const version = /gpt-(5|6)(?:\.(\d+))?(?:[.-]|$)/i.exec(modelName);
+  if (version === null) return false;
+  if (version[1] === "6") return true;
+  // GPT-5.4 defaults to none; GPT-5.5+ defaults to reasoning. Pro requires Responses.
+  const minor = Number(version[2]);
+  return (
+    minor >= 4 &&
+    (/-pro(?:[.-]|$)/i.test(modelName) || (reasoningEffort !== "none" && (Boolean(reasoningEffort) || minor >= 5)))
+  );
+};
+
+// OpenAI reasoning models (o-series, gpt-5.x, gpt-6.x) reject `temperature` and instead
 // accept a `reasoningEffort`. Non-reasoning models are the inverse.
 const REASONING_MODEL_PATTERNS: RegExp[] = [/^o\d/i, /gpt-5/i];
 
 export const isReasoningModel = (modelName: string): boolean =>
-  REASONING_MODEL_PATTERNS.some((pattern) => pattern.test(modelName));
+  requiresResponsesApi(modelName) || REASONING_MODEL_PATTERNS.some((pattern) => pattern.test(modelName));
 
 export const supportsTemperature = (modelName: string): boolean => !isReasoningModel(modelName);
 

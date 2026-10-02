@@ -29,6 +29,7 @@
 
 import { BaseLanguageModel } from "@langchain/core/language_models/base";
 import { ChatOpenAI } from "@langchain/openai";
+import { ResponsesChatOpenAI } from "./responses-chat-model";
 import { approximateTokenCount } from "./token-estimate";
 
 import type { MessageContent } from "@langchain/core/messages";
@@ -42,6 +43,10 @@ BaseLanguageModel.prototype.getNumTokens = function getNumTokens(content: Messag
 };
 
 export class OfflineTokenChatOpenAI extends ChatOpenAI {
+  constructor(fields?: ConstructorParameters<typeof ChatOpenAI>[0]) {
+    super({ ...fields, responses: fields?.responses ?? new ResponsesChatOpenAI(fields) });
+  }
+
   override async getNumTokens(content: MessageContent): Promise<number> {
     return approximateTokenCount(content);
   }

@@ -3,6 +3,7 @@ import {
   emitsDsmlToolCalls,
   isReasoningModel,
   requiresAutoToolChoice,
+  requiresResponsesApi,
   supportsTemperature,
 } from "./model-capabilities";
 
@@ -15,6 +16,13 @@ describe("isReasoningModel", () => {
     "gpt-5.4",
     "gpt-5.5",
     "gpt-5.4-mini",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-6-astra",
+    "gpt-6.1-sol",
   ])("treats %s as a reasoning model", (name) => {
     expect(isReasoningModel(name)).toBe(true);
   });
@@ -27,6 +35,52 @@ describe("isReasoningModel", () => {
     "",
   ])("treats %s as a non-reasoning model", (name) => {
     expect(isReasoningModel(name)).toBe(false);
+  });
+});
+
+describe("requiresResponsesApi", () => {
+  it.each([
+    "gpt-5.4-pro",
+    "gpt-5.5",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-6-astra",
+    "gpt-6.1-sol",
+    "openai/GPT-6.1-sol",
+  ])("uses Responses for %s", (name) => {
+    expect(requiresResponsesApi(name)).toBe(true);
+  });
+
+  it.each([
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-2026-03-05",
+    "openai/GPT-5.4-mini",
+    "gpt-5",
+    "gpt-5.3",
+    "gpt-5.3-mini",
+    "gpt-4o",
+    "o3-mini",
+    "deepseek-v4-pro",
+    "qwen3-235b",
+    "gpt-60",
+    "gpt-50.4",
+    "",
+  ])("keeps Chat Completions for %s", (name) => {
+    expect(requiresResponsesApi(name)).toBe(false);
+  });
+
+  it.each(["low", "medium", "high"])("uses Responses for GPT-5.4 with effort %s", (effort) => {
+    for (const name of ["gpt-5.4", "gpt-5.4-mini"]) {
+      expect(requiresResponsesApi(name, effort)).toBe(true);
+    }
+  });
+
+  it.each(["gpt-5.4", "gpt-5.4-mini", "gpt-5.5"])("keeps Chat Completions for %s with no reasoning", (name) => {
+    expect(requiresResponsesApi(name, "none")).toBe(false);
   });
 });
 
