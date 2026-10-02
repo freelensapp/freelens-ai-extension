@@ -126,7 +126,9 @@ preserving compatibility with Chat Completions-only gateways. Selecting **Low**,
 **Medium**, or **High** switches them to Responses for tool calling with reasoning.
 GPT-5.5, GPT-5.6 Sol/Terra/Luna, GPT-5.4 Pro, and GPT-6 models use Responses by default.
 With reasoning effort set to **Default**, no effort is sent, so the provider's
-default applies (none for GPT-5.4/Mini, medium for GPT-5.5, GPT-6, and GPT-6.1 Sol).
+default applies. GPT-5.4 Pro requires **Default**, **Medium**, or **High** in the
+settings. Unsupported Pro effort values, including **Low**, are rejected before
+an API request is sent, with an error explaining which setting to choose.
 
 Responses requests use `store: false` and replay conversation history from the
 extension's local checkpoints, including encrypted reasoning returned by the API.

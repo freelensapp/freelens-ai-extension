@@ -8,6 +8,32 @@ const baseOptions = {
 };
 
 describe("buildOpenAIChatFields", () => {
+  it.each([
+    "gpt-5.4-pro",
+    "gpt-5.4-pro-2026-03-05",
+    "openai/GPT-5.4-pro",
+  ])("validates all configured reasoning efforts for %s", (modelName) => {
+    for (const reasoningEffort of ["low", "none", "minimal", "max", "invalid"]) {
+      expect(() => buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort })).toThrow(
+        `Choose Default, Medium, or High in settings.`,
+      );
+    }
+    for (const reasoningEffort of [undefined, "", "medium", "high", "xhigh"]) {
+      const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort });
+      expect(fields.useResponsesApi).toBe(true);
+      expect(fields.reasoning).toEqual(reasoningEffort ? { effort: reasoningEffort } : undefined);
+    }
+  });
+
+  it.each([
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-proxy",
+    "deepseek-v4-pro",
+  ])("does not apply GPT-5.4 Pro restrictions to %s", (modelName) => {
+    expect(() => buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort: "low" })).not.toThrow();
+  });
+
   it("routes through the proxy and advertises the upstream via header", () => {
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-4.1" });
     expect(fields.model).toBe("gpt-4.1");

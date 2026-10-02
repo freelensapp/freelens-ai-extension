@@ -3,7 +3,7 @@
 // reasoning-effort vs temperature heuristic) can be unit-tested without the
 // MobX store or instantiating a real client.
 
-import { isReasoningModel, requiresResponsesApi } from "./model-capabilities";
+import { isGpt54Pro, isReasoningModel, requiresResponsesApi } from "./model-capabilities";
 
 import type { ChatOpenAIFields } from "@langchain/openai";
 
@@ -49,6 +49,11 @@ export const buildOpenAIChatFields = ({
   reasoningEffort,
   disableThinking,
 }: OpenAIChatFieldsOptions): ChatOpenAIFields => {
+  if (isGpt54Pro(modelName) && reasoningEffort && !["medium", "high", "xhigh"].includes(reasoningEffort)) {
+    throw new Error(
+      `${modelName} does not support reasoning effort "${reasoningEffort}". Choose Default, Medium, or High in settings.`,
+    );
+  }
   const fields: ChatOpenAIFields = {
     model: modelName,
     apiKey,

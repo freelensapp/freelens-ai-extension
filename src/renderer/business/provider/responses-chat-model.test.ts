@@ -142,49 +142,112 @@ describe("Responses chat model", () => {
     expect(messageContentToText(response.content)).toBe("One pod is running.");
   });
 
-  it.each([
-    "gpt-5.4",
-    "gpt-5.4-mini",
-  ])("keeps the real %s supervisor on Chat Completions with Default effort", async (modelName) => {
+  it.each(
+    [
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.4-pro",
+      "gpt-5.5",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "gpt-6-astra",
+      "gpt-6.1-sol",
+    ].flatMap((modelName) =>
+      ["", "low", "medium", "high"].flatMap((reasoningEffort) =>
+        [false, true].map((streaming) => ({ modelName, reasoningEffort, streaming })),
+      ),
+    ),
+  )("validates model/effort settings and the real supervisor request: %j", async ({
+    modelName,
+    reasoningEffort,
+    streaming,
+  }) => {
     const routing = { reflection: "Inspect pods", goto: "analyzer" };
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          id: "chat_route",
-          object: "chat.completion",
-          model: modelName,
-          choices: [
+    const call = {
+      id: "call_route",
+      type: "function",
+      function: { name: "extract", arguments: JSON.stringify(routing) },
+    };
+    const chat = {
+      id: "chat_route",
+      object: "chat.completion",
+      model: modelName,
+      choices: [
+        { index: 0, message: { role: "assistant", content: null, tool_calls: [call] }, finish_reason: "tool_calls" },
+      ],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (url, init) => {
+      const request = JSON.parse(String(init?.body));
+      if (String(url).endsWith("/responses")) {
+        const events = responseEvents(
+          [
             {
-              index: 0,
-              message: {
-                role: "assistant",
-                content: null,
-                tool_calls: [
-                  {
-                    id: "call_route",
-                    type: "function",
-                    function: { name: "extract", arguments: JSON.stringify(routing) },
-                  },
-                ],
-              },
-              finish_reason: "tool_calls",
+              type: "function_call",
+              id: "fc_route",
+              call_id: call.id,
+              name: "extract",
+              arguments: call.function.arguments,
             },
           ],
-          usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
-        }),
-        { headers: { "Content-Type": "application/json" } },
-      ),
+          1,
+        );
+        return request.stream
+          ? sse(events)
+          : new Response(JSON.stringify(events.at(-1)?.response), { headers: { "Content-Type": "application/json" } });
+      }
+      if (!request.stream)
+        return new Response(JSON.stringify(chat), { headers: { "Content-Type": "application/json" } });
+      const chunks = [
+        {
+          ...chat,
+          object: "chat.completion.chunk",
+          choices: [
+            { index: 0, delta: { role: "assistant", tool_calls: [{ ...call, index: 0 }] }, finish_reason: null },
+          ],
+        },
+        { ...chat, object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },
+      ];
+      return new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n", {
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+    const run = async () => {
+      const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort });
+      const model = new OfflineTokenChatOpenAI({
+        ...fields,
+        streaming,
+        configuration: { ...fields.configuration, fetch },
+      });
+      vi.mocked(useModelProvider).mockReturnValue({ getModel: () => model });
+      const supervisor = await useAgentSupervisor().getAgent(["analyzer"], ["Inspect cluster resources"]);
+      return supervisor!.invoke({ messages: [new HumanMessage("Inspect pods")] });
+    };
+    if (modelName === "gpt-5.4-pro" && reasoningEffort === "low") {
+      await expect(run()).rejects.toThrow('does not support reasoning effort "low"');
+      expect(fetch).not.toHaveBeenCalled();
+      return;
+    }
+    expect(await run()).toEqual(routing);
+    expect(fetch).toHaveBeenCalledOnce();
+    const chatCompletions = ["gpt-5.4", "gpt-5.4-mini"].includes(modelName) && reasoningEffort === "";
+    expect(String(fetch.mock.calls[0][0])).toBe(
+      `${baseOptions.proxyBaseUrl}/openai/${chatCompletions ? "chat/completions" : "responses"}`,
     );
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort: "" });
-    const model = new OfflineTokenChatOpenAI({ ...fields, configuration: { ...fields.configuration, fetch } });
-    vi.mocked(useModelProvider).mockReturnValue({ getModel: () => model });
-    const supervisor = await useAgentSupervisor().getAgent(["analyzer"], ["Inspect cluster resources"]);
-    expect(await supervisor!.invoke({ messages: [new HumanMessage("Inspect pods")] })).toEqual(routing);
-    expect(String(fetch.mock.calls[0][0])).toBe(`${baseOptions.proxyBaseUrl}/openai/chat/completions`);
     const body = JSON.parse(String(fetch.mock.calls[0][1]?.body));
-    expect(body.tool_choice).toEqual({ type: "function", function: { name: "extract" } });
-    expect(body).not.toHaveProperty("reasoning_effort");
+    expect(body).toMatchObject({ model: modelName, stream: streaming });
     expect(body).not.toHaveProperty("temperature");
+    expect(body).not.toHaveProperty("reasoning_effort");
+    if (reasoningEffort) expect(body.reasoning).toEqual({ effort: reasoningEffort });
+    else expect(body).not.toHaveProperty("reasoning");
+    if (chatCompletions) expect(body.tool_choice).toEqual({ type: "function", function: { name: "extract" } });
+    else {
+      expect(body.store).toBe(false);
+      expect(body.tool_choice).toEqual({ type: "function", name: "extract" });
+      expect(body.tools).toMatchObject([{ type: "function", name: "extract", strict: false }]);
+    }
   });
 
   it.each([
@@ -277,49 +340,6 @@ describe("Responses chat model", () => {
       input: 20,
       cached: 4,
       output: 5,
-    });
-  });
-
-  it.each([
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.5",
-    "gpt-5.6-sol",
-    "gpt-5.6-terra",
-    "gpt-5.6-luna",
-    "gpt-6.1-sol",
-  ])("routes the real %s supervisor through Responses with reasoning and tools", async (modelName) => {
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-      responseStream(
-        [
-          {
-            type: "function_call",
-            id: "fc_route",
-            call_id: "call_route",
-            name: "extract",
-            arguments: JSON.stringify({ reflection: "Inspect pods", goto: "analyzer" }),
-          },
-        ],
-        1,
-      ),
-    );
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort: "high" });
-    const model = new OfflineTokenChatOpenAI({
-      ...fields,
-      streaming: true,
-      configuration: { ...fields.configuration, fetch },
-    });
-    vi.mocked(useModelProvider).mockReturnValue({ getModel: () => model });
-    const supervisor = await useAgentSupervisor().getAgent(["analyzer"], ["Inspect cluster resources"]);
-    const response = await supervisor!.invoke({ messages: [new HumanMessage("Inspect pods")] });
-    expect(String(fetch.mock.calls[0][0])).toBe(`${baseOptions.proxyBaseUrl}/openai/responses`);
-    const body = JSON.parse(String(fetch.mock.calls[0][1]?.body));
-    expect(body.tool_choice).toEqual({ type: "function", name: "extract" });
-    expect(body.reasoning).toEqual({ effort: "high" });
-    expect(body.tools).toMatchObject([{ type: "function", name: "extract", strict: false }]);
-    expect(response).toEqual({
-      reflection: "Inspect pods",
-      goto: "analyzer",
     });
   });
 

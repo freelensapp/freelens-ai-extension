@@ -2,6 +2,8 @@
 // a hardcoded enum, so adding a new model needs no code changes. Extend the
 // pattern table below when a new family needs different handling.
 
+export const isGpt54Pro = (modelName: string): boolean => /gpt-5\.4-pro(?:[.-]|$)/i.test(modelName);
+
 // Starting with GPT-5.4, tool calls with reasoning enabled require Responses.
 export const requiresResponsesApi = (modelName: string, reasoningEffort?: string): boolean => {
   const version = /gpt-(5|6)(?:\.(\d+))?(?:[.-]|$)/i.exec(modelName);
