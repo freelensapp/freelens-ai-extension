@@ -64,7 +64,10 @@ provider and renders the response. The agent logic (the LangGraph supervisor,
 the cluster tools, structured output, and human-in-the-loop approvals) runs
 inside the extension, and only the model inference is delegated to the provider.
 
-- **Talks the OpenAI Chat Completions API.** The extension is built on the
+- **Talks the OpenAI Responses and Chat Completions APIs.** GPT-5.4 keeps Chat Completions
+  with Default reasoning effort and uses Responses when reasoning is enabled.
+  GPT-5.5 and later models use Responses by default; other model families keep Chat Completions.
+  The extension is built on the
   OpenAI client and the OpenAI-compatible wire format. It works with OpenAI
   directly, and with any endpoint that implements the same API — either natively
   or through an OpenAI-compatible gateway such as
@@ -110,6 +113,25 @@ The list comes seeded with these OpenAI models, which you can change at any time
 - ***gpt-5.5***
 - ***gpt-5.4***
 - ***gpt-5.4-mini***
+- ***gpt-5.6-sol***
+- ***gpt-5.6-terra***
+- ***gpt-5.6-luna***
+- ***gpt-6.1-sol***
+
+Existing saved model lists are preserved. Add the new models in preferences or
+use **Reset to defaults** to load the updated list. GPT-5.5 remains the initial
+selection. GPT-6 Sol, Luna, and Astra can also be added by their API model IDs.
+GPT-5.4 and GPT-5.4 Mini keep Chat Completions with **Default** reasoning effort,
+preserving compatibility with Chat Completions-only gateways. Selecting **Low**,
+**Medium**, or **High** switches them to Responses for tool calling with reasoning.
+GPT-5.5, GPT-5.6 Sol/Terra/Luna, GPT-5.4 Pro, and GPT-6 models use Responses by default.
+With reasoning effort set to **Default**, no effort is sent, so the provider's
+default applies. GPT-5.4 Pro requires **Default**, **Medium**, or **High** in the
+settings. Unsupported Pro effort values, including **Low**, are rejected before
+an API request is sent, with an error explaining which setting to choose.
+
+Responses requests use `store: false` and replay conversation history from the
+extension's local checkpoints, including encrypted reasoning returned by the API.
 
 Model-specific behavior (for example, sending a reasoning effort instead of a
 temperature) is decided by heuristics on the model name, so adding a new model
@@ -129,6 +151,10 @@ To do this, set the **Base URL** in the OpenAI section of the preferences to you
 gateway (for example `http://localhost:4000/v1`) and use the model names exposed
 by that gateway. Requests are routed through the extension's local proxy, so the
 custom base URL works without any code changes.
+
+GPT-5.4 and GPT-5.4 Mini work with Chat Completions-only gateways when reasoning effort
+is **Default**. Enabling reasoning for those models, or using GPT-5.5/GPT-5.6, GPT-5.4 Pro,
+or GPT-6, requires the gateway to implement `/v1/responses`.
 
 ### DeepSeek and other "thinking" models
 Some models reached through a gateway need extra handling, which the extension

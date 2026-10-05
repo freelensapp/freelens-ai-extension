@@ -8,6 +8,32 @@ const baseOptions = {
 };
 
 describe("buildOpenAIChatFields", () => {
+  it.each([
+    "gpt-5.4-pro",
+    "gpt-5.4-pro-2026-03-05",
+    "openai/GPT-5.4-pro",
+  ])("validates all configured reasoning efforts for %s", (modelName) => {
+    for (const reasoningEffort of ["low", "none", "minimal", "max", "invalid"]) {
+      expect(() => buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort })).toThrow(
+        `Choose Default, Medium, or High in settings.`,
+      );
+    }
+    for (const reasoningEffort of [undefined, "", "medium", "high", "xhigh"]) {
+      const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort });
+      expect(fields.useResponsesApi).toBe(true);
+      expect(fields.reasoning).toEqual(reasoningEffort ? { effort: reasoningEffort } : undefined);
+    }
+  });
+
+  it.each([
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-proxy",
+    "deepseek-v4-pro",
+  ])("does not apply GPT-5.4 Pro restrictions to %s", (modelName) => {
+    expect(() => buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort: "low" })).not.toThrow();
+  });
+
   it("routes through the proxy and advertises the upstream via header", () => {
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-4.1" });
     expect(fields.model).toBe("gpt-4.1");
@@ -36,16 +62,56 @@ describe("buildOpenAIChatFields", () => {
     expect(fields.reasoning).toBeUndefined();
   });
 
-  it("sets reasoning effort and omits temperature for reasoning models", () => {
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-5.5", reasoningEffort: "high" });
+  it.each(["gpt-5.5", "gpt-6-sol", "gpt-6.1-sol"])("sets effort and omits temperature for %s", (modelName) => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort: "high" });
     expect(fields.reasoning?.effort).toBe("high");
     expect(fields.temperature).toBeUndefined();
   });
 
-  it("omits reasoning effort when it is not configured", () => {
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-5.5", reasoningEffort: "" });
+  it.each(["gpt-5.5", "gpt-6-sol", "gpt-6.1-sol"])("keeps the provider's default effort for %s", (modelName) => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort: "" });
     expect(fields.reasoning).toBeUndefined();
     expect(fields.temperature).toBeUndefined();
+  });
+
+  it.each([
+    "gpt-5.4-pro",
+    "gpt-5.5",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-6-astra",
+    "gpt-6.1-sol",
+  ])("uses stateless Responses and non-strict tools for %s", (modelName) => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName });
+    expect(fields.useResponsesApi).toBe(true);
+    expect(fields.supportsStrictToolCalling).toBe(false);
+    expect(fields.modelKwargs).toEqual({ store: false });
+  });
+
+  it.each([
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.3",
+    "llama3.2",
+    "deepseek-v4-pro",
+  ])("preserves Chat Completions options for %s", (modelName) => {
+    const fields = buildOpenAIChatFields({ ...baseOptions, modelName });
+    expect(fields.useResponsesApi).toBeUndefined();
+    expect(fields.supportsStrictToolCalling).toBeUndefined();
+    expect(fields.modelKwargs).toBeUndefined();
+  });
+
+  it.each(["low", "medium", "high"])("uses Responses for GPT-5.4 with effort %s", (reasoningEffort) => {
+    for (const modelName of ["gpt-5.4", "gpt-5.4-mini"]) {
+      const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort });
+      expect(fields.useResponsesApi).toBe(true);
+      expect(fields.supportsStrictToolCalling).toBe(false);
+      expect(fields.modelKwargs).toEqual({ store: false, reasoning: { effort: reasoningEffort } });
+      expect(fields.temperature).toBeUndefined();
+    }
   });
 
   it("disables thinking via modelKwargs when requested", () => {
