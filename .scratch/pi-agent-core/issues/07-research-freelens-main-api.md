@@ -38,7 +38,18 @@ relative to that package's `static/build/library/src` (written `$L`).
      (`$L/features/cluster/execute/common/types.d.ts:28`). **No pod logs, no
      exec.** Today `getPodLogs` uses `getLogs` in the renderer
      (`src/renderer/business/agent/tools/kubernetes-resource.ts:747`).
-   - Whether `Main.K8sApi.forCluster` works in main for logs: unverified.
+   - **There is no `forCluster` in main** (checked 2026-10-05): `Main.K8sApi`
+     is `common-api/k8s-api` plus a deprecated `isAllowedResource`
+     (`$L/extensions/main-api/k8s-api.d.ts:10-11`), and `common-api` has no
+     `forCluster`. Main has no extension-facing route to pod logs.
+   - **`Main.K8s` guesses the resource path from the kind.** The handler builds
+     the URL with `lowerAndPluralize(resource.kind)` (`main.js:4960-4966`), a
+     suffix rule (`y` to `ies`, `s/x/z/ch/sh` to `es`, otherwise `s`;
+     `@freelensapp/utilities/dist/index.js:1731`), not API discovery. Kinds
+     whose real plural differs are unreachable, for example `Gateway` becomes
+     `gatewaies`, and any CRD with an irregular plural fails. There are no
+     subresources either (`log`, `scale`, `status`). The renderer tools resolve
+     kinds through `apiManager` discovery and do not have this problem.
 2. **IPC.**
    - Renderer to main: `Renderer.Ipc.invoke(channel, ...args): Promise`
      (`$L/extensions/ipc/ipc-renderer.d.ts:19,28`) against

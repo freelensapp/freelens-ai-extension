@@ -49,8 +49,9 @@ ones, with chats saved as pi JSON sessions, and no LangChain/LangGraph left.
   rewritten on typebox. AI Explain moves to main on pi.
 - [Freelens main-process API for cluster access and IPC](issues/07-research-freelens-main-api.md):
   main can list clusters and do CRUD per cluster id via `Main.K8s` (no pod
-  logs); main-to-renderer IPC is broadcast-only; `getExtensionFileFolder()`
-  gives a session folder.
+  logs, no subresources, and resource paths guessed from the kind, so some
+  kinds are unreachable); main-to-renderer IPC is broadcast-only;
+  `getExtensionFileFolder()` gives a session folder.
 
 ## Not yet specified
 
