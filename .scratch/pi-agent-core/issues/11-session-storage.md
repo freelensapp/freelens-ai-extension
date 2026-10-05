@@ -1,7 +1,7 @@
 # Session storage
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -23,7 +23,36 @@ Spike fact ([06](06-spike-pi-in-main.md)): `SessionManager.create(cwd,
 sessionDir)` from the CJS bundle in main wrote one JSONL file per session, with
 10 entries for a prompt that made 2 tool calls.
 
-## Grilling round 1 (2026-10-05, awaiting answers)
+## Answer
+
+Recommendations Q1 to Q5 from grilling round 1 accepted by leo-capvano in
+PR #290 (2026-10-05), with one addition: old session files must not grow
+without bound.
+
+- Files: `<getExtensionFileFolder()>/sessions/<clusterId>/`, one JSONL file
+  per chat, through `SessionManager.create(cwd, sessionDir)`.
+- One active chat per cluster. "New chat" starts a new file.
+- Compaction: pi's defaults, no settings, no "compact now" button; compaction
+  shows as a line in the transcript.
+- `ChatSessionStore` and `AgentStateStore` are deleted. The renderer rebuilds
+  the transcript from the session over IPC; token and cost totals are summed
+  from each assistant message's `usage`.
+- Old LangGraph store files are left on disk and ignored.
+- **Retention (added).** pi has no retention of its own: `SessionManager` only
+  lists (`SessionManager.list(cwd, sessionDir)` returns `path` and `modified`
+  per file), and deleting happens only in pi's terminal session picker
+  (`session-selector.js`, `trash` then `unlink`). So main prunes:
+  - when the extension activates in main, and on "New chat", delete session
+    files whose `modified` is older than the retention period, across all
+    cluster folders (this also cleans up clusters that were removed);
+  - never delete the active chat of a cluster;
+  - retention default 30 days, as a preference ("Delete chats older than N
+    days", 0 keeps them forever);
+  - a "Delete all chats" action for the current cluster in the chat UI.
+  The default and the preference are the proposal; adjust them in the spec if
+  needed.
+
+## Grilling round 1 (2026-10-05)
 
 Today: `ChatSessionStore` holds one session per cluster id (rendered
 `MessageObject[]`, conversation id, token totals) and `AgentStateStore` holds

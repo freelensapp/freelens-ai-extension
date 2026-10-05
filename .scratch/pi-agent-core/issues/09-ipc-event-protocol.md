@@ -2,7 +2,7 @@
 
 Type: grilling
 Status: open
-Blocked by: 08
+Blocked by:
 
 ## Question
 
@@ -23,3 +23,14 @@ produced were `agent_start`, `turn_start/end`, `message_start/update/end`,
 `message_update` with `assistantMessageEvent.type === "text_delta"`. Provider
 errors arrive as `errorMessage` on the assistant message, not as a thrown
 error.
+
+Settled inputs:
+
+- [08](08-where-cluster-tools-execute.md): tool calls also cross this boundary,
+  as main-to-frame requests tagged `clusterId` + `requestId` with frame replies
+  through `Renderer.Ipc.invoke` and a per-call timeout. One envelope should
+  serve events, tool requests and approvals.
+- [11](11-session-storage.md): commands also include loading a cluster's
+  session for transcript rebuild and "Delete all chats".
+- [13](13-turn-limit.md): no turn cap, so **abort** (the Stop button) is a
+  required command, not optional.

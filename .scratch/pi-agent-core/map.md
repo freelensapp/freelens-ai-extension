@@ -52,6 +52,19 @@ ones, with chats saved as pi JSON sessions, and no LangChain/LangGraph left.
   logs, no subresources, and resource paths guessed from the kind, so some
   kinds are unreachable); main-to-renderer IPC is broadcast-only;
   `getExtensionFileFolder()` gives a session folder.
+- [Where cluster tools execute](issues/08-where-cluster-tools-execute.md): in
+  the renderer cluster frame, reusing today's tool code; main sends each call
+  tagged `clusterId` + `requestId` and the frame replies over
+  `Renderer.Ipc.invoke`. A chat is bound to its frame's cluster. Disconnects
+  and timeouts (about 30 s) become error tool results. No tools without an
+  open frame.
+- [Session storage](issues/11-session-storage.md): one JSONL file per chat in
+  `<extension folder>/sessions/<clusterId>/`, one active chat per cluster,
+  pi's default compaction, both old stores deleted, transcript rebuilt from
+  the session. Main prunes chats older than a retention period (default 30
+  days, a preference) and the chat UI can delete a cluster's chats.
+- [Turn limit](issues/13-turn-limit.md): no cap, pi's default behaviour. A
+  Stop button calling `session.abort()` is required instead.
 
 ## Not yet specified
 

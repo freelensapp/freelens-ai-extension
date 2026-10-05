@@ -1,7 +1,7 @@
 # Where cluster tools execute
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -26,7 +26,28 @@ cluster is disconnected (`ClusterNotAccessible`).
 
 Facts: [Freelens main-process API](07-research-freelens-main-api.md).
 
-## Grilling round 1 (2026-10-05, awaiting answers)
+## Answer
+
+All three recommendations from grilling round 1 accepted by leo-capvano in
+PR #290 (2026-10-05):
+
+- Tools execute **in the renderer cluster frame** (option b). The agent loop
+  stays in main; each tool call is broadcast with `clusterId` and `requestId`,
+  the owning frame runs today's tool code (`apiManager` discovery,
+  `podsApi.getLogs`, `api.restart()`) and replies with `Renderer.Ipc.invoke`.
+  Accepted cost: no tool use without an open cluster frame, so no
+  background/headless runs for now.
+- A chat is bound to the `clusterId` of the frame that started it; every tool
+  request carries it. No cross-cluster tools in the first version.
+- A disconnected cluster or a frame that does not answer gives the model an
+  error tool result (for example "Cluster not connected"), never a thrown
+  error. Each call times out after about 30 s (logs may get longer).
+
+The tool code stays in the renderer, so the typebox rewrite from
+[What pi replaces](14-what-pi-replaces.md) only concerns the tool schemas
+declared to pi in main; the `execute` bodies move behind the IPC request.
+
+## Grilling round 1 (2026-10-05)
 
 New facts since charting (recorded on
 [07](07-research-freelens-main-api.md)):
