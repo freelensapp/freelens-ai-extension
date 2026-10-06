@@ -2,7 +2,7 @@
 
 Type: grilling
 Status: open
-Blocked by: 09
+Blocked by:
 
 ## Question
 
@@ -23,3 +23,16 @@ existing interrupt UI in the renderer, no survival across restart). Open:
   `DefaultResourceLoader` with `pi.on("tool_call", handler)`. The handler can
   await, can return `{ block: true, reason }` (the model sees the reason), and
   can change `event.input` in place.
+
+Settled inputs:
+
+- [09](09-ipc-event-protocol.md): an approval goes to the frame as a
+  `ui_request` envelope and comes back as a `ui_response` command. pi's own
+  shape for this is `RpcExtensionUIRequest` (`confirm`, `select`, `input`,
+  each with an `id` and optional `timeout`). A pending approval is part of the
+  `get_snapshot` answer, so a remounted chat shows it again. The input is
+  disabled during a run, so the approval UI is the only interaction besides
+  Stop.
+- [08](08-where-cluster-tools-execute.md): tool calls already go to the frame;
+  the approval and the call are separate round-trips, both bound to the chat's
+  cluster.

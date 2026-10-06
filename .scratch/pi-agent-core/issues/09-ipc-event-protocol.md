@@ -1,7 +1,7 @@
 # IPC event protocol between main and the chat UI
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## Question
@@ -34,6 +34,52 @@ Settled inputs:
   session for transcript rebuild and "Delete all chats".
 - [13](13-turn-limit.md): no turn cap, so **abort** (the Stop button) is a
   required command, not optional.
+
+## Answer
+
+All round 1 recommendations accepted, Q5 as (a). Decided by leo-capvano in
+PR #290 (2026-10-06).
+
+- **Vocabulary (Q1):** pi's RPC shapes. Renderer-to-main commands are a subset
+  of `RpcCommand` plus our own; main-to-renderer events are
+  `JsonAgentSessionEvent`, forwarded almost verbatim. We reimplement the
+  unexported `toJsonEvent()` stripping of `partial`.
+- **Events that cross (Q2):** every session event in JSON form except
+  `entry_appended`. The renderer ignores what it does not render. No
+  text-delta batching until the UI lags.
+- **Envelope (Q3):** one broadcast channel from main carrying
+  `{ clusterId, sessionId, seq, kind, payload }`. `kind` is `event`,
+  `stats` (Q7), `tool_request` ([08](08-where-cluster-tools-execute.md)) or
+  `ui_request` ([10](10-approvals-over-ipc.md)). Each frame drops envelopes
+  for other clusters; `seq` increases per cluster for ordering and gap
+  detection.
+- **Commands (Q4):** one `Main.Ipc.handle` channel taking
+  `(clusterId, command)`, answered through the `invoke` promise in
+  `RpcResponse` shape, no correlation ids. v1 commands:
+  - from pi: `prompt`, `abort`, `new_session`, `get_session_stats`
+  - ours: `get_snapshot` (Q6), `delete_sessions`
+    ([11](11-session-storage.md)), `tool_result` (08), `ui_response` (10),
+    `explain` (Q8)
+
+  Failures before a run starts (no model, no key) return `success: false`;
+  errors during a run arrive as events.
+- **Typing mid-run (Q5):** (a). The input is disabled until the run settles
+  and Stop (`abort`) is the only action. Queued follow-ups and steering are
+  later additions, one pi command each.
+- **Mount or remount mid-run (Q6):** the frame calls `get_snapshot`, answered
+  with `{ messages, streamingMessage?, isStreaming, pendingToolRequests,
+  pendingUiRequest?, seq }`, then applies only envelopes with a higher `seq`.
+  Main keeps the in-flight assistant message.
+- **Tokens, cost, context gauge (Q7):** computed in main. A `stats` envelope
+  carrying `SessionStats` is broadcast after each assistant `message_end` and
+  at `agent_settled`. The renderer computes nothing.
+- **AI Explain (Q8):** an `explain` command streams back as normal `event`
+  envelopes under its own `sessionId`, rendered in the chat but not saved into
+  the cluster's pi session.
+- **Backpressure:** the session listener in main only assigns `seq`, updates
+  the snapshot and broadcasts; it never awaits the renderer, so the loop is
+  not blocked. The only awaited round-trips are tool requests (08) and UI
+  requests (10), each with its own timeout.
 
 ## Grilling round 1 (2026-10-06)
 

@@ -65,13 +65,26 @@ ones, with chats saved as pi JSON sessions, and no LangChain/LangGraph left.
   days, a preference) and the chat UI can delete a cluster's chats.
 - [Turn limit](issues/13-turn-limit.md): no cap, pi's default behaviour. A
   Stop button calling `session.abort()` is required instead.
+- [IPC event protocol](issues/09-ipc-event-protocol.md): pi's RPC shapes. Main
+  broadcasts one envelope `{ clusterId, sessionId, seq, kind, payload }`
+  (`event`, `stats`, `tool_request`, `ui_request`) and frames filter by
+  cluster. The renderer sends `(clusterId, command)` on one `Main.Ipc.handle`
+  channel: `prompt`, `abort`, `new_session`, `get_session_stats`,
+  `get_snapshot`, `delete_sessions`, `tool_result`, `ui_response`, `explain`.
+  Input is disabled mid-run; remounts restore from a snapshot plus `seq`;
+  tokens, cost and context come from `SessionStats` in main; AI Explain
+  streams under its own session id and is not saved.
+
+## Open tickets
+
+- [Approvals over IPC](issues/10-approvals-over-ipc.md) (grilling, takeable).
+- [Provider, key and login settings](issues/12-provider-key-settings.md)
+  (prototype, takeable).
+- [System prompt and tool set](issues/15-system-prompt-and-tool-set.md)
+  (grilling, takeable).
 
 ## Not yet specified
 
-- **The single agent's system prompt and tool set.** Today the prompts are
-  split across the analyzer, conclusions, general-purpose and
-  kubernetes-operator agents. Merging them depends on the tool execution and
-  IPC decisions.
 - **Build order and LangChain removal**: how the spec slices into tracer
   bullets. `/to-tickets` settles this once the map is clear. The first slice
   should also cover the HITL part the spike left open: `pnpm pack:dev` with pi
