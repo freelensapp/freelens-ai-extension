@@ -1,7 +1,7 @@
 # Approvals over IPC
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## Question
@@ -36,6 +36,64 @@ Settled inputs:
 - [08](08-where-cluster-tools-execute.md): tool calls already go to the frame;
   the approval and the call are separate round-trips, both bound to the chat's
   cluster.
+
+## Answer
+
+Round 1 recommendations accepted for Q1 (a), Q3, Q4, Q5 and Q6. Q2 changed
+to "configurable in the settings page", Q7 changed to "yes". Decided by
+leo-capvano in PR #290 (2026-10-08).
+
+- **Where the gate runs (Q1):** in main, in the inline extension's
+  `pi.on("tool_call")` hook, before the `tool_request` goes to the frame. A
+  denial is pi's `{ block: true, reason }`. The ~30 s tool timeout from
+  [08](08-where-cluster-tools-execute.md) covers only the tool call, never the
+  wait for the user.
+- **Which tools ask (Q2):** configurable per tool in the settings page.
+  - Each tool definition in `src/common/` carries a default approval flag, next
+    to the shared schemas ([15](15-system-prompt-and-tool-set.md)). The
+    defaults are today's behaviour: create, update, patch, delete, delete pod
+    and restart ask; `getPodLogs` asks; the read-only tools do not.
+  - The settings page lists every tool with a "Requires approval" toggle. The
+    choices are stored in `PreferencesStore` as overrides keyed by tool name
+    (for example `toolApproval: Record<string, boolean>`), so a new tool gets
+    its default until the user changes it.
+  - `podLogsRequireApproval` folds into this: its value becomes the
+    `getPodLogs` override, and the separate preference is removed.
+  - `PreferencesStore` is already loaded in main (`src/main/index.ts:9`) and
+    synced to the renderer, so the hook reads it directly.
+  - The toggles live on the same settings page as
+    [12](12-provider-key-settings.md), but do not depend on its prototype.
+- **What the card shows (Q3):** main validates and prepares the manifest in
+  the hook (the pure `resource-handlers` move to `src/common/`), rejects an
+  invalid manifest before asking, writes the prepared manifest back into
+  `event.input` and builds the action YAML. The frame captures the backup YAML
+  of the current resource when it renders the card, best effort, recomputed
+  on remount.
+- **Wire shape (Q4):** the `ui_request` payload is pi's `confirm`
+  (`{ id, title, message }`, `title` like "UPDATE DEPLOYMENT", `message` the
+  action YAML) plus `approval: { tool, kind, apiVersion, name, namespace }`.
+  The `ui_response` is pi's `{ id, confirmed }`, plus the Q7 field below.
+- **Frame closed or no answer (Q5):** no timeout. The pending approval waits
+  in main and comes back through `get_snapshot`. Stop (`abort`) and "New chat"
+  resolve it as denied and end the run. An app restart drops it (accepted in
+  [02](02-where-agent-runs.md)).
+- **Denial (Q6):** yes/no only. The model sees "The user denied the action".
+  "Deny with a note" can come later with pi's `input` request.
+- **Approve everything in this chat (Q7):** yes.
+  - The card gets a third button, "Approve all in this chat". Its
+    `ui_response` is `{ id, confirmed: true, approveAll: true }`.
+  - Main then skips the approval prompt for **every** gated tool in that chat
+    (that pi session) until the chat ends. Validation and manifest preparation
+    still run, so an invalid manifest is still rejected.
+  - The flag is held in memory in main per session, not written to the
+    session file. "New chat", "Delete all chats" and an app restart clear it,
+    so every new chat starts by asking.
+  - While it is on, the chat shows an "Approving all actions in this chat"
+    notice with a button to turn it off. That is one more command,
+    `set_auto_approve` (`{ enabled: false }`), and `get_snapshot` gains an
+    `autoApprove` boolean so a remounted chat shows the notice.
+  - Tool calls approved this way still appear in the transcript as normal
+    tool executions, so the user can see what ran.
 
 ## Facts gathered
 

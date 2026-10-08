@@ -39,4 +39,9 @@ Settled inputs:
 
 - [09](09-ipc-event-protocol.md): each tool's `execute` in main sends a
   `tool_request` envelope and awaits the frame's `tool_result` command.
-- [10](10-approvals-over-ipc.md) decides which of these tools need approval.
+- [10](10-approvals-over-ipc.md): the approval gate runs in main in the
+  `tool_call` hook. Each tool definition in `src/common/` carries a default
+  approval flag (today's gated tools: the six write tools and `getPodLogs`),
+  which the user can override per tool in settings. A chat can switch to
+  "approve all", so the prompt's safety rules should not assume the user sees
+  every mutating call.

@@ -78,8 +78,11 @@ PR #290 (2026-10-06).
   the cluster's pi session.
 - **Backpressure:** the session listener in main only assigns `seq`, updates
   the snapshot and broadcasts; it never awaits the renderer, so the loop is
-  not blocked. The only awaited round-trips are tool requests (08) and UI
-  requests (10), each with its own timeout.
+  not blocked. The only awaited round-trips are tool requests (08), which
+  time out, and approvals (10), which wait for the user with no timeout.
+- **Added by [10](10-approvals-over-ipc.md):** a `set_auto_approve` command,
+  an `approveAll` field on the approval `ui_response`, and an `autoApprove`
+  boolean in the `get_snapshot` answer.
 
 ## Grilling round 1 (2026-10-06)
 

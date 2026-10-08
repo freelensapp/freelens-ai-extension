@@ -74,10 +74,15 @@ ones, with chats saved as pi JSON sessions, and no LangChain/LangGraph left.
   Input is disabled mid-run; remounts restore from a snapshot plus `seq`;
   tokens, cost and context come from `SessionStats` in main; AI Explain
   streams under its own session id and is not saved.
+- [Approvals over IPC](issues/10-approvals-over-ipc.md): the gate runs in
+  main in pi's `tool_call` hook; main validates and prepares the manifest, the
+  frame adds the backup YAML. Which tools ask is a per-tool setting with
+  today's gated tools as defaults. Requests are pi's `confirm` plus an
+  `approval` field; no timeout, Stop and New chat deny. A chat can switch to
+  "approve all" (in memory, cleared by New chat and restart).
 
 ## Open tickets
 
-- [Approvals over IPC](issues/10-approvals-over-ipc.md) (grilling, takeable).
 - [Provider, key and login settings](issues/12-provider-key-settings.md)
   (prototype, takeable).
 - [System prompt and tool set](issues/15-system-prompt-and-tool-set.md)

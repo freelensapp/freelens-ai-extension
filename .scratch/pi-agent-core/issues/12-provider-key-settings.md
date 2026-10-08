@@ -28,3 +28,8 @@ owns the provider layer in main?
   pricing (`model-pricing*.ts`) and `model-capabilities.ts` are deleted.
 
 Prototype the settings UI to react to.
+
+Settled input from [10](10-approvals-over-ipc.md): the settings page also gets
+a per-tool "Requires approval" list, which replaces the
+`podLogsRequireApproval` toggle. It is not part of this prototype, but the
+layout should leave room for it.
