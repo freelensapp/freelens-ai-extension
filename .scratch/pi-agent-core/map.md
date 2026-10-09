@@ -80,13 +80,20 @@ ones, with chats saved as pi JSON sessions, and no LangChain/LangGraph left.
   today's gated tools as defaults. Requests are pi's `confirm` plus an
   `approval` field; no timeout, Stop and New chat deny. A chat can switch to
   "approve all" (in memory, cleared by New chat and restart).
+- [System prompt and tool set](issues/15-system-prompt-and-tool-set.md): one
+  custom prompt in `src/main/` (pi's built-in tools, context files, skills and
+  templates off) merged from the analyzer, operator and general-purpose
+  prompts, with safety rules that hold under "approve all". Per-prompt
+  `cluster` (name) and `user_rules` sections via `before_agent_start`. All
+  twelve tools kept, defined once in `src/common/agent-tools/` with typebox
+  schemas and `mutating` / `requiresApprovalByDefault` flags; mutating tools
+  run sequentially. AI Explain keeps its five sections, without emoji, and
+  gets the custom rules.
 
 ## Open tickets
 
 - [Provider, key and login settings](issues/12-provider-key-settings.md)
-  (prototype, takeable).
-- [System prompt and tool set](issues/15-system-prompt-and-tool-set.md)
-  (grilling, takeable).
+  (prototype, takeable). The last ticket before `/to-spec`.
 
 ## Not yet specified
 

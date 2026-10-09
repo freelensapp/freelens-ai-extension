@@ -1,7 +1,7 @@
 # System prompt and tool set of the single agent
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## Question
@@ -45,6 +45,71 @@ Settled inputs:
   which the user can override per tool in settings. A chat can switch to
   "approve all", so the prompt's safety rules should not assume the user sees
   every mutating call.
+
+## Answer
+
+All round 1 recommendations accepted (Q1 to Q8). Decided by leo-capvano in
+PR #290 (2026-10-09).
+
+- **How the prompt is set (Q1):** our own prompt through
+  `DefaultResourceLoader({ systemPrompt })`, with `noTools: "builtin"`,
+  `noContextFiles`, `noSkills`, `noPromptTemplates` and no file-based
+  extensions. The session `cwd` is the cluster's session folder
+  ([11](11-session-storage.md)), so pi's always-on `cwd` section shows only
+  that path. The prompt is a constant in `src/main/`.
+- **One merged prompt (Q2):** built from today's analyzer, operator and
+  general-purpose prompts.
+  - Identity: Freelens AI, a Kubernetes assistant for the cluster open in this
+    window, which also answers general Kubernetes and technical questions
+    without tools.
+  - Tool rules: follow the schema, never invent tools, no shell / kubectl /
+    helm, ask for missing required values, use quoted values exactly.
+  - `<log_reading>` and `<subresources>` carried over unchanged.
+  - On a tool error: report it and ask; do not retry the same call in a loop.
+  - Concise Markdown answers.
+  - Dropped: the supervisor and conclusions prompts, the operator's "finish"
+    node and "one task at a time" message, "don't call a tool more than one
+    time", "explain before each call", "never name tools", and the "coding
+    task" wording.
+- **Safety rules (Q3):** they hold whether or not the user is asked
+  (approve all, [10](10-approvals-over-ipc.md)):
+  - read the current resource before changing it;
+  - one mutating call at a time, and check its result before the next;
+  - before a mutating call, say in one line what will change;
+  - least destructive option first (patch over update, evict over force
+    delete, normal delete before `force_finalize`); force modes only after
+    the normal one failed or when the user asked;
+  - never delete namespaces, CRDs or cluster-scoped resources unless the user
+    named them.
+  "One at a time" is also enforced in code: every mutating tool sets
+  `executionMode: "sequential"`. Read tools stay parallel.
+- **Cluster context (Q4):** a `cluster` section with the cluster name as
+  Freelens shows it, set in `before_agent_start` on each prompt. Nothing
+  else; the model calls `getClusterVersion` or `getNamespaces` for more.
+- **Custom agent rules (Q5):** the preference stays. Main reads it on each
+  prompt and sets a `user_rules` section in `before_agent_start`, so an edit
+  applies from the next message. Empty means no section.
+- **Tool set (Q6):** all twelve tools, no merges, no new tools in v1. The
+  warning-events tool is registered as `getWarningEventsByNamespace` (no
+  stored setting uses the old name). `toolFunctionDescriptions` is deleted.
+- **Where tool definitions live (Q7):** `src/common/agent-tools/`, each tool
+  exporting `{ name, label, description, parameters (typebox), mutating,
+  requiresApprovalByDefault }`.
+  - Main wraps each in a pi `ToolDefinition` whose `execute` sends a
+    `tool_request` ([09](09-ipc-event-protocol.md)) and turns the frame's text
+    reply into pi's tool result.
+  - The frame keeps a `name -> implementation` map over today's
+    `kubernetes-resource.ts`, `pod-logs.ts` and `cluster-version.ts`, and
+    checks the arguments against the same schema before running.
+  - `mutating` drives `executionMode: "sequential"` (Q3) and places the tool
+    in the approval settings list ([10](10-approvals-over-ipc.md));
+    `requiresApprovalByDefault` is that list's default.
+  - Tool guidance lives in the tool `description` or in our prompt, because
+    pi drops `promptGuidelines` with a custom prompt.
+- **AI Explain prompt (Q8):** `ANALYSIS_PROMPT_TEMPLATE` moves to main as the
+  explain call's system prompt, with the same five sections (Summary,
+  Diagnosis, Impact, Recommended Actions, Reference) and plain headings
+  without emoji. Explain now also gets the custom agent rules.
 
 ## Facts gathered
 
