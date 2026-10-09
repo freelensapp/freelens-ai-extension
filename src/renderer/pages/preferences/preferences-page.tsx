@@ -3,6 +3,7 @@ import * as MobxReact from "mobx-react";
 import * as React from "react";
 import { AIProviders, DEFAULT_MODELS, PROVIDER_LABELS } from "../../business/provider/ai-models";
 import { addModel, removeModelAt, resolveSelectedModel } from "../../business/provider/model-list";
+import { ProviderSettingsPrototype, SHOW_PROVIDER_SETTINGS_PROTOTYPE } from "./prototype-provider-settings";
 
 import type { SingleValue } from "react-select";
 
@@ -117,6 +118,7 @@ export const PreferencesPage = observer(() => {
 
   return (
     <>
+      {SHOW_PROVIDER_SETTINGS_PROTOTYPE && <ProviderSettingsPrototype />}
       <div style={{ fontWeight: "bold", fontSize: 16 }}>OpenAI</div>
       <div style={{ marginTop: 8, fontWeight: "bold" }}>API key</div>
       <Input

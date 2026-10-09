@@ -93,7 +93,8 @@ ones, with chats saved as pi JSON sessions, and no LangChain/LangGraph left.
 ## Open tickets
 
 - [Provider, key and login settings](issues/12-provider-key-settings.md)
-  (prototype, takeable). The last ticket before `/to-spec`.
+  (prototype, claimed; the prototype is up and waits for reactions). The last
+  ticket before `/to-spec`.
 
 ## Not yet specified
 
