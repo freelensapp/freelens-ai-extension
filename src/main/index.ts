@@ -120,6 +120,10 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     ipc.handle(AGENT_COMMAND_CHANNEL, (_event, clusterId: string, command: AgentCommand) =>
       agentHost.handleCommand(clusterId, command),
     );
-    agentHost.pruneSessions().catch((error) => console.error("[freelens-ai] Deleting old chats failed:", error));
+    // The catalog is still loading here, so a cluster missing from it is not
+    // taken as removed; New chat prunes the folders of removed clusters.
+    agentHost
+      .pruneSessions({ dropRemovedClusters: false })
+      .catch((error) => console.error("[freelens-ai] Deleting old chats failed:", error));
   }
 }

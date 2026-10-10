@@ -245,13 +245,16 @@ export class AgentHost {
    * every cluster's folder, also of clusters that were since removed. The
    * active chat of each cluster is kept: the open session, or else the file
    * the next start would continue. Returns how many files were deleted.
+   *
+   * With `dropRemovedClusters: false` the cluster list is not used and every
+   * folder keeps its latest chat: at startup the list may not be complete yet.
    */
-  async pruneSessions(): Promise<number> {
+  async pruneSessions({ dropRemovedClusters = true } = {}): Promise<number> {
     const days = this.options.getRetentionDays?.() ?? DEFAULT_CHAT_RETENTION_DAYS;
     const root = join(this.options.dataDir, "sessions");
     if (!(days > 0) || !existsSync(root)) return 0;
     const cutoff = (this.options.now ?? Date.now)() - days * DAY_MS;
-    const known = this.options.knownClusterIds?.();
+    const known = dropRemovedClusters ? this.options.knownClusterIds?.() : undefined;
     const knownFolders = known?.length ? new Set(known.map(safeFolderName)) : undefined;
 
     let deleted = 0;

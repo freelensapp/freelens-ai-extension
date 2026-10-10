@@ -484,6 +484,18 @@ describe("AgentHost", () => {
       expect(answers(await snapshotOf(restarted))).toEqual(["c1 latest"]);
     });
 
+    it("keeps the latest chat of every folder when told not to trust the cluster list", async () => {
+      const first = createHost();
+      await chat(first, "c1", "c1 latest");
+      await chat(first, "not-listed-yet", "latest of a cluster the catalog has not loaded");
+      first.dispose();
+
+      const now = Date.now() + 31 * DAY_MS;
+      const restarted = createHost({ now: () => now, knownClusterIds: () => ["c1"] });
+      expect(await restarted.pruneSessions({ dropRemovedClusters: false })).toBe(0);
+      expect(sessionFiles("not-listed-yet")).toHaveLength(1);
+    });
+
     // The prompt is either stopped by New chat or runs in the new chat; a run
     // in the closed session would send tool calls no snapshot knows about.
     it.each([
