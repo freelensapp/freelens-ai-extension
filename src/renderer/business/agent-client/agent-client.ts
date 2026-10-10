@@ -17,7 +17,7 @@ import { getFrameClusterId } from "../cluster/active-cluster";
 import { type ChatViewState, chatFromSnapshot, reduceEnvelope, withApprovalBackup } from "./chat-reducer";
 import { createClusterTools } from "./cluster-tools";
 import { freelensCluster } from "./freelens-cluster";
-import { runToolRequest } from "./tool-runner";
+import { runToolRequest, type ToolReply } from "./tool-runner";
 
 // The cluster frame's side of the agent protocol: it sends commands to the pi
 // agent host in main, answers the tool calls main sends for this cluster, and
@@ -136,7 +136,7 @@ async function loadSnapshot(clusterId: string): Promise<void> {
   update(newer.reduce(reduceEnvelope, base));
   // A frame that opened mid-run never saw these requests go out.
   for (const request of snapshot.pendingToolRequests) {
-    answerToolRequest(clusterId, request);
+    answerToolRequest(clusterId, request, { fromSnapshot: true });
   }
 }
 
@@ -208,7 +208,16 @@ function isClusterConnected(clusterId: string): boolean {
   }
 }
 
-function answerToolRequest(clusterId: string, request: ToolRequest): void {
+// A change found only in a snapshot may already have been applied by this
+// frame before it reloaded, so it is not run again: the model is told to check.
+const unknownOutcome = (request: ToolRequest): ToolReply => ({
+  text:
+    `The cluster window reloaded while ${request.toolName} was pending, so it was not run again and its outcome ` +
+    "is unknown. Check the resource's current state before trying again.",
+  isError: true,
+});
+
+function answerToolRequest(clusterId: string, request: ToolRequest, { fromSnapshot = false } = {}): void {
   if (handledTools.has(request.requestId)) return;
   handledTools.add(request.requestId);
   // Sets iterate in insertion order: forget the oldest ids first.
@@ -216,10 +225,12 @@ function answerToolRequest(clusterId: string, request: ToolRequest): void {
     if (handledTools.size <= MAX_HANDLED_TOOLS) break;
     handledTools.delete(requestId);
   }
+  const mutating = CLUSTER_TOOLS[request.toolName]?.definition.mutating ?? false;
   void (async () => {
-    const reply = await runToolRequest(request, CLUSTER_TOOLS, {
-      isClusterConnected: () => isClusterConnected(clusterId),
-    });
+    const reply =
+      fromSnapshot && mutating
+        ? unknownOutcome(request)
+        : await runToolRequest(request, CLUSTER_TOOLS, { isClusterConnected: () => isClusterConnected(clusterId) });
     const response = await sendAgentCommand(clusterId, {
       type: "tool_result",
       requestId: request.requestId,

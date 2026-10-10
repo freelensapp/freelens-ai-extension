@@ -430,7 +430,8 @@ export class AgentHost {
         reject(
           new Error(
             `The cluster window did not answer the ${toolName} call within ${Math.round(timeoutMs / 1000)} seconds. ` +
-              "The cluster may be disconnected or its window closed.",
+              "The cluster may be disconnected or its window closed. If the call changes the cluster, it may still " +
+              "have been applied: check the resource's current state before trying again.",
           ),
         );
       }, timeoutMs);
