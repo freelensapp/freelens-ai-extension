@@ -1,6 +1,8 @@
 import { Renderer } from "@freelensapp/extensions";
 import { interrupt } from "@langchain/langgraph";
 import { stringify as stringifyYaml } from "yaml";
+import { getPodLogsTool } from "../../../../common/agent-tools";
+import { requiresApproval } from "../../../../common/agent-tools/approval-settings";
 import {
   capLogOutput,
   capTailLines,
@@ -574,7 +576,7 @@ export async function restartKubernetesResource({ kind, name, namespace }: Resta
 /**
  * Read a one-shot snapshot of container logs from a pod. Loads the pod to
  * enumerate its containers, runs the optional approval gate (controlled by the
- * `podLogsRequireApproval` preference), then fetches the logs and caps the
+ * `getPodLogs` approval setting), then fetches the logs and caps the
  * output so it cannot overflow the model context.
  */
 export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
@@ -628,7 +630,7 @@ export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
   const tailLines = capTailLines(input.tailLines, preferences.podLogsTailLines);
 
   if (
-    preferences.podLogsRequireApproval &&
+    requiresApproval(getPodLogsTool, preferences.toolApprovalOverrides) &&
     !requestApproval("READ LOGS POD", { name, namespace, container: selectedContainer, previous })
   ) {
     return "The user denied the action";

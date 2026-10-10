@@ -14,6 +14,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CHAT_RETENTION_DAYS } from "../../common/agent-protocol";
 import { prepareApproval } from "../../common/agent-tools/approval";
+import { requiresApproval, type ToolApprovalOverrides } from "../../common/agent-tools/approval-settings";
 import { toJsonEvent } from "./json-event";
 import { SYSTEM_PROMPT } from "./system-prompt";
 
@@ -50,8 +51,8 @@ export interface AgentHostOptions {
   tools: readonly AgentToolDefinition[];
   /** The model the next prompt runs on, or undefined when none is selected. */
   getModelRef: () => ModelRef | undefined;
-  /** Whether a call of `tool` waits for the user's approval; read before every call. */
-  requiresApproval?: (tool: AgentToolDefinition) => boolean;
+  /** The user's "Requires approval" choices by tool name; read before every call. */
+  getApprovalOverrides?: () => ToolApprovalOverrides;
   systemPrompt?: string;
   toolTimeoutMs?: number;
   /** pi retries temporary provider errors; tests turn that off. */
@@ -467,8 +468,7 @@ export class AgentHost {
     signal: AbortSignal | undefined,
   ): Promise<ToolCallEventResult | undefined> {
     const tool = this.options.tools.find((candidate) => candidate.name === event.toolName);
-    const requiresApproval = this.options.requiresApproval ?? ((definition) => definition.requiresApprovalByDefault);
-    if (!tool || !requiresApproval(tool)) return undefined;
+    if (!tool || !requiresApproval(tool, this.options.getApprovalOverrides?.() ?? {})) return undefined;
 
     const input = event.input as Record<string, unknown>;
     const prepared = prepareApproval(tool.name, input);

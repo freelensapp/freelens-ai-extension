@@ -4,7 +4,7 @@ import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Main } from "@freelensapp/extensions";
 import { AGENT_COMMAND_CHANNEL, AGENT_ENVELOPE_CHANNEL, type AgentCommand } from "../common/agent-protocol";
-import { AGENT_TOOLS, getPodLogsTool } from "../common/agent-tools";
+import { AGENT_TOOLS } from "../common/agent-tools";
 import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
 import { AgentHost, type ModelRef } from "./agent/agent-host";
 import { importLegacyCredentials } from "./agent/credentials-import";
@@ -105,8 +105,7 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       broadcast: (envelope) => ipc.broadcast(AGENT_ENVELOPE_CHANNEL, envelope),
       tools: AGENT_TOOLS,
       // Read before every call, so a changed preference applies to the next one.
-      requiresApproval: (tool) =>
-        tool.name === getPodLogsTool.name ? preferencesStore.podLogsRequireApproval : tool.requiresApprovalByDefault,
+      getApprovalOverrides: () => preferencesStore.toolApprovalOverrides,
       // Until the chat picker lists pi's models, fall back to the old OpenAI
       // selection, so a key from OPENAI_API_KEY alone still works.
       getModelRef: () =>

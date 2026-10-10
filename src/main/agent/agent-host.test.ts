@@ -9,7 +9,9 @@ import {
   getClusterVersionTool,
   getPodLogsTool,
   patchKubernetesResourceTool,
+  restartKubernetesResourceTool,
 } from "../../common/agent-tools";
+import { loadApprovalOverrides } from "../../common/agent-tools/approval-settings";
 import { AgentHost, type AgentHostOptions } from "./agent-host";
 
 import type { AgentEnvelope, AgentSnapshot } from "../../common/agent-protocol";
@@ -704,19 +706,83 @@ describe("AgentHost", () => {
       expect(snapshot.pendingUiRequest).toBeUndefined();
     });
 
-    it("asks for pod logs only while the approval setting says so", async () => {
-      faux.setResponses(callThenEcho("getPodLogs", { name: "web-1", namespace: "default" }));
-      const host = createHost({
-        tools: gatedTools,
-        toolTimeoutMs: 60_000,
-        requiresApproval: (tool) => tool.name !== "getPodLogs" && tool.requiresApprovalByDefault,
+    describe("per-tool approval settings", () => {
+      const restartWeb = { kind: "Deployment", name: "web", namespace: "default" };
+
+      it("runs a default-gated tool without a card once its approval is turned off", async () => {
+        faux.setResponses(callThenEcho("restartKubernetesResource", restartWeb));
+        const host = createHost({
+          tools: [...gatedTools, restartKubernetesResourceTool],
+          toolTimeoutMs: 60_000,
+          getApprovalOverrides: () => ({ restartKubernetesResource: false }),
+        });
+
+        await host.handleCommand("c1", { type: "prompt", message: "restart web" });
+        await waitFor(() => toolRequests().length > 0);
+
+        expect(uiRequests()).toEqual([]);
+        expect(toolRequests()[0]).toMatchObject({ toolName: "restartKubernetesResource", args: restartWeb });
       });
 
-      await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
-      await waitFor(() => toolRequests().length > 0);
+      it("asks before a read tool once its approval is turned on", async () => {
+        faux.setResponses(callThenEcho("getClusterVersion", {}));
+        const host = createHost({
+          tools: gatedTools,
+          toolTimeoutMs: 60_000,
+          getApprovalOverrides: () => ({ getClusterVersion: true }),
+        });
 
-      expect(uiRequests()).toEqual([]);
-      expect(toolRequests()[0]).toMatchObject({ toolName: "getPodLogs" });
+        await host.handleCommand("c1", { type: "prompt", message: "which version?" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(uiRequests()[0]).toMatchObject({ method: "confirm", approval: { tool: "getClusterVersion" } });
+        expect(toolRequests()).toEqual([]);
+      });
+
+      it("reads the setting at each call, so a change applies to the next call", async () => {
+        let overrides: Record<string, boolean> = { patchKubernetesResource: false };
+        faux.setResponses([
+          fauxAssistantMessage([fauxToolCall("patchKubernetesResource", scaleWeb)], { stopReason: "toolUse" }),
+          fauxAssistantMessage([fauxToolCall("patchKubernetesResource", { ...scaleWeb, name: "api" })], {
+            stopReason: "toolUse",
+          }),
+          fauxAssistantMessage([fauxText("done")]),
+        ]);
+        const host = createHost({ tools: gatedTools, toolTimeoutMs: 60_000, getApprovalOverrides: () => overrides });
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web and api" });
+        await waitFor(() => toolRequests().length > 0);
+        expect(uiRequests()).toEqual([]);
+
+        overrides = {};
+        await host.handleCommand("c1", { type: "tool_result", requestId: toolRequests()[0]!.requestId, text: "ok" });
+        await waitFor(() => uiRequests().length > 0);
+        expect(uiRequests()[0]).toMatchObject({ approval: { tool: "patchKubernetesResource", name: "api" } });
+      });
+
+      it("runs pod logs without a card for a saved podLogsRequireApproval: false", async () => {
+        faux.setResponses(callThenEcho("getPodLogs", { name: "web-1", namespace: "default" }));
+        const imported = loadApprovalOverrides({ podLogsRequireApproval: false });
+        const host = createHost({ tools: gatedTools, toolTimeoutMs: 60_000, getApprovalOverrides: () => imported });
+
+        await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
+        await waitFor(() => toolRequests().length > 0);
+
+        expect(imported).toEqual({ getPodLogs: false });
+        expect(uiRequests()).toEqual([]);
+        expect(toolRequests()[0]).toMatchObject({ toolName: "getPodLogs" });
+      });
+
+      it("asks for pod logs by default", async () => {
+        faux.setResponses(callThenEcho("getPodLogs", { name: "web-1", namespace: "default" }));
+        const host = createHost({ tools: gatedTools, getApprovalOverrides: () => loadApprovalOverrides({}) });
+
+        await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(uiRequests()[0]).toMatchObject({ title: "READ LOGS POD" });
+        expect(toolRequests()).toEqual([]);
+      });
     });
 
     it("rejects a ui_response for an unknown request", async () => {

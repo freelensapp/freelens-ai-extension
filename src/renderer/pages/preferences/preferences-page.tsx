@@ -10,6 +10,8 @@ const { observer } = MobxReact;
 const { useCallback, useEffect, useRef, useState } = React;
 
 import { DEFAULT_CHAT_RETENTION_DAYS } from "../../../common/agent-protocol";
+import { AGENT_TOOLS } from "../../../common/agent-tools";
+import { requiresApproval, withApprovalOverride } from "../../../common/agent-tools/approval-settings";
 import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore, parseRetentionDays } from "../../../common/store";
 
 interface DraftFieldProps {
@@ -280,18 +282,35 @@ export const PreferencesPage = observer(() => {
 
       <HorizontalLine />
 
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>Pod logs</div>
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Require approval before reading pod logs</div>
-      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Pod logs can contain secrets or personal data. When enabled, the agent asks for confirmation before reading
-        container logs.
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Tool approvals</div>
+      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
+        The agent asks before each call of a tool that requires approval. Tools that change the cluster require it by
+        default, and so does reading pod logs, which can contain secrets or personal data. A change applies to the next
+        call.
       </div>
-      <Switch
-        style={{ marginBottom: 8 }}
-        label="Require approval before reading pod logs"
-        checked={preferencesStore.podLogsRequireApproval}
-        onChange={(checked: boolean) => (preferencesStore.podLogsRequireApproval = checked)}
-      />
+      {AGENT_TOOLS.map((tool) => (
+        <div key={tool.name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <span style={{ flex: 1, fontFamily: "monospace" }}>{tool.name}</span>
+          <span style={{ minWidth: 110, fontSize: 12, opacity: 0.7 }}>
+            {tool.mutating ? "Changes the cluster" : "Reads the cluster"}
+          </span>
+          <Switch
+            label="Requires approval"
+            checked={requiresApproval(tool, preferencesStore.toolApprovalOverrides)}
+            onChange={(checked: boolean) =>
+              (preferencesStore.toolApprovalOverrides = withApprovalOverride(
+                preferencesStore.toolApprovalOverrides,
+                tool,
+                checked,
+              ))
+            }
+          />
+        </div>
+      ))}
+
+      <HorizontalLine />
+
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Pod logs</div>
       <div style={{ marginTop: 8, fontWeight: "bold" }}>Default tail lines</div>
       <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
         Number of lines read from the end of the logs when the agent does not request a specific amount.
