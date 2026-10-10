@@ -456,10 +456,11 @@ describe("AgentHost", () => {
           apiVersion: "v1",
           kind: "Service",
           metadata: { name: "svc", namespace: "shop" },
-          spec: { ports: [{ port: 80, targetPort: 8080, protocol: "TCP" }] },
+          spec: { ports: [{ port: 80, targetPort: 8080 }] },
         },
       });
-      expect(request.message).toContain("protocol: TCP");
+      expect(request.message).toContain("apiVersion: v1");
+      expect(request.message).not.toContain("v9");
     });
 
     it("denies a pending approval on Stop and ends the run", async () => {

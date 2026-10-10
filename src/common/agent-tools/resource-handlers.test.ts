@@ -190,4 +190,33 @@ describe("validateManifest", () => {
     const result = validateManifest("Pod", { kind: "Pod" });
     expect(result.success).toBe(false);
   });
+
+  it("keeps fields the schema does not list, so an update does not wipe them", () => {
+    const manifest = {
+      apiVersion: "apps/v1",
+      kind: "Deployment",
+      metadata: { name: "web", namespace: "shop", labels: { app: "web" } },
+      spec: {
+        replicas: 2,
+        strategy: { type: "Recreate" },
+        selector: { matchLabels: { app: "web" } },
+        template: {
+          metadata: { labels: { app: "web" } },
+          spec: {
+            containers: [
+              {
+                name: "app",
+                image: "nginx",
+                ports: [{ containerPort: 80 }],
+                env: [{ name: "MODE", value: "prod" }],
+                resources: { limits: { memory: "256Mi" } },
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    expect(validateManifest("Deployment", manifest)).toEqual({ success: true, data: manifest });
+  });
 });
