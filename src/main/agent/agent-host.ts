@@ -110,6 +110,10 @@ export class AgentHost {
   // Per cluster rather than per session, so a snapshot taken before the first
   // run reports 0.
   private readonly seqs = new Map<string, number>();
+  // New chat or Delete all chats in progress, per cluster.
+  private readonly resets = new Map<string, Promise<AgentResponse>>();
+  // Prompts that pi has not started running yet, per cluster.
+  private readonly preparing = new Map<string, Set<Promise<void>>>();
 
   constructor(private readonly options: AgentHostOptions) {}
 
@@ -163,6 +167,24 @@ export class AgentHost {
       );
     }
 
+    // A prompt sent during New chat goes to the new chat.
+    while (this.resets.has(clusterId)) {
+      await this.resets.get(clusterId);
+    }
+    // Until pi starts the run, its abort does nothing, so New chat waits for
+    // this prompt to get that far before it stops and closes the session.
+    let prepared!: () => void;
+    const preparation = new Promise<void>((resolve) => {
+      prepared = resolve;
+    });
+    const preparing = this.preparing.get(clusterId) ?? new Set();
+    this.preparing.set(clusterId, preparing);
+    preparing.add(preparation);
+    void preparation.then(() => {
+      preparing.delete(preparation);
+      if (preparing.size === 0 && this.preparing.get(clusterId) === preparing) this.preparing.delete(clusterId);
+    });
+
     let agent: ClusterAgent;
     try {
       agent = await this.getClusterAgent(clusterId, model);
@@ -171,6 +193,7 @@ export class AgentHost {
         await agent.session.setModel(model);
       }
     } catch (error) {
+      prepared();
       return fail("prompt", errorText(error));
     }
 
@@ -179,6 +202,7 @@ export class AgentHost {
     return new Promise<AgentResponse>((resolve) => {
       let answered = false;
       const answer = (response: AgentResponse) => {
+        prepared();
         if (!answered) {
           answered = true;
           resolve(response);
@@ -287,7 +311,18 @@ export class AgentHost {
 
   // New chat and Delete all chats: stop the run and close the session; the
   // snapshot that answers opens a new one. New chat keeps the old files.
-  private async resetChat(clusterId: string, command: "new_session" | "delete_sessions"): Promise<AgentResponse> {
+  // Resets of one cluster run one after the other, and prompts wait for them.
+  private resetChat(clusterId: string, command: "new_session" | "delete_sessions"): Promise<AgentResponse> {
+    const previous = this.resets.get(clusterId);
+    const reset = (previous ?? Promise.resolve()).then(() => this.runReset(clusterId, command));
+    this.resets.set(clusterId, reset);
+    void reset.then(() => {
+      if (this.resets.get(clusterId) === reset) this.resets.delete(clusterId);
+    });
+    return reset;
+  }
+
+  private async runReset(clusterId: string, command: "new_session" | "delete_sessions"): Promise<AgentResponse> {
     try {
       await this.closeClusterAgent(clusterId);
       const dir = this.sessionDir(clusterId);
@@ -311,6 +346,7 @@ export class AgentHost {
   }
 
   private async closeClusterAgent(clusterId: string): Promise<void> {
+    await Promise.all(this.preparing.get(clusterId) ?? []);
     const agent = await this.clusters.get(clusterId)?.catch(() => undefined);
     if (!agent) return;
     const stopped = await this.abort(clusterId);

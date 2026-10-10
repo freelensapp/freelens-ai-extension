@@ -484,6 +484,41 @@ describe("AgentHost", () => {
       expect(answers(await snapshotOf(restarted))).toEqual(["c1 latest"]);
     });
 
+    // The prompt is either stopped by New chat or runs in the new chat; a run
+    // in the closed session would send tool calls no snapshot knows about.
+    it.each([
+      0, 1, 2, 4, 8,
+    ])("never leaves a prompt sent just before New chat running unseen (%i ticks apart)", async (ticks) => {
+      const host = createHost({ toolTimeoutMs: 60_000 });
+      await chat(host, "c1", "warm up");
+      let resetDone = false;
+      let hiddenCalls = 0;
+      faux.setResponses([
+        (context) => {
+          const text = JSON.stringify(context.messages);
+          if (resetDone && text.includes("warm up")) hiddenCalls += 1;
+          return fauxAssistantMessage([fauxToolCall("getClusterVersion", {})], { stopReason: "toolUse" });
+        },
+        fauxAssistantMessage([fauxText("done")]),
+      ]);
+
+      const prompting = host.handleCommand("c1", { type: "prompt", message: "which version?" });
+      for (let tick = 0; tick < ticks; tick++) await new Promise((resolve) => setImmediate(resolve));
+      const reset = await host.handleCommand("c1", { type: "new_session" });
+      resetDone = true;
+      expect(reset).toMatchObject({ success: true });
+      await prompting;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(hiddenCalls).toBe(0);
+
+      const snapshot = await snapshotOf(host);
+      expect(answers(snapshot)).not.toContain("warm up");
+      if (snapshot.pendingToolRequests.length > 0) {
+        expect(snapshot.isStreaming).toBe(true);
+        expect(snapshot.messages[0]).toMatchObject({ role: "user" });
+      }
+    });
+
     it("prunes on New chat, so the chat it leaves behind can go too", async () => {
       const now = Date.now() + 31 * DAY_MS;
       const host = createHost({ now: () => now });
