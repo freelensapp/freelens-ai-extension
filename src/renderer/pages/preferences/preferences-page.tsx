@@ -1,8 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
-import { AIProviders, DEFAULT_MODELS, PROVIDER_LABELS } from "../../business/provider/ai-models";
-import { addModel, removeModelAt, resolveSelectedModel } from "../../business/provider/model-list";
+import { ProviderSettings } from "./provider-settings";
 
 import type { SingleValue } from "react-select";
 
@@ -68,7 +67,7 @@ function useStoreValueOnBlur(value: string, commit: (next: string) => void): Dra
 }
 
 const {
-  Component: { Button, Icon, Input, Select, Switch, HorizontalLine },
+  Component: { Input, Select, Switch, HorizontalLine },
 } = Renderer;
 
 type SelectOption<T> = Renderer.Component.SelectOption<T>;
@@ -80,16 +79,8 @@ const REASONING_EFFORT_OPTIONS: SelectOption<string>[] = [
   { value: "high", label: "High" },
 ];
 
-const PROVIDER_OPTIONS: SelectOption<AIProviders>[] = Object.values(AIProviders).map((provider) => ({
-  value: provider,
-  label: PROVIDER_LABELS[provider],
-}));
-
 export const PreferencesPage = observer(() => {
   const preferencesStore: PreferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
-
-  const [newModelProvider, setNewModelProvider] = useState<AIProviders>(AIProviders.OPEN_AI);
-  const [newModelName, setNewModelName] = useState<string>("");
 
   // Committed on blur, so the field can be emptied while typing a new number.
   const chatRetentionField = useStoreValueOnBlur(
@@ -105,34 +96,17 @@ export const PreferencesPage = observer(() => {
     (next) => void preferencesStore.updateMcpConfiguration(next),
   );
 
-  const handleAddModel = () => {
-    // `addModel` trims the name and ignores empty/duplicate entries.
-    preferencesStore.models = addModel(preferencesStore.models, newModelProvider, newModelName);
-    setNewModelName("");
-  };
-
-  const removeModel = (index: number) => {
-    preferencesStore.models = removeModelAt(preferencesStore.models, index);
-    // Re-validate the selection: if the removed entry was selected, fall back
-    // to a valid model (or "" when the list is now empty).
-    preferencesStore.selectedModel = resolveSelectedModel(preferencesStore.models, preferencesStore.selectedModel);
-  };
-
-  const resetModels = () => {
-    preferencesStore.models = [...DEFAULT_MODELS];
-    preferencesStore.selectedModel = resolveSelectedModel(preferencesStore.models, preferencesStore.selectedModel);
-  };
-
   return (
     <>
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>OpenAI</div>
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>API key</div>
-      <Input
-        type="password"
-        placeholder="Put here your OpenAI API key"
-        value={preferencesStore.openAIKey}
-        onChange={(value: string) => (preferencesStore.openAIKey = value)}
-      />
+      <ProviderSettings />
+
+      <HorizontalLine />
+
+      {/* Still read by AI Explain, which runs on the old OpenAI client until it moves to pi. */}
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>AI Explain</div>
+      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
+        AI Explain uses the OpenAI API key from the OpenAI provider above, or OPENAI_API_KEY.
+      </div>
       <div style={{ marginTop: 8, fontWeight: "bold" }}>Base URL</div>
       <Input
         placeholder="https://api.openai.com/v1"
@@ -162,47 +136,6 @@ export const PreferencesPage = observer(() => {
         checked={preferencesStore.disableThinking}
         onChange={(checked: boolean) => (preferencesStore.disableThinking = checked)}
       />
-
-      <HorizontalLine />
-
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>Models</div>
-      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
-        Add or remove the models offered in the chat. The model name is sent to the provider API.
-      </div>
-      {preferencesStore.models.map((model, index) => (
-        <div
-          key={`${model.provider}/${model.name}`}
-          style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}
-        >
-          <span style={{ minWidth: 80, opacity: 0.7 }}>{PROVIDER_LABELS[model.provider] ?? model.provider}</span>
-          <span style={{ flex: 1, fontFamily: "monospace" }}>{model.name}</span>
-          <Icon material="delete" small interactive tooltip="Remove model" onClick={() => removeModel(index)} />
-        </div>
-      ))}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-        <div style={{ minWidth: 120 }}>
-          <Select
-            options={PROVIDER_OPTIONS}
-            value={newModelProvider}
-            onChange={(option: SingleValue<SelectOption<AIProviders>>) =>
-              setNewModelProvider(option?.value ?? AIProviders.OPEN_AI)
-            }
-            themeName="lens"
-          />
-        </div>
-        <div style={{ flex: 1 }}>
-          <Input
-            placeholder="Model name, e.g. gpt-5.5"
-            value={newModelName}
-            onChange={(value: string) => setNewModelName(value)}
-            onSubmit={handleAddModel}
-          />
-        </div>
-        <Button primary label="Add" onClick={handleAddModel} />
-      </div>
-      <div style={{ marginTop: 8 }}>
-        <Button plain label="Reset to defaults" onClick={resetModels} />
-      </div>
 
       <HorizontalLine />
 

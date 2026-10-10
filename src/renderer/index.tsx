@@ -7,6 +7,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
 import { ensureRunnableContextStorage } from "./business/agent/runnable-context";
 import { startAgentClient } from "./business/agent-client/agent-client";
+import { startProviderClient } from "./business/provider-client/provider-client";
 import { FreeLensAiIcon } from "./components/freelens-ai-icon";
 import { MenuEntry } from "./components/menu-entry";
 import { setExtensionPreferencesPath } from "./navigation/extension-preferences";
@@ -38,6 +39,8 @@ export default class FreeLensAIRenderer extends Renderer.LensExtension {
     ChatSessionStore.getInstanceOrCreate<ChatSessionStore>().loadExtension(this);
     // The chat runs on the pi agent in main; this frame answers its tool calls.
     startAgentClient(this);
+    // The settings page in the root window reads providers and runs logins in main.
+    startProviderClient(this);
   }
 
   clusterPages = [

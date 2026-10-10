@@ -5,9 +5,11 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Main } from "@freelensapp/extensions";
 import { AGENT_COMMAND_CHANNEL, AGENT_ENVELOPE_CHANNEL, type AgentCommand } from "../common/agent-protocol";
 import { AGENT_TOOLS } from "../common/agent-tools";
+import { PROVIDER_COMMAND_CHANNEL, PROVIDER_ENVELOPE_CHANNEL, type ProviderCommand } from "../common/provider-protocol";
 import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
 import { AgentHost, type ModelRef } from "./agent/agent-host";
 import { importLegacyCredentials } from "./agent/credentials-import";
+import { ProviderService } from "./agent/provider-service";
 import { startAiProxyServer } from "./ai-proxy-server";
 
 class AgentMainIpc extends Main.Ipc {}
@@ -20,6 +22,10 @@ const parseModelRef = (value: string): ModelRef | undefined => {
 
 export default class LensExtensionAiMain extends Main.LensExtension {
   private agentHost?: AgentHost;
+  private providerService?: ProviderService;
+  // The OpenAI API key saved in pi, for AI Explain until it moves to pi. It
+  // stays in main: the proxy below adds it to the upstream request.
+  private piOpenAIKey?: string;
 
   async onActivate() {
     // @ts-ignore
@@ -58,13 +64,15 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     // requires the per-launch shared secret on every request.
     preferencesStore.aiProxyPort = await startAiProxyServer(
       aiProxyToken,
-      () => process.env.OPENAI_API_KEY || preferencesStore.openAIKey || undefined,
+      () => process.env.OPENAI_API_KEY || this.piOpenAIKey || preferencesStore.openAIKey || undefined,
     );
   }
 
   async onDeactivate() {
     this.agentHost?.dispose();
     this.agentHost = undefined;
+    this.providerService?.dispose();
+    this.providerService = undefined;
   }
 
   // The chat's pi agent runs here in main. Frames send commands over IPC and
@@ -99,6 +107,24 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     }
 
     const ipc = AgentMainIpc.createInstance(this) as AgentMainIpc;
+
+    // Provider status, models and logins for the settings page. Global, not per
+    // cluster; credentials never leave main.
+    const refreshPiOpenAIKey = async () => {
+      // A ChatGPT sign-in token does not work against the OpenAI API AI Explain calls.
+      const auth = modelRuntime.isUsingOAuth("openai") ? undefined : await modelRuntime.getAuth("openai");
+      this.piOpenAIKey = auth?.auth.apiKey;
+    };
+    const logKeyError = (error: unknown) =>
+      console.error("[freelens-ai] Reading the OpenAI key from pi failed:", error);
+    refreshPiOpenAIKey().catch(logKeyError);
+    const providerService = new ProviderService({
+      modelRuntime,
+      broadcast: (envelope) => ipc.broadcast(PROVIDER_ENVELOPE_CHANNEL, envelope),
+      onCredentialsChanged: () => void refreshPiOpenAIKey().catch(logKeyError),
+    });
+    this.providerService = providerService;
+    ipc.handle(PROVIDER_COMMAND_CHANNEL, (_event, command: ProviderCommand) => providerService.handleCommand(command));
     const agentHost = new AgentHost({
       dataDir,
       modelRuntime,

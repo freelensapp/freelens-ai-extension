@@ -9,55 +9,11 @@ const openAiModels: CustomModel[] = [
 
 describe("isAgentConfigured", () => {
   it("is false when the model list is empty", () => {
-    expect(isAgentConfigured({ models: [], selectedModel: "", openAIKey: "sk-test" })).toBe(false);
+    expect(isAgentConfigured({ models: [] })).toBe(false);
   });
 
-  it("is false when an OpenAI model is selected but no key is set", () => {
-    expect(isAgentConfigured({ models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "" })).toBe(false);
-  });
-
-  it("treats a whitespace-only key as unset", () => {
-    expect(isAgentConfigured({ models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "   " })).toBe(false);
-  });
-
-  it("is true when an OpenAI model has a stored key", () => {
-    expect(isAgentConfigured({ models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "sk-test" })).toBe(true);
-  });
-
-  it("is true when only the environment key is set", () => {
-    expect(
-      isAgentConfigured({ models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "", envOpenAIKey: "sk-env" }),
-    ).toBe(true);
-  });
-
-  it("falls back to the first model's provider when the selection does not match", () => {
-    expect(isAgentConfigured({ models: openAiModels, selectedModel: "unknown", openAIKey: "" })).toBe(false);
-    expect(isAgentConfigured({ models: openAiModels, selectedModel: "unknown", openAIKey: "sk-test" })).toBe(true);
-  });
-});
-
-describe("buildAgentReadinessInput", () => {
-  const prefsWithoutStoredKey = { models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "" };
-
-  it("picks up the key from the environment", () => {
-    expect(isAgentConfigured(buildAgentReadinessInput(prefsWithoutStoredKey, { OPENAI_API_KEY: "sk-env" }))).toBe(true);
-  });
-
-  // Passing `undefined` would fall back to the real `process.env`, so an empty
-  // object stands in for "no environment key set".
-  it("is not configured without an environment key and without a stored key", () => {
-    expect(isAgentConfigured(buildAgentReadinessInput(prefsWithoutStoredKey, {}))).toBe(false);
-  });
-
-  it("treats a whitespace-only environment key as unset", () => {
-    expect(isAgentConfigured(buildAgentReadinessInput(prefsWithoutStoredKey, { OPENAI_API_KEY: "   " }))).toBe(false);
-  });
-
-  it("keeps working with the stored key alone", () => {
-    expect(
-      isAgentConfigured(
-        buildAgentReadinessInput({ models: openAiModels, selectedModel: "gpt-5.5", openAIKey: "sk-test" }, {}),
-      ),
-    ).toBe(true);
+  // Keys live in main now (pi's auth.json), which refuses a prompt without them.
+  it("is true with a model even when no key is visible to the renderer", () => {
+    expect(isAgentConfigured(buildAgentReadinessInput({ models: openAiModels }))).toBe(true);
   });
 });
