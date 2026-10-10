@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { Loader2, ShieldOff } from "lucide-react";
 import { getTextMessage } from "../../business/objects/message-object-provider";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { Message } from "../message";
@@ -15,31 +15,18 @@ export const Chat = () => {
   return (
     <>
       <style>{styleInline}</style>
-      {/* Bypass approvals mode indicator */}
-      {applicationStatusStore.bypassApprovals && (
-        <div
-          style={{
-            position: "absolute",
-            top: 18,
-            right: 18,
-            zIndex: 10,
-            background: "linear-gradient(90deg,#E0A800 60%,#FFC107 100%)",
-            color: "#fff",
-            borderRadius: 16,
-            padding: "8px 20px",
-            fontWeight: 700,
-            fontSize: 16,
-            boxShadow: "0 2px 12px rgba(224,168,0,0.25)",
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            letterSpacing: 1,
-            border: "2px solid #E0A800",
-          }}
-          title="Tool-use approval prompts are auto-approved"
-        >
-          <span style={{ fontSize: 22, marginRight: 8 }}>⚠️</span>
-          Bypass Approvals Mode
+      {/* "Approve all in this chat" is on in main */}
+      {applicationStatusStore.autoApproveAll && (
+        <div className="auto-approve-notice" title="Changes to the cluster run without asking for approval">
+          <ShieldOff size={16} />
+          Approving all actions in this chat
+          <button
+            type="button"
+            className="auto-approve-notice-button"
+            onClick={() => applicationStatusStore.turnOffAutoApprove()}
+          >
+            Turn off
+          </button>
         </div>
       )}
       <div className="chat-container">

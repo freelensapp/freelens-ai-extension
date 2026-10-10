@@ -12,6 +12,8 @@ export interface ChatViewState {
   messages: MessageObject[];
   /** True from the run's start until it settles: the input is disabled and Stop is shown. */
   isRunning: boolean;
+  /** "Approve all in this chat" is on in main: the chat shows a notice to turn it off. */
+  autoApprove: boolean;
   /** Set when envelopes were missed; the frame then asks main for a fresh snapshot. */
   stale?: boolean;
 }
@@ -111,6 +113,9 @@ const isRunningAfter = (isRunning: boolean, envelope: AgentEnvelope) => {
   return isRunning;
 };
 
+/** The approval card's third answer: approve this call and stop asking in this chat. */
+export const APPROVE_ALL_OPTION = "Approve all in this chat";
+
 const approvalCard = (request: ApprovalRequest): MessageObject => ({
   messageId: generateUuid(),
   type: MessageType.INTERRUPT,
@@ -118,7 +123,7 @@ const approvalCard = (request: ApprovalRequest): MessageObject => ({
   question: "Do you want to approve this action?",
   text: `\`\`\`yaml\n${request.message}\`\`\``,
   actionDetails: request.message,
-  options: ["yes", "no"],
+  options: ["yes", "no", APPROVE_ALL_OPTION],
   approved: null,
   approvalId: request.id,
   approvalTarget: request.approval,
@@ -196,6 +201,7 @@ export function reduceEnvelope(state: ChatViewState, envelope: AgentEnvelope): C
     seq: envelope.seq,
     messages,
     isRunning: isRunningAfter(state.isRunning, envelope),
+    autoApprove: envelope.kind === "auto_approve" ? envelope.payload.enabled : state.autoApprove,
     stale: state.stale || missed || undefined,
   };
 }
@@ -231,5 +237,5 @@ export function chatFromSnapshot(clusterId: string, snapshot: AgentSnapshot): Ch
   const streaming = snapshot.streamingMessage && assistantMessage(snapshot.streamingMessage, true);
   if (streaming) messages = [...messages, streaming];
   if (snapshot.pendingUiRequest) messages = [...messages, approvalCard(snapshot.pendingUiRequest)];
-  return { clusterId, seq: snapshot.seq, messages, isRunning: snapshot.isStreaming };
+  return { clusterId, seq: snapshot.seq, messages, isRunning: snapshot.isStreaming, autoApprove: snapshot.autoApprove };
 }

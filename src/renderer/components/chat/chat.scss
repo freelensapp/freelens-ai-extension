@@ -28,3 +28,30 @@
     transform: rotate(360deg);
   }
 }
+
+.auto-approve-notice {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  border: 1px solid #e0a800;
+  border-radius: 16px;
+  background: rgba(224, 168, 0, 0.15);
+  color: #e0a800;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.auto-approve-notice-button {
+  padding: 2px 10px;
+  border: 1px solid #e0a800;
+  border-radius: 12px;
+  background: #e0a800;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}

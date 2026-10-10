@@ -13,7 +13,13 @@ import useLog from "../../common/utils/logger/logger-service";
 import { generateUuid } from "../../common/utils/uuid";
 import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
 import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
-import { getAgentChat, onAgentChat, resetAgentChat, sendAgentCommand } from "../business/agent-client/agent-client";
+import {
+  getAgentChat,
+  onAgentChat,
+  resetAgentChat,
+  sendAgentCommand,
+  turnOffAutoApprove as turnOffAutoApproveInMain,
+} from "../business/agent-client/agent-client";
 import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
@@ -41,7 +47,8 @@ export interface AppContextType {
   selectedModel: string;
   mcpEnabled: boolean;
   mcpConfiguration: string;
-  bypassApprovals: boolean;
+  // "Approve all in this chat" is on in main: gated calls run without a card.
+  autoApproveAll: boolean;
   explainEvent: MessageObject;
   conversationId: string;
   isLoading: boolean;
@@ -76,7 +83,7 @@ export interface AppContextType {
   // the summary to seed into that prompt, or null when nothing was compacted.
   compactSession: () => Promise<string | null>;
   setExplainEvent: (messageObject: MessageObject) => void;
-  setBypassApprovals: (bypassApprovals: boolean) => void;
+  turnOffAutoApprove: () => Promise<void>;
   setLoading: (isLoading: boolean) => void;
   stopAgent: () => Promise<void>;
   setConversationInterrupted: (isConversationInterrupted: boolean) => void;
@@ -112,6 +119,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const [conversationId, _setConversationId] = useState("");
   const [isLoading, _setLoading] = useState(false);
   const [isAgentRunning, _setAgentRunning] = useState(false);
+  const [autoApproveAll, _setAutoApproveAll] = useState(false);
   const [isConversationInterrupted, _setConversationInterrupted] = useState(false);
   const [chatMessages, _setChatMessages] = useState<MessageObject[] | null>(null);
   const [tokenUsage, _setTokenUsage] = useState<TokenUsage>(emptyTokenUsage());
@@ -158,6 +166,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     const show = (chat: ChatViewState) => {
       _setChatMessages(chat.messages);
       _setAgentRunning(chat.isRunning);
+      _setAutoApproveAll(chat.autoApprove);
       if (chat.isRunning !== wasRunning) {
         wasRunning = chat.isRunning;
         setLoading(chat.isRunning);
@@ -556,8 +565,11 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     preferencesStore.explainEvent = messageObject;
   };
 
-  const setBypassApprovals = (bypassApprovals: boolean) => {
-    preferencesStore.bypassApprovals = bypassApprovals;
+  const turnOffAutoApprove = async () => {
+    const response = await turnOffAutoApproveInMain(clusterId);
+    if (!response.success) {
+      log.error("Turning off approve all failed: ", response.error);
+    }
   };
 
   // Estimate the session cost for the currently selected model. Zero when the
@@ -581,7 +593,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         selectedModel: preferencesStore.selectedModel,
         mcpEnabled: preferencesStore.mcpEnabled,
         mcpConfiguration: preferencesStore.mcpConfiguration,
-        bypassApprovals: preferencesStore.bypassApprovals,
+        autoApproveAll,
         explainEvent: preferencesStore.explainEvent,
         conversationId,
         isLoading,
@@ -602,7 +614,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         getMaxInputTokens,
         compactSession,
         setExplainEvent,
-        setBypassApprovals,
+        turnOffAutoApprove,
         setLoading,
         stopAgent,
         setConversationInterrupted,

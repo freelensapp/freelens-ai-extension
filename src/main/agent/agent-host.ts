@@ -69,6 +69,9 @@ export interface AgentHostOptions {
 
 interface ClusterAgent {
   session: AgentSession;
+  // "Approve all in this chat": in memory only, so New chat, Delete all chats
+  // and a restart, which all drop this object, turn it off.
+  autoApprove: boolean;
 }
 
 interface PendingToolRequest {
@@ -131,7 +134,9 @@ export class AgentHost {
       case "tool_result":
         return this.toolResult(clusterId, command.requestId, command.text, command.isError ?? false);
       case "ui_response":
-        return this.uiResponse(clusterId, command.id, command.confirmed);
+        return this.uiResponse(clusterId, command.id, command.confirmed, command.approveAll === true);
+      case "set_auto_approve":
+        return this.turnOffAutoApprove(clusterId);
       default:
         return fail((command as { type?: string }).type ?? "unknown", "Unknown command");
     }
@@ -373,7 +378,7 @@ export class AgentHost {
       return ok("get_snapshot", empty);
     }
     try {
-      const { session } = await this.getClusterAgent(clusterId);
+      const { session, autoApprove } = await this.getClusterAgent(clusterId);
       // Read seq together with the state, after the await, so they match.
       const streaming = session.state.streamingMessage;
       const snapshot: AgentSnapshot = {
@@ -388,6 +393,7 @@ export class AgentHost {
           .map((pending) => pending.request),
         pendingUiRequest: [...this.pendingApprovals.values()].find((pending) => pending.clusterId === clusterId)
           ?.request,
+        autoApprove,
       };
       return ok("get_snapshot", snapshot);
     } catch (error) {
@@ -418,13 +424,37 @@ export class AgentHost {
     return ok("tool_result");
   }
 
-  private uiResponse(clusterId: string, id: string, confirmed: boolean): AgentResponse {
+  private async uiResponse(
+    clusterId: string,
+    id: string,
+    confirmed: boolean,
+    approveAll: boolean,
+  ): Promise<AgentResponse> {
     const pending = this.pendingApprovals.get(id);
     if (!pending || pending.clusterId !== clusterId) {
       return fail("ui_response", `No pending approval ${id}`);
     }
+    if (confirmed === true && approveAll) {
+      const agent = await this.clusters.get(clusterId)?.catch(() => undefined);
+      // Turned on before the call is released, so the next gated call already
+      // skips the card. Stop may have denied the approval meanwhile.
+      if (!agent || !this.pendingApprovals.has(id)) return fail("ui_response", `No pending approval ${id}`);
+      this.setAutoApprove(clusterId, agent, true);
+    }
     pending.settle(confirmed === true);
     return ok("ui_response");
+  }
+
+  private async turnOffAutoApprove(clusterId: string): Promise<AgentResponse> {
+    const agent = await this.clusters.get(clusterId)?.catch(() => undefined);
+    if (agent) this.setAutoApprove(clusterId, agent, false);
+    return ok("set_auto_approve");
+  }
+
+  private setAutoApprove(clusterId: string, agent: ClusterAgent, enabled: boolean): void {
+    if (agent.autoApprove === enabled) return;
+    agent.autoApprove = enabled;
+    this.send(clusterId, agent, { kind: "auto_approve", payload: { enabled } });
   }
 
   // pi's `tool_call` hook: a call that needs approval is validated and
@@ -450,6 +480,8 @@ export class AgentHost {
 
     const agent = await this.clusters.get(clusterId);
     if (!agent) return { block: true, reason: "The cluster session is not available." };
+    // "Approve all in this chat": validated and prepared as above, but not asked.
+    if (agent.autoApprove) return undefined;
     const request: ApprovalRequest = {
       id: randomUUID(),
       toolCallId: event.toolCallId,
@@ -531,7 +563,7 @@ export class AgentHost {
       settingsManager: SettingsManager.inMemory(this.options.retry === false ? { retry: { enabled: false } } : {}),
     });
 
-    const agent: ClusterAgent = { session };
+    const agent: ClusterAgent = { session, autoApprove: false };
     session.subscribe((event) => {
       // Repeats message_end and can carry large tool results.
       if (event.type === "entry_appended") return;

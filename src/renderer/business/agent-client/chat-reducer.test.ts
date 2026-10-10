@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MessageType } from "../objects/message-type";
 import {
+  APPROVE_ALL_OPTION,
   type ChatViewState,
   chatFromSnapshot,
   reconcileApprovals,
@@ -23,6 +24,7 @@ const initial = (messages: MessageObject[] = [userMessage]): ChatViewState => ({
   seq: 0,
   messages,
   isRunning: false,
+  autoApprove: false,
 });
 
 // Builds a recorded envelope stream for one cluster, numbering seq in order.
@@ -408,5 +410,38 @@ describe("approvals", () => {
       reconcileApprovals(before, before.messages, "a1").messages.find((m) => m.approvalId === "old"),
     ).toMatchObject({ approved: false });
     expect(card(reconcileApprovals(before, before.messages, undefined))?.approved).toBe(false);
+  });
+
+  it("offers approving all in this chat as a third answer", () => {
+    const state = reduceEnvelope(initial(), envelope(1, "ui_request", request));
+    expect(card(state)?.options).toEqual(["yes", "no", APPROVE_ALL_OPTION]);
+  });
+});
+
+describe("approve all in this chat", () => {
+  const autoApprove = (seq: number, enabled: boolean, clusterId = "c1") =>
+    ({ clusterId, sessionId: "s1", seq, kind: "auto_approve", payload: { enabled } }) as AgentEnvelope;
+
+  it("follows main turning it on and off", () => {
+    const on = reduceEnvelope(initial(), autoApprove(1, true));
+    expect(on.autoApprove).toBe(true);
+    expect(on.messages).toEqual([userMessage]);
+    expect(reduceEnvelope(on, autoApprove(2, false)).autoApprove).toBe(false);
+  });
+
+  it("ignores another cluster's setting", () => {
+    expect(reduceEnvelope(initial(), autoApprove(1, true, "c2")).autoApprove).toBe(false);
+  });
+
+  it("comes back from the snapshot after a remount", () => {
+    const snapshot: AgentSnapshot = {
+      messages: [],
+      isStreaming: false,
+      pendingToolRequests: [],
+      autoApprove: true,
+      seq: 3,
+    };
+    expect(chatFromSnapshot("c1", snapshot).autoApprove).toBe(true);
+    expect(chatFromSnapshot("c1", { ...snapshot, autoApprove: false }).autoApprove).toBe(false);
   });
 });

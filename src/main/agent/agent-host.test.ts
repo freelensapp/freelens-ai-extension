@@ -724,5 +724,182 @@ describe("AgentHost", () => {
       const response = await host.handleCommand("c1", { type: "ui_response", id: "nope", confirmed: true });
       expect(response).toMatchObject({ success: false });
     });
+
+    describe("approve all in this chat", () => {
+      const autoApproveChanges = () => envelopes.flatMap((e) => (e.kind === "auto_approve" ? [e.payload] : []));
+      const scaleApi = { ...scaleWeb, name: "api" };
+      // Two changes in one run, the second after the first one's result.
+      const twoPatches = () => [
+        fauxAssistantMessage([fauxToolCall("patchKubernetesResource", scaleWeb)], { stopReason: "toolUse" }),
+        fauxAssistantMessage([fauxToolCall("patchKubernetesResource", scaleApi)], { stopReason: "toolUse" }),
+        fauxAssistantMessage([fauxText("both scaled")]),
+      ];
+      const answerToolRequests = async (host: AgentHost, count: number) => {
+        for (let index = 0; index < count; index++) {
+          await waitFor(() => toolRequests().length > index);
+          await host.handleCommand("c1", {
+            type: "tool_result",
+            requestId: toolRequests()[index]!.requestId,
+            text: "patched",
+          });
+        }
+      };
+
+      it("approves the pending call and runs the next gated call without asking", async () => {
+        faux.setResponses(twoPatches());
+        const host = createHost({ tools: gatedTools, toolTimeoutMs: 60_000 });
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web and api" });
+        await waitFor(() => uiRequests().length > 0);
+        const request = uiRequests()[0]!;
+        const response = await host.handleCommand("c1", {
+          type: "ui_response",
+          id: request.id,
+          confirmed: true,
+          approveAll: true,
+        });
+        expect(response).toMatchObject({ success: true });
+        expect(autoApproveChanges()).toEqual([{ enabled: true }]);
+        expect((await snapshotOf(host)).autoApprove).toBe(true);
+
+        await answerToolRequests(host, 2);
+        await waitFor(settled);
+
+        expect(uiRequests()).toEqual([request]);
+        expect(uiResolved()).toEqual([{ id: request.id, confirmed: true }]);
+        expect(toolRequests().map((r) => r.args.name)).toEqual(["web", "api"]);
+        const executed = envelopes.flatMap((e) =>
+          e.kind === "event" && e.payload.type === "tool_execution_end" ? [e.payload.toolName] : [],
+        );
+        expect(executed).toEqual(["patchKubernetesResource", "patchKubernetesResource"]);
+      });
+
+      it("ignores approveAll on a denial", async () => {
+        faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
+        const host = createHost({ tools: gatedTools });
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+        await waitFor(() => uiRequests().length > 0);
+        await host.handleCommand("c1", {
+          type: "ui_response",
+          id: uiRequests()[0]!.id,
+          confirmed: false,
+          approveAll: true,
+        });
+        await waitFor(settled);
+
+        expect(autoApproveChanges()).toEqual([]);
+        expect((await snapshotOf(host)).autoApprove).toBe(false);
+      });
+
+      it("still blocks an invalid manifest while approving all", async () => {
+        faux.setResponses([
+          ...twoPatches().slice(0, 1),
+          fauxAssistantMessage(
+            [fauxToolCall("createKubernetesResource", { kind: "Pod", data: { metadata: { name: "p" } } })],
+            {
+              stopReason: "toolUse",
+            },
+          ),
+          (context) => {
+            const last = context.messages[context.messages.length - 1];
+            const parts = last?.role === "toolResult" ? last.content : [];
+            return fauxAssistantMessage([
+              fauxText(`Result: ${parts.map((part) => (part.type === "text" ? part.text : "")).join("")}`),
+            ]);
+          },
+        ]);
+        const host = createHost({ tools: gatedTools, toolTimeoutMs: 60_000 });
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web, then create a pod" });
+        await waitFor(() => uiRequests().length > 0);
+        await host.handleCommand("c1", {
+          type: "ui_response",
+          id: uiRequests()[0]!.id,
+          confirmed: true,
+          approveAll: true,
+        });
+        await answerToolRequests(host, 1);
+        await waitFor(settled);
+
+        expect(uiRequests()).toHaveLength(1);
+        expect(toolRequests()).toHaveLength(1);
+        expect(answerText()).toMatch(/Result: The Pod manifest is invalid: /);
+      });
+
+      it("asks again once it is turned off", async () => {
+        faux.setResponses(twoPatches());
+        const host = createHost({ tools: gatedTools, toolTimeoutMs: 60_000 });
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web and api" });
+        await waitFor(() => uiRequests().length > 0);
+        await host.handleCommand("c1", {
+          type: "ui_response",
+          id: uiRequests()[0]!.id,
+          confirmed: true,
+          approveAll: true,
+        });
+
+        const response = await host.handleCommand("c1", { type: "set_auto_approve", enabled: false });
+        expect(response).toMatchObject({ command: "set_auto_approve", success: true });
+        expect(autoApproveChanges()).toEqual([{ enabled: true }, { enabled: false }]);
+        expect((await snapshotOf(host)).autoApprove).toBe(false);
+
+        await answerToolRequests(host, 1);
+        await waitFor(() => uiRequests().length > 1);
+        expect(uiRequests()[1]).toMatchObject({ approval: { name: "api" } });
+        expect(toolRequests()).toHaveLength(1);
+      });
+
+      it("answers turning it off when it is not on", async () => {
+        const host = createHost();
+        expect(await host.handleCommand("c1", { type: "set_auto_approve", enabled: false })).toMatchObject({
+          success: true,
+        });
+        expect(autoApproveChanges()).toEqual([]);
+      });
+
+      it.each(["new_session", "delete_sessions"] as const)("is cleared by %s", async (type) => {
+        faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
+        const host = createHost({ tools: gatedTools, toolTimeoutMs: 60_000 });
+        await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+        await waitFor(() => uiRequests().length > 0);
+        await host.handleCommand("c1", {
+          type: "ui_response",
+          id: uiRequests()[0]!.id,
+          confirmed: true,
+          approveAll: true,
+        });
+        await answerToolRequests(host, 1);
+        await waitFor(settled);
+
+        const response = await host.handleCommand("c1", { type });
+        expect(response.success && (response.data as AgentSnapshot).autoApprove).toBe(false);
+
+        faux.setResponses(callThenEcho("patchKubernetesResource", scaleApi));
+        await host.handleCommand("c1", { type: "prompt", message: "scale api" });
+        await waitFor(() => uiRequests().length > 1);
+        expect(toolRequests()).toHaveLength(1);
+      });
+
+      it("is cleared by a restart", async () => {
+        faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
+        const first = createHost({ tools: gatedTools, toolTimeoutMs: 60_000 });
+        await first.handleCommand("c1", { type: "prompt", message: "scale web" });
+        await waitFor(() => uiRequests().length > 0);
+        await first.handleCommand("c1", {
+          type: "ui_response",
+          id: uiRequests()[0]!.id,
+          confirmed: true,
+          approveAll: true,
+        });
+        await answerToolRequests(first, 1);
+        await waitFor(settled);
+        first.dispose();
+
+        const restarted = createHost({ tools: gatedTools });
+        expect((await snapshotOf(restarted)).autoApprove).toBe(false);
+      });
+    });
   });
 });

@@ -59,7 +59,9 @@ export type AgentEnvelope =
   | (EnvelopeBase & { kind: "event"; payload: JsonAgentSessionEvent })
   | (EnvelopeBase & { kind: "tool_request"; payload: ToolRequest })
   | (EnvelopeBase & { kind: "ui_request"; payload: ApprovalRequest })
-  | (EnvelopeBase & { kind: "ui_resolved"; payload: ApprovalResolution });
+  | (EnvelopeBase & { kind: "ui_resolved"; payload: ApprovalResolution })
+  /** "Approve all in this chat" was turned on or off. */
+  | (EnvelopeBase & { kind: "auto_approve"; payload: { enabled: boolean } });
 
 /** A message of the chat transcript as main sends it in a snapshot. */
 export type ChatMessage = UserMessage | AssistantMessage;
@@ -79,7 +81,7 @@ export interface AgentSnapshot {
   pendingToolRequests: ToolRequest[];
   /** The approval main is waiting on; the card comes back on remount. */
   pendingUiRequest?: ApprovalRequest;
-  /** Filled by "Approve all in this chat" (ticket 07). */
+  /** "Approve all in this chat" is on: gated calls run without asking. */
   autoApprove: boolean;
   /** The last envelope main sent for this cluster. */
   seq: number;
@@ -94,7 +96,10 @@ export type AgentCommand =
   /** Stops a run, deletes every chat of the cluster and starts a new one; answers with its snapshot. */
   | { type: "delete_sessions" }
   | { type: "tool_result"; requestId: string; text: string; isError?: boolean }
-  | { type: "ui_response"; id: string; confirmed: boolean };
+  /** `approveAll` with `confirmed` also stops asking for the rest of the chat. */
+  | { type: "ui_response"; id: string; confirmed: boolean; approveAll?: boolean }
+  /** Turns "Approve all in this chat" off; only an approval answer turns it on. */
+  | { type: "set_auto_approve"; enabled: false };
 
 export type AgentResponse =
   | { type: "response"; command: string; success: true; data?: unknown }

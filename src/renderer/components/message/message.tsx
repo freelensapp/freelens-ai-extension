@@ -1,5 +1,6 @@
 import { RotateCcw } from "lucide-react";
 import useChatService from "../../../common/service/chat-service";
+import { APPROVE_ALL_OPTION } from "../../business/agent-client/chat-reducer";
 import { MessageType } from "../../business/objects/message-type";
 import Interrupt from "../interrupt/interrupt";
 import { MarkdownViewer } from "../markdown-viewer";
@@ -38,7 +39,8 @@ export const Message = ({ message }: MessageProps) => {
             approved={message.approved!}
             onAction={(option) => {
               if (message.approvalId) {
-                chatService.answerApproval(message.approvalId, option === "yes");
+                const approveAll = option === APPROVE_ALL_OPTION;
+                chatService.answerApproval(message.approvalId, option === "yes" || approveAll, approveAll);
                 return;
               }
               if ("yes" === option) {

@@ -188,8 +188,8 @@ const useChatService = () => {
   // Answers a pi agent approval card. The card itself changes when main
   // broadcasts the result; an answer main no longer waits for (the run was
   // stopped meanwhile) is only logged.
-  const answerApproval = async (approvalId: string, confirmed: boolean) => {
-    const response = await answerApprovalInMain(applicationStatusStore.clusterId, approvalId, confirmed);
+  const answerApproval = async (approvalId: string, confirmed: boolean, approveAll = false) => {
+    const response = await answerApprovalInMain(applicationStatusStore.clusterId, approvalId, confirmed, approveAll);
     if (!response.success) {
       log.error("The approval answer was not accepted: ", response.error);
     }
@@ -234,7 +234,6 @@ const useChatService = () => {
       const agentService: AgentService = useAgentService(activeAgent);
       const agentResponseStream = agentService.run(agentInput, applicationStatusStore.conversationId);
       let endedWithInterrupt = false;
-      let autoApproveAndResume = false;
       for await (const chunk of agentResponseStream) {
         // log.debug("Streaming to UI chunk: ", chunk);
         if (typeof chunk === "string") {
@@ -272,22 +271,11 @@ const useChatService = () => {
         // check if the chunk is an approval interrupt
         if (isApprovalInterrupt(chunk.value)) {
           log.debug("Approval interrupt received: ", chunk);
-          if (applicationStatusStore.bypassApprovals) {
-            log.debug("Bypass approvals mode enabled: auto-approving tool use");
-            const interruptMessage = getInterruptMessage(chunk, false);
-            interruptMessage.approved = true;
-            _sendMessage(interruptMessage);
-            autoApproveAndResume = true;
-          } else {
-            _sendMessage(getInterruptMessage(chunk, false));
-            endedWithInterrupt = true;
-          }
+          _sendMessage(getInterruptMessage(chunk, false));
+          endedWithInterrupt = true;
         }
       }
       applicationStatusStore.setConversationInterrupted(endedWithInterrupt);
-      if (autoApproveAndResume) {
-        await runAgent(new Command({ resume: "yes" }), retryContext);
-      }
     } catch (error) {
       log.error("Error while running Freelens Agent: ", error);
 

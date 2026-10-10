@@ -67,7 +67,7 @@ export function startAgentClient(extension: Renderer.LensExtension): void {
   }
   ipc = AgentRendererIpc.createInstance(extension) as AgentRendererIpc;
   // `messages` is read back from the saved transcript; see getAgentChat.
-  chat = { clusterId, seq: 0, messages: [], isRunning: false };
+  chat = { clusterId, seq: 0, messages: [], isRunning: false, autoApprove: false };
   ipc.listen(AGENT_ENVELOPE_CHANNEL, (_event, envelope: AgentEnvelope) => {
     if (envelope?.clusterId !== clusterId) {
       return;
@@ -136,7 +136,13 @@ async function loadSnapshot(clusterId: string): Promise<void> {
   const base = reconcileApprovals(
     snapshot.messages.length > 0 || snapshot.streamingMessage
       ? chatFromSnapshot(clusterId, snapshot)
-      : { ...current, seq: snapshot.seq, isRunning: snapshot.isStreaming, stale: undefined },
+      : {
+          ...current,
+          seq: snapshot.seq,
+          isRunning: snapshot.isStreaming,
+          autoApprove: snapshot.autoApprove,
+          stale: undefined,
+        },
     current.messages,
     snapshot.pendingUiRequest?.id,
   );
@@ -192,9 +198,20 @@ export async function resetAgentChat(
 /**
  * Answers a pending approval card. The card turns approved or denied when main
  * broadcasts the result, so a card answered elsewhere (Stop) stays in step.
+ * `approveAll` also turns on "Approve all in this chat".
  */
-export async function answerApproval(clusterId: string, id: string, confirmed: boolean): Promise<AgentResponse> {
-  return sendAgentCommand(clusterId, { type: "ui_response", id, confirmed });
+export async function answerApproval(
+  clusterId: string,
+  id: string,
+  confirmed: boolean,
+  approveAll = false,
+): Promise<AgentResponse> {
+  return sendAgentCommand(clusterId, { type: "ui_response", id, confirmed, ...(approveAll ? { approveAll } : {}) });
+}
+
+/** Turns "Approve all in this chat" off; the notice goes when main broadcasts the change. */
+export async function turnOffAutoApprove(clusterId: string): Promise<AgentResponse> {
+  return sendAgentCommand(clusterId, { type: "set_auto_approve", enabled: false });
 }
 
 // Best effort, as before the pi agent: the current YAML of the resource a
