@@ -1,7 +1,7 @@
 # Provider and key settings
 
 Type: prototype
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## Question
@@ -94,10 +94,12 @@ running `ModelRuntime` under Node with a throwaway `auth.json`.
 
 ## Prototype
 
-Throwaway UI prototype on the existing settings page (sub-shape A), on
-`piagent`:
-[`src/renderer/pages/preferences/prototype-provider-settings.tsx`](../../../src/renderer/pages/preferences/prototype-provider-settings.tsx),
-mounted at the top of `PreferencesPage` behind
+Throwaway UI prototype on the existing settings page (sub-shape A), added on
+`piagent` in commit `d2afc11` as
+`src/renderer/pages/preferences/prototype-provider-settings.tsx` and removed
+again when this ticket was resolved. To look at it again:
+`git show d2afc11:src/renderer/pages/preferences/prototype-provider-settings.tsx`.
+It was mounted at the top of `PreferencesPage` behind
 `SHOW_PROVIDER_SETTINGS_PROTOTYPE`. It's stubbed in memory: no IPC, nothing
 saved, and the login flows replay the prompts observed above. A yellow
 floating bar (or the left/right arrow keys) switches between:
@@ -119,8 +121,8 @@ All three share the one login dialog, a placeholder for the tool approval list
 from ticket 10, and a "State that would be saved" panel that shows what lands
 in `auth.json`, `models.json` and `PreferencesStore`.
 
-To try it: `pnpm pack:dev`, install the `.tgz` in Freelens, open
-Preferences, Freelens AI Settings.
+To try it, check out `d2afc11`, run `pnpm pack:dev`, install the `.tgz` in
+Freelens and open Preferences, Freelens AI Settings.
 
 ## Round 1: reactions wanted
 
@@ -153,3 +155,54 @@ Preferences, Freelens AI Settings.
 - **Q7 - Env-var keys:** show a provider as connected when `checkAuth()`
   finds an env var (status "From `ENV_VAR`", no logout), or ignore env vars.
   Recommendation: **show them**; it's free from pi.
+
+## Answer
+
+Round 1: the user accepted every recommendation (2026-10-10).
+
+- **Q1 - Layout: B, connected cards.** The settings page shows only connected
+  providers, one card each, listing the provider's models with context size
+  and price from pi's catalog, plus its status and Log out. "Add provider"
+  opens a searchable picker of pi's built-in providers and then the generic
+  login dialog. "Add custom endpoint" opens the custom-provider form inline.
+  Below the cards come the thinking level, the per-tool "Requires approval"
+  list ([10](10-approvals-over-ipc.md)), the chat retention preference
+  ([11](11-session-storage.md)) and the custom agent rules
+  ([15](15-system-prompt-and-tool-set.md)).
+- **Q2 - Credentials: pi's files in main.** `ModelRuntime.create({ authPath,
+  modelsPath })` with `<extension folder>/pi/auth.json` and
+  `<extension folder>/pi/models.json`. Keys and OAuth tokens never reach the
+  renderer; the page reads provider status, models and login prompts over IPC.
+- **Q3 - Custom providers: a form for v1.** Fields: name, base URL, API key,
+  model ids, reasoning on or off. It writes an OpenAI-compatible provider into
+  `models.json`. The page shows the file's path for headers, costs and
+  `compat`, which users can edit by hand.
+- **Q4 - Default model: the chat picker only.** It lists `getAvailable()`
+  models grouped by provider and remembers the last one used. The settings page
+  has no default-model control.
+- **Q5 - Thinking level: one global setting**, default `medium`, the six pi
+  levels from `off` to `xhigh`. pi clamps it to what each model supports.
+- **Q6 - Upgrading users: import once on first start**, then delete the old
+  fields. A non-empty `openAIKey` with the default `openAIBaseUrl` becomes an
+  `openai` API key in `auth.json`. With a custom `openAIBaseUrl` it becomes a
+  custom OpenAI-compatible provider in `models.json`, carrying the key and the
+  ids from the old `models` list. `selectedModel` seeds the chat picker's last
+  used model.
+- **Q7 - Env-var keys: shown.** When `checkAuth()` reports an env var, the
+  provider gets a card with "From `ENV_VAR`" and no Log out.
+
+What this settles for the spec:
+
+- IPC additions on top of [09](09-ipc-event-protocol.md), on the same command
+  channel: list providers with status, list available models, start a login
+  (its prompts go out as `ui_request` and come back as `ui_response`, like
+  approvals, and it can be cancelled), log out, add or remove a custom
+  provider, set the thinking level. These are global, not per cluster.
+- `registerBunOAuthFlows()` runs once at startup in main
+  ([06](06-spike-pi-in-main.md)).
+- Preferences deleted after the import: `openAIKey`, `openAIBaseUrl`,
+  `openAIReasoningEffort`, `disableThinking`, `aiProxyPort`, `aiProxyToken`,
+  `models`, and `podLogsRequireApproval` (replaced per ticket 10). The editable
+  model list helpers and `ai-models.tsx` go with them
+  ([14](14-what-pi-replaces.md)).
+- The prototype was removed from `src/`; it stays readable at `d2afc11`.

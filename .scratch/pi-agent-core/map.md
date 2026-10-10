@@ -89,12 +89,18 @@ ones, with chats saved as pi JSON sessions, and no LangChain/LangGraph left.
   schemas and `mutating` / `requiresApprovalByDefault` flags; mutating tools
   run sequentially. AI Explain keeps its five sections, without emoji, and
   gets the custom rules.
+- [Provider, key and login settings](issues/12-provider-key-settings.md):
+  credentials and custom providers live in pi's `auth.json` and `models.json`
+  in the extension folder in main. The settings page shows connected providers
+  as cards; "Add provider" runs one generic login dialog over IPC for API keys
+  and OAuth alike. Custom OpenAI-compatible providers come from a form. The
+  model is picked only in the chat; the thinking level is one global setting
+  (default `medium`). Today's OpenAI key and base URL are imported once, and
+  env-var keys show as connected.
 
 ## Open tickets
 
-- [Provider, key and login settings](issues/12-provider-key-settings.md)
-  (prototype, claimed; the prototype is up and waits for reactions). The last
-  ticket before `/to-spec`.
+None. The map is clear; next is `/to-spec`.
 
 ## Not yet specified
 
