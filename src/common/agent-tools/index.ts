@@ -1,4 +1,7 @@
 import { getClusterVersionTool } from "./cluster-version";
+import { getKubernetesResourceTool, listKubernetesResourcesTool } from "./kubernetes-resources";
+import { getNamespacesTool } from "./namespaces";
+import { getWarningEventsByNamespaceTool } from "./warning-events";
 
 import type { TSchema } from "typebox";
 
@@ -17,6 +20,18 @@ export interface AgentToolDefinition<TParams extends TSchema = TSchema> {
   requiresApprovalByDefault: boolean;
 }
 
-export const AGENT_TOOLS: readonly AgentToolDefinition[] = [getClusterVersionTool];
+export const AGENT_TOOLS: readonly AgentToolDefinition[] = [
+  getClusterVersionTool,
+  getNamespacesTool,
+  getWarningEventsByNamespaceTool,
+  listKubernetesResourcesTool,
+  getKubernetesResourceTool,
+];
 
-export { getClusterVersionTool };
+export {
+  getClusterVersionTool,
+  getKubernetesResourceTool,
+  getNamespacesTool,
+  getWarningEventsByNamespaceTool,
+  listKubernetesResourcesTool,
+};

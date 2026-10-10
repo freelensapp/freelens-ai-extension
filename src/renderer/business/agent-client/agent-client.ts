@@ -10,10 +10,11 @@ import {
 } from "../../../common/agent-protocol";
 import { ChatSessionStore } from "../../../common/store";
 import { IS_LOADING_KEY } from "../../context/chat-session-storage";
-import { getClusterVersion } from "../agent/tools/kubernetes-resource";
 import { getFrameClusterId } from "../cluster/active-cluster";
 import { type ChatViewState, chatFromSnapshot, reduceEnvelope } from "./chat-reducer";
-import { runToolRequest, type ToolImplementation } from "./tool-runner";
+import { createClusterTools } from "./cluster-tools";
+import { freelensCluster } from "./freelens-cluster";
+import { runToolRequest } from "./tool-runner";
 
 // The cluster frame's side of the agent protocol: it sends commands to the pi
 // agent host in main, answers the tool calls main sends for this cluster, and
@@ -24,9 +25,7 @@ class AgentRendererIpc extends Renderer.Ipc {}
 /** Called with the chat after every change. */
 type ChatListener = (chat: ChatViewState) => void;
 
-const CLUSTER_TOOLS: Readonly<Record<string, ToolImplementation>> = {
-  getClusterVersion: () => getClusterVersion(),
-};
+const CLUSTER_TOOLS = createClusterTools(freelensCluster);
 
 const listeners = new Set<ChatListener>();
 let ipc: AgentRendererIpc | undefined;
