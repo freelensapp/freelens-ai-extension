@@ -1,7 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as React from "react";
 import { PreferencesStore } from "../../../common/store";
-import { groupModels, resolvePickedModel } from "../../business/provider-client/model-picker";
+import { groupModels, modelRef, resolvePickedModel } from "../../business/provider-client/model-picker";
 import { onProviderEnvelope, sendProviderCommand } from "../../business/provider-client/provider-client";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { navigateToExtensionPreferences } from "../../navigation/navigate-to-extension-preferences";
@@ -62,6 +62,9 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
 
   const modelSelections = models ? groupModels(models) : [];
   const pickedModel = models ? resolvePickedModel(models, preferencesStore.agentModel) : undefined;
+  // pi's catalog entry of the picked model: its context size and prices drive
+  // the capacity gauge and the cost estimate, whatever the provider.
+  const pickedModelSummary = models?.find((model) => modelRef(model) === pickedModel);
 
   // Remember the first listed model when none was chosen yet, so main runs the
   // one shown. A chosen model is only replaced by the user picking another.
@@ -119,6 +122,7 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
     textareaRef,
     modelSelections,
     pickedModel,
+    pickedModelSummary,
     noProviderConnected,
     agentConfigured,
     setMessage,

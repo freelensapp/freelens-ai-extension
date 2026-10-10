@@ -2,7 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { MessageSquarePlus, SendHorizonal, Square, Trash2 } from "lucide-react";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
-import { formatCost } from "../../business/provider/model-pricing";
+import { computeSessionCost, formatCost } from "../../business/provider/model-pricing";
 import { formatTokenUsage } from "../../business/service/token-usage";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { AvailableTools } from "../available-tools/available-tools";
@@ -23,6 +23,15 @@ type TextInputProps = {
 export const TextInput = observer(({ onSend }: TextInputProps) => {
   const applicationStatusStore = useApplicationStatusStore();
   const textInputHook = useTextInput({ onSend });
+  // Priced from the picked model's catalog entry (USD per million tokens), so a
+  // model of any provider shows its own cost.
+  const picked = textInputHook.pickedModelSummary;
+  const sessionCost = picked
+    ? computeSessionCost(applicationStatusStore.tokenUsage, {
+        inputCostPerToken: picked.inputCost / 1_000_000,
+        outputCostPerToken: picked.outputCost / 1_000_000,
+      })
+    : 0;
 
   // State for showing/hiding the vertical list
   const [showList, setShowList] = React.useState(false);
@@ -110,7 +119,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                   data-tooltip="Tokens used this session (input, cached input, output), with estimated cost when known. Resets when the chat is cleared."
                 >
                   {formatTokenUsage(applicationStatusStore.tokenUsage)}
-                  {applicationStatusStore.sessionCost > 0 ? ` = ${formatCost(applicationStatusStore.sessionCost)}` : ""}
+                  {sessionCost > 0 ? ` = ${formatCost(sessionCost)}` : ""}
                 </span>
               )}
               {textInputHook.agentConfigured && (
@@ -138,7 +147,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               {textInputHook.agentConfigured && (
                 <TokenCapacityIndicator
                   usedTokens={applicationStatusStore.lastInputTokens}
-                  maxTokens={applicationStatusStore.getMaxInputTokens()}
+                  maxTokens={picked?.contextWindow || applicationStatusStore.getMaxInputTokens()}
                   peakTokens={applicationStatusStore.lastPeakInputTokens}
                 />
               )}
