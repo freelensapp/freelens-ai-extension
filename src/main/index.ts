@@ -124,10 +124,15 @@ export default class LensExtensionAiMain extends Main.LensExtension {
 
     // Provider status, models and logins for the settings page. Global, not per
     // cluster; credentials never leave main.
+    let keyRefreshes = 0;
     const refreshPiOpenAIKey = async () => {
+      const refresh = ++keyRefreshes;
       // A ChatGPT sign-in token does not work against the OpenAI API AI Explain calls.
       const auth = modelRuntime.isUsingOAuth("openai") ? undefined : await modelRuntime.getAuth("openai");
-      this.piOpenAIKey = auth?.auth.apiKey;
+      // A slower, older read must not bring back a key a later logout removed.
+      if (refresh === keyRefreshes) {
+        this.piOpenAIKey = auth?.auth.apiKey;
+      }
     };
     const logKeyError = (error: unknown) =>
       console.error("[freelens-ai] Reading the OpenAI key from pi failed:", error);
