@@ -194,7 +194,7 @@ describe("ProviderService", () => {
 
     const login = svc.handleCommand({ type: "login", loginId: "l1", providerId: "fake-key", method: "api_key" });
     await waitForPrompt(1);
-    expect(await svc.handleCommand({ type: "cancel_login" })).toMatchObject({ success: true });
+    expect(await svc.handleCommand({ type: "cancel_login", loginId: "l1" })).toMatchObject({ success: true });
 
     expect(await login).toEqual({ type: "response", command: "login", success: false, error: "Login cancelled." });
     expect((await provider(svc, "fake-key")).status.connected).toBe(false);
@@ -202,6 +202,17 @@ describe("ProviderService", () => {
       kind: "login_end",
       payload: { success: false, error: "Login cancelled." },
     });
+  });
+
+  it("ignores a cancel meant for an earlier login", async () => {
+    const svc = createService();
+
+    const login = svc.handleCommand({ type: "login", loginId: "l2", providerId: "fake-key", method: "api_key" });
+    const prompt = await waitForPrompt(1);
+    expect(await svc.handleCommand({ type: "cancel_login", loginId: "l1" })).toMatchObject({ success: true });
+
+    await svc.handleCommand({ type: "ui_response", id: prompt.id, value: "sk-still-running" });
+    expect(await login).toMatchObject({ success: true });
   });
 
   it("cancels a login when the prompt is cancelled", async () => {

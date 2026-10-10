@@ -97,7 +97,8 @@ export type ProviderCommand =
   | { type: "list_models"; providerId?: string }
   /** Runs pi's login; the response arrives when it ends. A newer login cancels this one. */
   | { type: "login"; loginId: string; providerId: string; method: AuthMethodType }
-  | { type: "cancel_login" }
+  /** Cancels the login with this id; a cancel for an older login is ignored. */
+  | { type: "cancel_login"; loginId: string }
   /** Answers a login prompt; `cancelled` ends the login without saving anything. */
   | { type: "ui_response"; id: string; value?: string; cancelled?: boolean }
   | { type: "logout"; providerId: string };

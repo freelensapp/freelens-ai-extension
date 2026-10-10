@@ -134,7 +134,10 @@ export class ProviderService {
         case "login":
           return await this.runLogin(command.loginId, command.providerId, command.method);
         case "cancel_login":
-          this.cancelLogin();
+          // A late cancel from a closed dialog must not end the login that replaced it.
+          if (this.login?.loginId === command.loginId) {
+            this.cancelLogin();
+          }
           return ok(command.type);
         case "ui_response":
           return this.answerPrompt(command.id, command.value, command.cancelled === true);
