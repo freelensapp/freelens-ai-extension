@@ -249,7 +249,9 @@ export type ManifestValidationResult = { success: true; data: Manifest } | { suc
 
 /**
  * Validate a manifest against the per-kind schema when one exists. Unknown kinds
- * (no handler or no schema) pass through unchanged.
+ * (no handler or no schema) pass through unchanged. A valid manifest is also
+ * returned unchanged: the schemas list only the required fields, and their
+ * parsed output would drop every other field (labels, env, resources, ...).
  */
 export function validateManifest(kind: string, data: Manifest): ManifestValidationResult {
   const handler = getResourceHandler(kind);
@@ -260,5 +262,5 @@ export function validateManifest(kind: string, data: Manifest): ManifestValidati
   if (!result.success) {
     return { success: false, error: result.error.message };
   }
-  return { success: true, data: result.data as Manifest };
+  return { success: true, data };
 }

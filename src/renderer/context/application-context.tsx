@@ -13,10 +13,18 @@ import useLog from "../../common/utils/logger/logger-service";
 import { generateUuid } from "../../common/utils/uuid";
 import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
 import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
+import {
+  getAgentChat,
+  onAgentChat,
+  resetAgentChat,
+  sendAgentCommand,
+  turnOffAutoApprove as turnOffAutoApproveInMain,
+} from "../business/agent-client/agent-client";
 import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
 import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../business/provider/ai-models";
+import { addModel } from "../business/provider/model-list";
 import { computeSessionCost, type ModelPricingMap } from "../business/provider/model-pricing";
 import { fetchModelPricing } from "../business/provider/model-pricing-provider";
 import { approximateTokenCount } from "../business/provider/token-estimate";
@@ -25,6 +33,7 @@ import { useSessionCompactionService } from "../business/service/session-compact
 import { emptyTokenUsage, addTokenUsage as sumTokenUsage, type TokenUsage } from "../business/service/token-usage";
 import { IS_CONVERSATION_INTERRUPTED_KEY, IS_LOADING_KEY } from "./chat-session-storage";
 
+import type { ChatViewState } from "../business/agent-client/chat-reducer";
 import type { MessageObject } from "../business/objects/message-object";
 
 // Transient status shown while the session is compacted: dimmed "Compacting
@@ -33,14 +42,19 @@ import type { MessageObject } from "../business/objects/message-object";
 export type CompactionStatus = "compacting" | "compacted" | null;
 
 export interface AppContextType {
+  // The cluster of this frame; the chat and its pi agent session are bound to it.
+  clusterId: string;
   apiKey: string;
   selectedModel: string;
   mcpEnabled: boolean;
   mcpConfiguration: string;
-  bypassApprovals: boolean;
+  // "Approve all in this chat" is on in main: gated calls run without a card.
+  autoApproveAll: boolean;
   explainEvent: MessageObject;
   conversationId: string;
   isLoading: boolean;
+  // True while this cluster's pi agent run is going: the Stop button shows.
+  isAgentRunning: boolean;
   isConversationInterrupted: boolean;
   chatMessages: MessageObject[] | null;
   tokenUsage: TokenUsage;
@@ -59,7 +73,8 @@ export interface AppContextType {
   compactionStatus: CompactionStatus;
   freeLensAgent: FreeLensAgent | null;
   mcpAgent: MPCAgent | null;
-  setSelectedModel: (selectedModel: string) => void;
+  // The chat model as "provider/id", remembered as the last one used.
+  setSelectedModel: (modelRef: string) => void;
   addTokenUsage: (usage: TokenUsage) => void;
   setLastInputTokens: (lastInputTokens: number) => void;
   setLastPeakInputTokens: (lastPeakInputTokens: number) => void;
@@ -70,15 +85,19 @@ export interface AppContextType {
   // the summary to seed into that prompt, or null when nothing was compacted.
   compactSession: () => Promise<string | null>;
   setExplainEvent: (messageObject: MessageObject) => void;
-  setBypassApprovals: (bypassApprovals: boolean) => void;
+  turnOffAutoApprove: () => Promise<void>;
   setLoading: (isLoading: boolean) => void;
+  stopAgent: () => Promise<void>;
   setConversationInterrupted: (isConversationInterrupted: boolean) => void;
   addMessage: (message: MessageObject) => void;
   removeMessage: (messageId: string) => void;
   removeErrorMessages: () => void;
   updateLastMessage: (newText: string) => void;
   updateLastMessageReasoning: (newText: string) => void;
-  clearChat: () => void;
+  // New chat: the cluster's current chat stays on disk until retention deletes it.
+  clearChat: () => Promise<void>;
+  // Deletes every saved chat of this cluster and starts an empty one.
+  deleteAllChats: () => Promise<void>;
   getActiveAgent: () => Promise<any>;
   changeInterruptStatus: (id: string, status: boolean) => void;
   getAvailableTools: () => Promise<any[]>;
@@ -101,6 +120,8 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const [clusterId] = useState<string>(() => getActiveClusterId());
   const [conversationId, _setConversationId] = useState("");
   const [isLoading, _setLoading] = useState(false);
+  const [isAgentRunning, _setAgentRunning] = useState(false);
+  const [autoApproveAll, _setAutoApproveAll] = useState(false);
   const [isConversationInterrupted, _setConversationInterrupted] = useState(false);
   const [chatMessages, _setChatMessages] = useState<MessageObject[] | null>(null);
   const [tokenUsage, _setTokenUsage] = useState<TokenUsage>(emptyTokenUsage());
@@ -134,6 +155,28 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     _setTokenUsage(chatSessionStore.getTokenUsage(clusterId));
     _setLastInputTokens(chatSessionStore.getLastInputTokens(clusterId));
     _initFreeLensAgent();
+  }, []);
+
+  // The agent client keeps this cluster's chat in step with the pi agent in
+  // main: show its transcript, and keep the spinner, the disabled input and the
+  // Stop button in step with the run, including a run that was already going
+  // when this page mounted.
+  useEffect(() => {
+    // Undefined so the first call also clears a spinner restored from
+    // sessionStorage for a run that has ended.
+    let wasRunning: boolean | undefined;
+    const show = (chat: ChatViewState) => {
+      _setChatMessages(chat.messages);
+      _setAgentRunning(chat.isRunning);
+      _setAutoApproveAll(chat.autoApprove);
+      if (chat.isRunning !== wasRunning) {
+        wasRunning = chat.isRunning;
+        setLoading(chat.isRunning);
+      }
+    };
+    const current = getAgentChat();
+    if (current) show(current);
+    return onAgentChat(show);
   }, []);
 
   // Fetch model pricing on start and whenever the model list, endpoint, or proxy
@@ -378,30 +421,35 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     }, 5000);
   };
 
-  const clearChat = async () => {
+  // New chat or Delete all chats: main stops a run and starts the cluster's new
+  // pi session, and the agent client empties the transcript. The LangChain
+  // state that AI Explain still uses is cleared as before.
+  const resetChat = async (type: "new_session" | "delete_sessions") => {
+    const response = await resetAgentChat(clusterId, type);
+    if (!response.success) {
+      log.error("Starting a new chat failed: ", response.error);
+      return;
+    }
     // Zero the per-session token counter and context-size estimate alongside the
     // transcript, and drop any lingering compaction status.
     _setTokenUsage(emptyTokenUsage());
     setLastInputTokens(0);
     setLastPeakInputTokens(0);
     _setCompactionStatus(null);
-    if (freeLensAgent) {
-      cleanAgentMessageHistory(freeLensAgent).finally(() => {
-        _setChatMessages([]);
-        chatSessionStore.clear(clusterId);
-      });
-    }
-    if (mcpAgent) {
-      await cleanAgentMessageHistory(mcpAgent).finally(() => {
-        _setChatMessages([]);
-        chatSessionStore.clear(clusterId);
-      });
+    chatSessionStore.clear(clusterId);
+    for (const agent of [freeLensAgent, mcpAgent]) {
+      if (agent) {
+        await cleanAgentMessageHistory(agent).catch((error) => log.error("Cleaning the agent history failed: ", error));
+      }
     }
     // Wipe this cluster's durable LangGraph checkpointer state so a restart right
     // after a clear does not restore the model-side conversation context. Other
     // clusters' memory is left untouched.
     AgentStateStore.getInstanceOrCreate<AgentStateStore>().clearForCluster(clusterId);
   };
+
+  const clearChat = () => resetChat("new_session");
+  const deleteAllChats = () => resetChat("delete_sessions");
 
   const cleanAgentMessageHistory = async (agent: FreeLensAgent | MPCAgent) => {
     log.debug("Cleaning agent message history for agent: ", agent);
@@ -481,8 +529,16 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     return freeLensAgent;
   };
 
-  const setSelectedModel = (selectedModel: string) => {
-    preferencesStore.selectedModel = selectedModel;
+  // Takes the picker's "provider/id"; main runs the next prompt on it.
+  const setSelectedModel = (modelRef: string) => {
+    preferencesStore.agentModel = modelRef;
+    // AI Explain still runs on the old OpenAI client until it moves to pi, so
+    // an OpenAI model chosen in the chat becomes its model too.
+    const openAIModel = modelRef.startsWith("openai/") ? modelRef.slice("openai/".length) : "";
+    if (openAIModel) {
+      preferencesStore.models = addModel(preferencesStore.models, AIProviders.OPEN_AI, openAIModel);
+      preferencesStore.selectedModel = openAIModel;
+    }
   };
 
   // The API key to use depends on the selected model's provider. Only OpenAI is
@@ -504,12 +560,23 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     return freeLensAgentSystem.availableTools;
   };
 
+  // The run ends with the usual settled event, which clears the spinner.
+  const stopAgent = async () => {
+    const response = await sendAgentCommand(clusterId, { type: "abort" });
+    if (!response.success) {
+      log.error("Stopping the agent failed: ", response.error);
+    }
+  };
+
   const setExplainEvent = (messageObject: MessageObject) => {
     preferencesStore.explainEvent = messageObject;
   };
 
-  const setBypassApprovals = (bypassApprovals: boolean) => {
-    preferencesStore.bypassApprovals = bypassApprovals;
+  const turnOffAutoApprove = async () => {
+    const response = await turnOffAutoApproveInMain(clusterId);
+    if (!response.success) {
+      log.error("Turning off approve all failed: ", response.error);
+    }
   };
 
   // Estimate the session cost for the currently selected model. Zero when the
@@ -528,14 +595,16 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   return (
     <AppContext.Provider
       value={{
+        clusterId,
         apiKey: getApiKeyForSelectedModel(),
         selectedModel: preferencesStore.selectedModel,
         mcpEnabled: preferencesStore.mcpEnabled,
         mcpConfiguration: preferencesStore.mcpConfiguration,
-        bypassApprovals: preferencesStore.bypassApprovals,
+        autoApproveAll,
         explainEvent: preferencesStore.explainEvent,
         conversationId,
         isLoading,
+        isAgentRunning,
         isConversationInterrupted,
         chatMessages,
         tokenUsage,
@@ -552,8 +621,9 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         getMaxInputTokens,
         compactSession,
         setExplainEvent,
-        setBypassApprovals,
+        turnOffAutoApprove,
         setLoading,
+        stopAgent,
         setConversationInterrupted,
         addMessage,
         removeMessage,
@@ -561,6 +631,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         updateLastMessage,
         updateLastMessageReasoning,
         clearChat,
+        deleteAllChats,
         getActiveAgent,
         changeInterruptStatus,
         getAvailableTools,

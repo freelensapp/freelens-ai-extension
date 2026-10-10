@@ -1,4 +1,10 @@
 import { Renderer } from "@freelensapp/extensions";
+import { getClusterIdFromFrameHost } from "./frame-cluster-id";
+
+/** The cluster of this cluster frame, or undefined in the root window. */
+export function getFrameClusterId(): string | undefined {
+  return getClusterIdFromFrameHost(window.location.host);
+}
 
 // Fallback key used when no active cluster can be resolved (for example on an
 // older host that does not expose the catalog API). It keeps the chat usable
@@ -20,6 +26,10 @@ export const DEFAULT_CLUSTER_ID = "default";
  * frame's own cluster.
  */
 export function getActiveClusterId(): string {
+  const frameClusterId = getFrameClusterId();
+  if (frameClusterId) {
+    return frameClusterId;
+  }
   try {
     const id = Renderer.Catalog.getActiveCluster()?.id;
     return id && id.length > 0 ? id : DEFAULT_CLUSTER_ID;

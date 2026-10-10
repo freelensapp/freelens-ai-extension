@@ -105,6 +105,13 @@ body.theme-light .text-input-token-capacity-arc {
   min-width: 70px !important;
 }
 
+.text-input-no-provider {
+  margin-right: 0.5rem;
+  color: var(--textColorDimmed);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
 .text-input-select-box .Select__single-value {
   font-size: 13px;
 }
@@ -116,8 +123,14 @@ body.theme-light .text-input-token-capacity-arc {
   padding-right: 0;
 }
 
-#send-button {
+#send-button,
+#stop-button {
   padding-left: 10px;
+}
+
+.text-input-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .chat-clear-button {

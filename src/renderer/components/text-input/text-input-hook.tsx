@@ -1,11 +1,14 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as React from "react";
 import { PreferencesStore } from "../../../common/store";
-import { buildAgentReadinessInput, isAgentConfigured } from "../../business/provider/chat-readiness";
+import { groupModels, modelRef, resolvePickedModel } from "../../business/provider-client/model-picker";
+import { onProviderEnvelope, sendProviderCommand } from "../../business/provider-client/provider-client";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { navigateToExtensionPreferences } from "../../navigation/navigate-to-extension-preferences";
 
 import type { SingleValue } from "react-select";
+
+import type { ProviderModelSummary } from "../../../common/provider-protocol";
 
 const { useCallback, useEffect, useRef, useState } = React;
 
@@ -30,12 +33,51 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
   const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
   const applicationStatusStore = useApplicationStatusStore();
 
-  const modelSelections = preferencesStore.models.map((model) => ({ value: model.name, label: model.name }));
+  // The models of the connected providers, from main; undefined until the
+  // first list arrives. Reloaded whenever a login or logout changes them.
+  const [models, setModels] = useState<ProviderModelSummary[] | undefined>(undefined);
+  useEffect(() => {
+    let latest = 0;
+    let disposed = false;
+    const load = async () => {
+      const request = ++latest;
+      const response = await sendProviderCommand({ type: "list_models" });
+      // Only the newest list counts, and none after the input is gone.
+      if (disposed || request !== latest) return;
+      if (response.success) {
+        setModels(response.data as ProviderModelSummary[]);
+      } else {
+        console.error("[freelens-ai] Listing the models of the connected providers failed:", response.error);
+      }
+    };
+    void load();
+    const stopListening = onProviderEnvelope((envelope) => {
+      if (envelope.kind === "credentials_changed") void load();
+    });
+    return () => {
+      disposed = true;
+      stopListening();
+    };
+  }, []);
 
-  // Show the model dropdown only when the agent is ready to chat. Otherwise
-  // (no models left, or no OpenAI key set) the UI offers a single button that
-  // links to this extension's preferences.
-  const agentConfigured = isAgentConfigured(buildAgentReadinessInput(preferencesStore));
+  const modelSelections = models ? groupModels(models) : [];
+  const pickedModel = models ? resolvePickedModel(models, preferencesStore.agentModel) : undefined;
+  // pi's catalog entry of the picked model: its context size and prices drive
+  // the capacity gauge and the cost estimate, whatever the provider.
+  const pickedModelSummary = models?.find((model) => modelRef(model) === pickedModel);
+
+  // Remember the first listed model when none was chosen yet, so main runs the
+  // one shown. A chosen model is only replaced by the user picking another.
+  useEffect(() => {
+    if (pickedModel && pickedModel !== preferencesStore.agentModel) {
+      applicationStatusStore.setSelectedModel(pickedModel);
+    }
+  }, [pickedModel, preferencesStore.agentModel]);
+
+  // Show the model picker only when a provider is connected. Otherwise the UI
+  // explains that one has to be connected and links to this extension's settings.
+  const agentConfigured = modelSelections.length > 0;
+  const noProviderConnected = models !== undefined && models.length === 0;
 
   const adaptTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -79,6 +121,9 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
     message,
     textareaRef,
     modelSelections,
+    pickedModel,
+    pickedModelSummary,
+    noProviderConnected,
     agentConfigured,
     setMessage,
     handleKeyDown,

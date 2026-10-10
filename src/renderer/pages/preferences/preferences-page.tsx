@@ -1,15 +1,19 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
-import { AIProviders, DEFAULT_MODELS, PROVIDER_LABELS } from "../../business/provider/ai-models";
-import { addModel, removeModelAt, resolveSelectedModel } from "../../business/provider/model-list";
+import { ProviderSettings } from "./provider-settings";
 
 import type { SingleValue } from "react-select";
 
 const { observer } = MobxReact;
 const { useCallback, useEffect, useRef, useState } = React;
 
-import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore } from "../../../common/store";
+import { DEFAULT_CHAT_RETENTION_DAYS } from "../../../common/agent-protocol";
+import { AGENT_TOOLS } from "../../../common/agent-tools";
+import { requiresApproval, withApprovalOverride } from "../../../common/agent-tools/approval-settings";
+import { isDefaultOpenAIBaseUrl } from "../../../common/openai-base-url";
+import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore, parseRetentionDays } from "../../../common/store";
+import { THINKING_LEVELS, type ThinkingLevel } from "../../../common/thinking-level";
 
 interface DraftFieldProps {
   value: string;
@@ -65,29 +69,33 @@ function useStoreValueOnBlur(value: string, commit: (next: string) => void): Dra
 }
 
 const {
-  Component: { Button, Icon, Input, Select, Switch, HorizontalLine },
+  Component: { Input, Select, Switch, HorizontalLine },
 } = Renderer;
 
 type SelectOption<T> = Renderer.Component.SelectOption<T>;
 
-const REASONING_EFFORT_OPTIONS: SelectOption<string>[] = [
-  { value: "", label: "Default" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-];
+const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+};
 
-const PROVIDER_OPTIONS: SelectOption<AIProviders>[] = Object.values(AIProviders).map((provider) => ({
-  value: provider,
-  label: PROVIDER_LABELS[provider],
+const THINKING_LEVEL_OPTIONS: SelectOption<ThinkingLevel>[] = THINKING_LEVELS.map((level) => ({
+  value: level,
+  label: THINKING_LEVEL_LABELS[level],
 }));
 
 export const PreferencesPage = observer(() => {
   const preferencesStore: PreferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
-  const [newModelProvider, setNewModelProvider] = useState<AIProviders>(AIProviders.OPEN_AI);
-  const [newModelName, setNewModelName] = useState<string>("");
-
+  // Committed on blur, so the field can be emptied while typing a new number.
+  const chatRetentionField = useStoreValueOnBlur(
+    String(preferencesStore.chatRetentionDays),
+    (next) => (preferencesStore.chatRetentionDays = parseRetentionDays(Number.parseInt(next, 10))),
+  );
   const customAgentRulesField = useStoreValueOnBlur(
     preferencesStore.customAgentRules,
     (next) => (preferencesStore.customAgentRules = next),
@@ -97,104 +105,52 @@ export const PreferencesPage = observer(() => {
     (next) => void preferencesStore.updateMcpConfiguration(next),
   );
 
-  const handleAddModel = () => {
-    // `addModel` trims the name and ignores empty/duplicate entries.
-    preferencesStore.models = addModel(preferencesStore.models, newModelProvider, newModelName);
-    setNewModelName("");
-  };
-
-  const removeModel = (index: number) => {
-    preferencesStore.models = removeModelAt(preferencesStore.models, index);
-    // Re-validate the selection: if the removed entry was selected, fall back
-    // to a valid model (or "" when the list is now empty).
-    preferencesStore.selectedModel = resolveSelectedModel(preferencesStore.models, preferencesStore.selectedModel);
-  };
-
-  const resetModels = () => {
-    preferencesStore.models = [...DEFAULT_MODELS];
-    preferencesStore.selectedModel = resolveSelectedModel(preferencesStore.models, preferencesStore.selectedModel);
-  };
-
   return (
     <>
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>OpenAI</div>
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>API key</div>
-      <Input
-        type="password"
-        placeholder="Put here your OpenAI API key"
-        value={preferencesStore.openAIKey}
-        onChange={(value: string) => (preferencesStore.openAIKey = value)}
+      <ProviderSettings />
+
+      <HorizontalLine />
+
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Thinking level</div>
+      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
+        How much the model reasons before it answers, for every chat and AI Explain. Higher levels are slower and cost
+        more. Models that support fewer levels use the closest one; models without reasoning ignore it.
+      </div>
+      <Select
+        id="thinking-level"
+        options={THINKING_LEVEL_OPTIONS}
+        value={preferencesStore.thinkingLevel}
+        onChange={(option: SingleValue<SelectOption<ThinkingLevel>>) => {
+          if (option) preferencesStore.thinkingLevel = option.value;
+        }}
+        themeName="lens"
       />
+
+      <HorizontalLine />
+
+      {/* Still read by AI Explain, which runs on the old OpenAI client until it moves to pi. */}
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>AI Explain</div>
+      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
+        With the default Base URL, AI Explain uses the API key of the OpenAI provider above, or OPENAI_API_KEY. A custom
+        Base URL uses its own key.
+      </div>
       <div style={{ marginTop: 8, fontWeight: "bold" }}>Base URL</div>
       <Input
         placeholder="https://api.openai.com/v1"
         value={preferencesStore.openAIBaseUrl}
         onChange={(value: string) => (preferencesStore.openAIBaseUrl = value)}
       />
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Reasoning effort</div>
-      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Applied only to reasoning-capable models (o-series, gpt-5.x).
-      </div>
-      <Select
-        options={REASONING_EFFORT_OPTIONS}
-        value={preferencesStore.openAIReasoningEffort}
-        onChange={(option: SingleValue<SelectOption<string>>) =>
-          (preferencesStore.openAIReasoningEffort = option?.value ?? "")
-        }
-        themeName="lens"
-      />
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Disable thinking mode</div>
-      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Turn off the model&apos;s thinking mode. Required by some providers (e.g. DeepSeek via LiteLLM) whose thinking
-        mode conflicts with the forced tool selection used for structured output.
-      </div>
-      <Switch
-        style={{ marginBottom: 8 }}
-        label="Disable thinking mode"
-        checked={preferencesStore.disableThinking}
-        onChange={(checked: boolean) => (preferencesStore.disableThinking = checked)}
-      />
-
-      <HorizontalLine />
-
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>Models</div>
-      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
-        Add or remove the models offered in the chat. The model name is sent to the provider API.
-      </div>
-      {preferencesStore.models.map((model, index) => (
-        <div
-          key={`${model.provider}/${model.name}`}
-          style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}
-        >
-          <span style={{ minWidth: 80, opacity: 0.7 }}>{PROVIDER_LABELS[model.provider] ?? model.provider}</span>
-          <span style={{ flex: 1, fontFamily: "monospace" }}>{model.name}</span>
-          <Icon material="delete" small interactive tooltip="Remove model" onClick={() => removeModel(index)} />
-        </div>
-      ))}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-        <div style={{ minWidth: 120 }}>
-          <Select
-            options={PROVIDER_OPTIONS}
-            value={newModelProvider}
-            onChange={(option: SingleValue<SelectOption<AIProviders>>) =>
-              setNewModelProvider(option?.value ?? AIProviders.OPEN_AI)
-            }
-            themeName="lens"
-          />
-        </div>
-        <div style={{ flex: 1 }}>
+      {!isDefaultOpenAIBaseUrl(preferencesStore.openAIBaseUrl) && (
+        <>
+          <div style={{ marginTop: 8, fontWeight: "bold" }}>API key for this Base URL</div>
           <Input
-            placeholder="Model name, e.g. gpt-5.5"
-            value={newModelName}
-            onChange={(value: string) => setNewModelName(value)}
-            onSubmit={handleAddModel}
+            type="password"
+            placeholder="The key of your custom endpoint"
+            value={preferencesStore.openAIKey}
+            onChange={(value: string) => (preferencesStore.openAIKey = value)}
           />
-        </div>
-        <Button primary label="Add" onClick={handleAddModel} />
-      </div>
-      <div style={{ marginTop: 8 }}>
-        <Button plain label="Reset to defaults" onClick={resetModels} />
-      </div>
+        </>
+      )}
 
       <HorizontalLine />
 
@@ -220,6 +176,24 @@ export const PreferencesPage = observer(() => {
         onChange={(e) => customAgentRulesField.onChange(e.target.value)}
         onFocus={customAgentRulesField.onFocus}
         onBlur={customAgentRulesField.onBlur}
+      />
+
+      <HorizontalLine />
+
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Chats</div>
+      <div style={{ marginTop: 8, fontWeight: "bold" }}>Delete chats older than N days</div>
+      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
+        Saved chats not used for this many days are deleted when Freelens starts and on New chat. The open chat of each
+        cluster is kept. 0 keeps chats forever.
+      </div>
+      <Input
+        type="number"
+        min={0}
+        placeholder={String(DEFAULT_CHAT_RETENTION_DAYS)}
+        value={chatRetentionField.value}
+        onChange={chatRetentionField.onChange}
+        onFocus={chatRetentionField.onFocus}
+        onBlur={chatRetentionField.onBlur}
       />
 
       <HorizontalLine />
@@ -256,18 +230,35 @@ export const PreferencesPage = observer(() => {
 
       <HorizontalLine />
 
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>Pod logs</div>
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Require approval before reading pod logs</div>
-      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Pod logs can contain secrets or personal data. When enabled, the agent asks for confirmation before reading
-        container logs.
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Tool approvals</div>
+      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
+        The agent asks before each call of a tool that requires approval. Tools that change the cluster require it by
+        default, and so does reading pod logs, which can contain secrets or personal data. A change applies to the next
+        call.
       </div>
-      <Switch
-        style={{ marginBottom: 8 }}
-        label="Require approval before reading pod logs"
-        checked={preferencesStore.podLogsRequireApproval}
-        onChange={(checked: boolean) => (preferencesStore.podLogsRequireApproval = checked)}
-      />
+      {AGENT_TOOLS.map((tool) => (
+        <div key={tool.name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <span style={{ flex: 1, fontFamily: "monospace" }}>{tool.name}</span>
+          <span style={{ minWidth: 110, fontSize: 12, opacity: 0.7 }}>
+            {tool.mutating ? "Changes the cluster" : "Reads the cluster"}
+          </span>
+          <Switch
+            label="Requires approval"
+            checked={requiresApproval(tool, preferencesStore.toolApprovalOverrides)}
+            onChange={(checked: boolean) =>
+              (preferencesStore.toolApprovalOverrides = withApprovalOverride(
+                preferencesStore.toolApprovalOverrides,
+                tool,
+                checked,
+              ))
+            }
+          />
+        </div>
+      ))}
+
+      <HorizontalLine />
+
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Pod logs</div>
       <div style={{ marginTop: 8, fontWeight: "bold" }}>Default tail lines</div>
       <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
         Number of lines read from the end of the logs when the agent does not request a specific amount.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeClusterVersion } from "./cluster-version";
+import { summarizeClusterVersion } from "./version-summary";
 
 describe("summarizeClusterVersion", () => {
   it("uses gitVersion as the human-readable version and keeps the relevant details", () => {

@@ -1,12 +1,16 @@
 import { Command } from "@langchain/langgraph";
 import {
+  answerApproval as answerApprovalInMain,
+  getAgentChat,
+  sendAgentCommand,
+} from "../../renderer/business/agent-client/agent-client";
+import {
   getErrorMessage,
   getExplainMessage,
   getInterruptMessage,
 } from "../../renderer/business/objects/message-object-provider";
 import { MessageType } from "../../renderer/business/objects/message-type";
 import { DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
-import { approximateTokenCount } from "../../renderer/business/provider/token-estimate";
 import {
   AgentService,
   isContextSizeChunk,
@@ -15,7 +19,6 @@ import {
   useAgentService,
 } from "../../renderer/business/service/agent-service";
 import { AiAnalysisService, useAiAnalysisService } from "../../renderer/business/service/ai-analysis-service";
-import { estimateNextPromptTokens, shouldCompactSession } from "../../renderer/business/service/session-compaction";
 import { ActionToApprove } from "../../renderer/components/chat";
 import { useApplicationStatusStore } from "../../renderer/context/application-context";
 import { PreferencesStore } from "../store";
@@ -107,22 +110,9 @@ const useChatService = () => {
         if (MessageType.EXPLAIN === message.type) {
           _sendMessage(message);
           analyzeEvent(message).finally(() => applicationStatusStore.setLoading(false));
-        } else if (applicationStatusStore.isConversationInterrupted) {
-          log.debug("Conversation is interrupted, resuming...");
-          // Do not display the resume answer (e.g. "yes"/"no") as a user message:
-          // the user picked it from the approval buttons, they did not type it.
-          runAgent(new Command({ resume: message.text }), { kind: "resume", text: message.text }).finally(() => {
-            applicationStatusStore.setLoading(false);
-          });
         } else {
           _sendMessage(message);
-          // Compact the session first when the next prompt would approach the
-          // model's input token limit, then send (seeding the summary into the
-          // prompt so the conversation context is not lost).
-          (async () => {
-            const summary = await _maybeCompactBeforeSend(message.text);
-            await runAgent(_buildAgentInput(message.text, summary), { kind: "message", text: message.text });
-          })().finally(() => applicationStatusStore.setLoading(false));
+          void promptAgent(message.text);
         }
       } else {
         log.error("You cannot call sendMessageToAgent with 'sent: false'");
@@ -130,32 +120,6 @@ const useChatService = () => {
     } catch {
       applicationStatusStore.setLoading(false);
     }
-  };
-
-  const _buildAgentInput = (text: string, summary: string | null = null) => ({
-    modelName: applicationStatusStore.selectedModel,
-    modelApiKey: applicationStatusStore.apiKey,
-    // When the session was just compacted, prepend the summary so the agent keeps
-    // the earlier context even though the model-side history was wiped.
-    messages: summary
-      ? [
-          { role: "user", content: `Summary of the earlier (compacted) conversation:\n${summary}` },
-          { role: "user", content: text },
-        ]
-      : [{ role: "user", content: text }],
-  });
-
-  // Estimate the next prompt's input tokens from the previous response and the
-  // new message, and compact the session first when that reaches the threshold
-  // (90%) of the selected model's max input tokens. Returns the summary to seed
-  // into the next prompt, or null when no compaction was needed or possible.
-  const _maybeCompactBeforeSend = async (text: string): Promise<string | null> => {
-    const estimate = estimateNextPromptTokens(applicationStatusStore.lastInputTokens, approximateTokenCount(text));
-    if (!shouldCompactSession(estimate, applicationStatusStore.getMaxInputTokens())) {
-      return null;
-    }
-    log.debug("Next prompt approaches the input token limit, compacting session first");
-    return applicationStatusStore.compactSession();
   };
 
   // Re-run the query behind an error message, then drop that message so its
@@ -176,9 +140,26 @@ const useChatService = () => {
         applicationStatusStore.setLoading(false),
       );
     } else {
-      runAgent(_buildAgentInput(retryContext.text), retryContext).finally(() =>
-        applicationStatusStore.setLoading(false),
-      );
+      void promptAgent(retryContext.text);
+    }
+  };
+
+  // Sends a prompt to this cluster's pi agent in main. The answer streams back
+  // as envelopes that the application context folds into the transcript; the
+  // spinner stops when the run settles. A prompt main refuses before the run
+  // starts (no model, no credentials) shows its reason right away.
+  const promptAgent = async (text: string) => {
+    const response = await sendAgentCommand(applicationStatusStore.clusterId, { type: "prompt", message: text });
+    if (!response.success) {
+      _sendMessage(getErrorMessage(response.error, { kind: "message", text }));
+      applicationStatusStore.setLoading(false);
+      return;
+    }
+    // pi may queue or handle the prompt without starting a run, so no run
+    // events would clear the spinner.
+    const disposition = (response.data as { disposition?: string } | undefined)?.disposition;
+    if (disposition && disposition !== "started" && !getAgentChat()?.isRunning) {
+      applicationStatusStore.setLoading(false);
     }
   };
 
@@ -201,6 +182,16 @@ const useChatService = () => {
       });
     } catch {
       applicationStatusStore.setLoading(false);
+    }
+  };
+
+  // Answers a pi agent approval card. The card itself changes when main
+  // broadcasts the result; an answer main no longer waits for (the run was
+  // stopped meanwhile) is only logged.
+  const answerApproval = async (approvalId: string, confirmed: boolean, approveAll = false) => {
+    const response = await answerApprovalInMain(applicationStatusStore.clusterId, approvalId, confirmed, approveAll);
+    if (!response.success) {
+      log.error("The approval answer was not accepted: ", response.error);
     }
   };
 
@@ -243,7 +234,6 @@ const useChatService = () => {
       const agentService: AgentService = useAgentService(activeAgent);
       const agentResponseStream = agentService.run(agentInput, applicationStatusStore.conversationId);
       let endedWithInterrupt = false;
-      let autoApproveAndResume = false;
       for await (const chunk of agentResponseStream) {
         // log.debug("Streaming to UI chunk: ", chunk);
         if (typeof chunk === "string") {
@@ -281,22 +271,11 @@ const useChatService = () => {
         // check if the chunk is an approval interrupt
         if (isApprovalInterrupt(chunk.value)) {
           log.debug("Approval interrupt received: ", chunk);
-          if (applicationStatusStore.bypassApprovals) {
-            log.debug("Bypass approvals mode enabled: auto-approving tool use");
-            const interruptMessage = getInterruptMessage(chunk, false);
-            interruptMessage.approved = true;
-            _sendMessage(interruptMessage);
-            autoApproveAndResume = true;
-          } else {
-            _sendMessage(getInterruptMessage(chunk, false));
-            endedWithInterrupt = true;
-          }
+          _sendMessage(getInterruptMessage(chunk, false));
+          endedWithInterrupt = true;
         }
       }
       applicationStatusStore.setConversationInterrupted(endedWithInterrupt);
-      if (autoApproveAndResume) {
-        await runAgent(new Command({ resume: "yes" }), retryContext);
-      }
     } catch (error) {
       log.error("Error while running Freelens Agent: ", error);
 
@@ -306,7 +285,7 @@ const useChatService = () => {
     }
   };
 
-  return { sendMessageToAgent, resumeInterrupt, changeInterruptStatus, retry };
+  return { sendMessageToAgent, resumeInterrupt, changeInterruptStatus, answerApproval, retry };
 };
 
 export default useChatService;

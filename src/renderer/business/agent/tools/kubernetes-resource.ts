@@ -1,9 +1,8 @@
 import { Renderer } from "@freelensapp/extensions";
 import { interrupt } from "@langchain/langgraph";
 import { stringify as stringifyYaml } from "yaml";
-import { PreferencesStore } from "../../../../common/store";
-import { type KubernetesVersionInfo, summarizeClusterVersion } from "./cluster-version";
-import { buildFieldSelector } from "./field-filter";
+import { getPodLogsTool } from "../../../../common/agent-tools";
+import { requiresApproval } from "../../../../common/agent-tools/approval-settings";
 import {
   capLogOutput,
   capTailLines,
@@ -15,8 +14,7 @@ import {
   isPreviousContainerNotFoundError,
   noMatchingLogsMessage,
   resolveContainer,
-} from "./pod-logs";
-import { stripManagedFields } from "./project-resource";
+} from "../../../../common/agent-tools/pod-logs";
 import {
   DEFAULT_DELETE_MODE,
   type DeleteMode,
@@ -28,7 +26,16 @@ import {
   RESTARTABLE_KINDS,
   resolveApiVersion,
   validateManifest,
-} from "./resource-handlers";
+} from "../../../../common/agent-tools/resource-handlers";
+import { PreferencesStore } from "../../../../common/store";
+import {
+  type GetResourceInput,
+  getClusterVersion as getClusterVersionFromCluster,
+  getKubernetesResource as getKubernetesResourceFromCluster,
+  type ListResourceInput,
+  listKubernetesResources as listKubernetesResourcesFromCluster,
+} from "../../agent-client/cluster-tools";
+import { freelensCluster } from "../../agent-client/freelens-cluster";
 
 type KubeApi = Renderer.K8sApi.KubeApi;
 type KubeObject = Renderer.K8sApi.KubeObject;
@@ -39,29 +46,6 @@ type KubeObjectStore = NonNullable<ReturnType<typeof Renderer.K8sApi.apiManager.
 interface ResolvedTarget {
   api: KubeApi;
   store: KubeObjectStore;
-}
-
-export interface ListResourceInput {
-  kind: string;
-  apiVersion?: string;
-  namespace?: string;
-  // Server-side apply bookkeeping (`metadata.managedFields`) is stripped by
-  // default to keep the output small; set this to opt back in when needed.
-  includeManagedFields?: boolean;
-  // Optional JSONPath-style field selectors (the kubectl `-o jsonpath` subset)
-  // applied to each resource to trim the output to just the requested fields.
-  fields?: string[];
-}
-
-export interface GetResourceInput {
-  kind: string;
-  apiVersion?: string;
-  name: string;
-  namespace?: string;
-  // See ListResourceInput.includeManagedFields.
-  includeManagedFields?: boolean;
-  // See ListResourceInput.fields.
-  fields?: string[];
 }
 
 export interface CreateResourceInput {
@@ -221,16 +205,6 @@ async function captureResourceYaml(
   }
 }
 
-function projectObject(object: KubeObject, includeManagedFields = false) {
-  return {
-    name: object.getName(),
-    namespace: object.getNs(),
-    spec: object.spec,
-    status: object.status,
-    metadata: stripManagedFields(object.metadata, includeManagedFields),
-  };
-}
-
 // The host store types its mutating params as a deep-partial of the KubeObject
 // (including its methods), which a free-form manifest cannot satisfy directly.
 // Cast through `unknown` to the exact expected type rather than using `as any`.
@@ -250,118 +224,37 @@ interface SubresourcePatchApi {
   };
 }
 
-// The host KubeApi exposes the shared cluster `KubeJsonApi` client through a
-// protected `request` property with no public accessor. Describe the minimal
-// surface we rely on (a typed GET) and reach it through a structural cast via
-// `unknown`, mirroring the `SubresourcePatchApi` pattern above (the project
-// forbids `as any`).
-interface VersionRequestApi {
-  request: {
-    get<T>(path: string): Promise<T>;
-  };
-}
-
 // Kubernetes content-type for a strategic merge patch. Subresource patches such
 // as in-place Pod resize update entries inside arrays (spec.containers) that are
 // merged by their `name` key, so a strategic merge is required; a plain JSON
 // merge patch would replace the whole array.
 const STRATEGIC_MERGE_PATCH_CONTENT_TYPE = "application/strategic-merge-patch+json";
 
-/**
- * List resources of a kind, loading them from the store on demand. Namespaced
- * kinds are scoped to `namespace` when provided; otherwise all loaded
- * namespaces are returned.
- */
-export async function listKubernetesResources({
-  kind,
-  apiVersion,
-  namespace,
-  includeManagedFields,
-  fields,
-}: ListResourceInput): Promise<string> {
-  console.log("[Tool invocation: listKubernetesResources] - kind:", kind, "namespace:", namespace);
-  const target = resolveTarget(kind, apiVersion);
-  if (typeof target === "string") {
-    return target;
-  }
-  let select: ReturnType<typeof buildFieldSelector>;
+// The read tools below are thin wrappers for the LangChain agent, which ticket
+// 14 deletes: the logic lives in agent-client/cluster-tools.ts, shared with the
+// pi agent. These keep the old contract of answering failures with text.
+
+export async function listKubernetesResources(input: ListResourceInput): Promise<string> {
   try {
-    select = buildFieldSelector(fields);
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-  const { api, store } = target;
-  try {
-    const scoped = api.isNamespaced && namespace ? [namespace] : undefined;
-    const loaded = await store.loadAll(scoped ? { namespaces: scoped } : {});
-    const items = loaded ?? (scoped ? store.getAllByNs(namespace as string) : store.items.toJSON());
-    const projected = items.map((item) => projectObject(item, includeManagedFields));
-    return JSON.stringify(select ? projected.map(select) : projected);
+    return await listKubernetesResourcesFromCluster(freelensCluster, input);
   } catch (error) {
     console.error("[Tool invocation error: listKubernetesResources] - ", error);
     return JSON.stringify(error);
   }
 }
 
-/**
- * Get a single resource by name, loading it from the store on demand. For
- * namespaced kinds a namespace is required.
- */
-export async function getKubernetesResource({
-  kind,
-  apiVersion,
-  name,
-  namespace,
-  includeManagedFields,
-  fields,
-}: GetResourceInput): Promise<string> {
-  console.log("[Tool invocation: getKubernetesResource] - kind:", kind, "name:", name, "namespace:", namespace);
-  const target = resolveTarget(kind, apiVersion);
-  if (typeof target === "string") {
-    return target;
-  }
-  const { api, store } = target;
-  if (api.isNamespaced && !namespace) {
-    return `Kind "${kind}" is namespaced; please provide a namespace to get "${name}".`;
-  }
-  let select: ReturnType<typeof buildFieldSelector>;
+export async function getKubernetesResource(input: GetResourceInput): Promise<string> {
   try {
-    select = buildFieldSelector(fields);
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-  try {
-    const object = await store.load({ name, namespace: api.isNamespaced ? namespace : undefined });
-    if (!object) {
-      return `The ${kind} "${name}" was not found.`;
-    }
-    const projected = projectObject(object, includeManagedFields);
-    return JSON.stringify(select ? select(projected) : projected);
+    return await getKubernetesResourceFromCluster(freelensCluster, input);
   } catch (error) {
     console.error("[Tool invocation error: getKubernetesResource] - ", error);
     return JSON.stringify(error);
   }
 }
 
-/**
- * Read the Kubernetes version of the currently connected cluster by querying
- * the API server's `/version` endpoint directly (the same `version.Info` that
- * `kubectl version` reports). This is the authoritative source for the server
- * version and avoids heuristics such as inspecting node `kubeletVersion`s. Any
- * registered KubeApi shares the cluster `KubeJsonApi` client, so the pods API
- * is used to reach it.
- */
 export async function getClusterVersion(): Promise<string> {
-  console.log("[Tool invocation: getClusterVersion]");
-  const api = Renderer.K8sApi.podsApi as unknown as VersionRequestApi;
   try {
-    const info = await api.request.get<KubernetesVersionInfo>("/version");
-    if (!info || typeof info !== "object") {
-      return "Could not determine the Kubernetes cluster version.";
-    }
-    const summary = summarizeClusterVersion(info);
-    console.log("[Tool invocation result: getClusterVersion] - ", summary);
-    return JSON.stringify(summary);
+    return await getClusterVersionFromCluster(freelensCluster);
   } catch (error) {
     console.error("[Tool invocation error: getClusterVersion] - ", error);
     return JSON.stringify(error);
@@ -683,7 +576,7 @@ export async function restartKubernetesResource({ kind, name, namespace }: Resta
 /**
  * Read a one-shot snapshot of container logs from a pod. Loads the pod to
  * enumerate its containers, runs the optional approval gate (controlled by the
- * `podLogsRequireApproval` preference), then fetches the logs and caps the
+ * `getPodLogs` approval setting), then fetches the logs and caps the
  * output so it cannot overflow the model context.
  */
 export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
@@ -737,7 +630,7 @@ export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
   const tailLines = capTailLines(input.tailLines, preferences.podLogsTailLines);
 
   if (
-    preferences.podLogsRequireApproval &&
+    requiresApproval(getPodLogsTool, preferences.toolApprovalOverrides) &&
     !requestApproval("READ LOGS POD", { name, namespace, container: selectedContainer, previous })
   ) {
     return "The user denied the action";

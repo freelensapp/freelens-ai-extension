@@ -47,8 +47,8 @@ export const useAiAnalysisService = (): AiAnalysisService => {
       throw new Error("No message provided for analysis.");
     }
 
-    // Same readiness check as the chat input, so a key provided only through the
-    // OPENAI_API_KEY environment variable works here too.
+    // AI Explain still runs on the old OpenAI model list until it moves to pi;
+    // the key is checked in main, so OPENAI_API_KEY alone works here too.
     const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
     if (!isAgentConfigured(buildAgentReadinessInput(preferencesStore))) {
       throw new Error("The agent is not configured. Use the settings to add a model and register the API key.");

@@ -2,15 +2,24 @@ import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
 import { type CustomModel, DEFAULT_MODELS, DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
 import { resolveSelectedModel } from "../../renderer/business/provider/model-list";
+import { DEFAULT_CHAT_RETENTION_DAYS } from "../agent-protocol";
+import { loadApprovalOverrides, type ToolApprovalOverrides } from "../agent-tools/approval-settings";
+import { DEFAULT_THINKING_LEVEL, loadThinkingLevel, type ThinkingLevel } from "../thinking-level";
 
 import type { MessageObject } from "../../renderer/business/objects/message-object";
 
 const DEFAULT_SELECTED_MODEL = DEFAULT_MODELS[0]?.name ?? "";
 
+/** A whole number of days, 0 or more; anything else falls back to the default. */
+export const parseRetentionDays = (value: unknown): number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : DEFAULT_CHAT_RETENTION_DAYS;
+
 export interface PreferencesModel {
   openAIKey: string;
   openAIBaseUrl: string;
+  /** Read once to import into `thinkingLevel`; no longer used. */
   openAIReasoningEffort: string;
+  /** Read once to import into `thinkingLevel`; no longer used. */
   disableThinking: boolean;
   aiProxyPort: number | null;
   aiProxyToken: string | null;
@@ -18,9 +27,16 @@ export interface PreferencesModel {
   models: CustomModel[];
   mcpEnabled: boolean;
   mcpConfiguration: string;
-  podLogsRequireApproval: boolean;
+  /** Read once to import the old pod logs setting into `toolApprovalOverrides`; no longer written. */
+  podLogsRequireApproval?: boolean;
+  /** Absent until the old pod logs setting has been imported. */
+  toolApprovalOverrides?: ToolApprovalOverrides;
   podLogsTailLines: number;
   customAgentRules: string;
+  agentModel: string;
+  chatRetentionDays: number;
+  /** Absent until the old reasoning-effort settings have been imported. */
+  thinkingLevel?: ThinkingLevel;
 }
 
 export const DEFAULT_POD_LOGS_TAIL_LINES = 1000;
@@ -40,13 +56,21 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   models: CustomModel[] = [...DEFAULT_MODELS];
   mcpEnabled: boolean = false;
   mcpConfiguration: string = "";
-  // When enabled, reading pod logs goes through the human-in-the-loop approval
-  // gate (logs can contain secrets/PII). Enabled by default.
-  podLogsRequireApproval: boolean = true;
+  // The user's "Requires approval" choices, only for tools that differ from
+  // their default. Main reads it before every tool call.
+  toolApprovalOverrides: ToolApprovalOverrides = {};
   // Default number of tail lines fetched when reading pod logs.
   podLogsTailLines: number = DEFAULT_POD_LOGS_TAIL_LINES;
   // User-provided extra agent rules appended to every agent's system message.
   customAgentRules: string = "";
+  // The pi model the chat runs on, as "provider/id". Empty until one is chosen
+  // or imported from the old OpenAI settings.
+  agentModel: string = "";
+  // Main deletes chats not changed for longer than this many days; 0 keeps them.
+  chatRetentionDays: number = DEFAULT_CHAT_RETENTION_DAYS;
+  // The global thinking level; main reads it before every prompt and pi clamps
+  // it to the model. AI Explain maps it to its reasoning effort.
+  thinkingLevel: ThinkingLevel = DEFAULT_THINKING_LEVEL;
 
   // Not persistent
   explainEvent: MessageObject = {} as MessageObject;
@@ -66,9 +90,14 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         selectedModel: DEFAULT_SELECTED_MODEL,
         models: [...DEFAULT_MODELS],
         mcpEnabled: false,
-        podLogsRequireApproval: true,
+        // No `toolApprovalOverrides` default: a missing field means the old
+        // pod logs setting has not been imported yet.
         podLogsTailLines: DEFAULT_POD_LOGS_TAIL_LINES,
         customAgentRules: "",
+        agentModel: "",
+        chatRetentionDays: DEFAULT_CHAT_RETENTION_DAYS,
+        // No `thinkingLevel` default: a missing field means the old reasoning
+        // settings have not been imported yet.
         mcpConfiguration: JSON.stringify(
           {
             mcpServers: {
@@ -99,9 +128,12 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       models: observable,
       mcpEnabled: observable,
       mcpConfiguration: observable,
-      podLogsRequireApproval: observable,
+      toolApprovalOverrides: observable.ref,
       podLogsTailLines: observable,
       customAgentRules: observable,
+      agentModel: observable,
+      chatRetentionDays: observable,
+      thinkingLevel: observable,
       explainEvent: observable,
       bypassApprovals: observable,
     });
@@ -124,12 +156,15 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this.selectedModel = resolveSelectedModel(this.models, preferencesModel.selectedModel);
     this.mcpEnabled = preferencesModel.mcpEnabled;
     this.mcpConfiguration = preferencesModel.mcpConfiguration;
-    this.podLogsRequireApproval = preferencesModel.podLogsRequireApproval ?? true;
+    this.toolApprovalOverrides = loadApprovalOverrides(preferencesModel);
     this.podLogsTailLines =
       typeof preferencesModel.podLogsTailLines === "number" && preferencesModel.podLogsTailLines > 0
         ? preferencesModel.podLogsTailLines
         : DEFAULT_POD_LOGS_TAIL_LINES;
     this.customAgentRules = preferencesModel.customAgentRules ?? "";
+    this.agentModel = preferencesModel.agentModel ?? "";
+    this.chatRetentionDays = parseRetentionDays(preferencesModel.chatRetentionDays);
+    this.thinkingLevel = loadThinkingLevel(preferencesModel);
   }
 
   toJSON(): PreferencesModel {
@@ -149,9 +184,12 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       models: toJS(this.models),
       mcpEnabled: this.mcpEnabled,
       mcpConfiguration: this.mcpConfiguration,
-      podLogsRequireApproval: this.podLogsRequireApproval,
+      toolApprovalOverrides: this.toolApprovalOverrides,
       podLogsTailLines: this.podLogsTailLines,
       customAgentRules: this.customAgentRules,
+      agentModel: this.agentModel,
+      chatRetentionDays: this.chatRetentionDays,
+      thinkingLevel: this.thinkingLevel,
     };
   }
 }

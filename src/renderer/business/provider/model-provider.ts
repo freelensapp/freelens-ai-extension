@@ -4,7 +4,7 @@ import { DsmlAwareChatOpenAI } from "./dsml-aware-chat-model";
 import { emitsDsmlToolCalls } from "./model-capabilities";
 import { findProvider } from "./model-list";
 import { OfflineTokenChatOpenAI } from "./offline-token-chat-model";
-import { buildOpenAIChatFields } from "./openai-fields";
+import { buildOpenAIChatFields, explainReasoningOptions } from "./openai-fields";
 
 // Re-exported for callers that imported it from here previously; the canonical
 // definition now lives next to the field builder.
@@ -49,8 +49,7 @@ export const useModelProvider = () => {
           upstreamBaseUrl: openAIBaseUrl,
           proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
           proxyToken: preferencesStore.aiProxyToken,
-          reasoningEffort: preferencesStore.openAIReasoningEffort,
-          disableThinking: preferencesStore.disableThinking,
+          ...explainReasoningOptions(preferencesStore.thinkingLevel),
         });
 
         // DeepSeek models leak their native "DSML" tool-call markup into the
