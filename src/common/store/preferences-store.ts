@@ -21,6 +21,7 @@ export interface PreferencesModel {
   podLogsRequireApproval: boolean;
   podLogsTailLines: number;
   customAgentRules: string;
+  agentModel: string;
 }
 
 export const DEFAULT_POD_LOGS_TAIL_LINES = 1000;
@@ -47,6 +48,9 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   podLogsTailLines: number = DEFAULT_POD_LOGS_TAIL_LINES;
   // User-provided extra agent rules appended to every agent's system message.
   customAgentRules: string = "";
+  // The pi model the chat runs on, as "provider/id". Empty until one is chosen
+  // or imported from the old OpenAI settings.
+  agentModel: string = "";
 
   // Not persistent
   explainEvent: MessageObject = {} as MessageObject;
@@ -69,6 +73,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         podLogsRequireApproval: true,
         podLogsTailLines: DEFAULT_POD_LOGS_TAIL_LINES,
         customAgentRules: "",
+        agentModel: "",
         mcpConfiguration: JSON.stringify(
           {
             mcpServers: {
@@ -102,6 +107,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       podLogsRequireApproval: observable,
       podLogsTailLines: observable,
       customAgentRules: observable,
+      agentModel: observable,
       explainEvent: observable,
       bypassApprovals: observable,
     });
@@ -130,6 +136,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         ? preferencesModel.podLogsTailLines
         : DEFAULT_POD_LOGS_TAIL_LINES;
     this.customAgentRules = preferencesModel.customAgentRules ?? "";
+    this.agentModel = preferencesModel.agentModel ?? "";
   }
 
   toJSON(): PreferencesModel {
@@ -152,6 +159,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       podLogsRequireApproval: this.podLogsRequireApproval,
       podLogsTailLines: this.podLogsTailLines,
       customAgentRules: this.customAgentRules,
+      agentModel: this.agentModel,
     };
   }
 }

@@ -13,6 +13,8 @@ import useLog from "../../common/utils/logger/logger-service";
 import { generateUuid } from "../../common/utils/uuid";
 import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
 import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
+import { onAgentEnvelope } from "../business/agent-client/agent-client";
+import { isRunEnd } from "../business/agent-client/chat-reducer";
 import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
@@ -33,6 +35,8 @@ import type { MessageObject } from "../business/objects/message-object";
 export type CompactionStatus = "compacting" | "compacted" | null;
 
 export interface AppContextType {
+  // The cluster of this frame; the chat and its pi agent session are bound to it.
+  clusterId: string;
   apiKey: string;
   selectedModel: string;
   mcpEnabled: boolean;
@@ -135,6 +139,20 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     _setLastInputTokens(chatSessionStore.getLastInputTokens(clusterId));
     _initFreeLensAgent();
   }, []);
+
+  // The pi agent in main streams this cluster's run as envelopes, which the
+  // agent client folds into the saved transcript: show it, and stop the spinner
+  // when the run settles.
+  useEffect(
+    () =>
+      onAgentEnvelope((envelope, messages) => {
+        _setChatMessages(messages);
+        if (isRunEnd(clusterId, envelope)) {
+          setLoading(false);
+        }
+      }),
+    [],
+  );
 
   // Fetch model pricing on start and whenever the model list, endpoint, or proxy
   // changes. Best-effort: failures leave the map empty and the cost is hidden.
@@ -483,6 +501,9 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
 
   const setSelectedModel = (selectedModel: string) => {
     preferencesStore.selectedModel = selectedModel;
+    // The chat picker still lists the old OpenAI models; the pi agent reads its
+    // model from `agentModel` until the picker lists pi's models.
+    preferencesStore.agentModel = `openai/${selectedModel}`;
   };
 
   // The API key to use depends on the selected model's provider. Only OpenAI is
@@ -528,6 +549,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   return (
     <AppContext.Provider
       value={{
+        clusterId,
         apiKey: getApiKeyForSelectedModel(),
         selectedModel: preferencesStore.selectedModel,
         mcpEnabled: preferencesStore.mcpEnabled,

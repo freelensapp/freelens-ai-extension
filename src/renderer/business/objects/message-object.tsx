@@ -32,5 +32,7 @@ export interface MessageObject {
   // `retryContext` carries everything needed to re-run the failed query.
   error?: boolean;
   retryContext?: RetryContext;
+  // Set while the pi agent is still streaming this message.
+  streaming?: boolean;
   sent: boolean;
 }
