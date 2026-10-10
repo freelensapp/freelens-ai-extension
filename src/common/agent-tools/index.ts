@@ -1,7 +1,16 @@
 import { getClusterVersionTool } from "./cluster-version";
 import { getKubernetesResourceTool, listKubernetesResourcesTool } from "./kubernetes-resources";
 import { getNamespacesTool } from "./namespaces";
+import { getPodLogsTool } from "./pod-logs-tool";
 import { getWarningEventsByNamespaceTool } from "./warning-events";
+import {
+  createKubernetesResourceTool,
+  deleteKubernetesResourceTool,
+  deletePodTool,
+  patchKubernetesResourceTool,
+  restartKubernetesResourceTool,
+  updateKubernetesResourceTool,
+} from "./write-tools";
 
 import type { TSchema } from "typebox";
 
@@ -26,12 +35,26 @@ export const AGENT_TOOLS: readonly AgentToolDefinition[] = [
   getWarningEventsByNamespaceTool,
   listKubernetesResourcesTool,
   getKubernetesResourceTool,
+  getPodLogsTool,
+  createKubernetesResourceTool,
+  updateKubernetesResourceTool,
+  patchKubernetesResourceTool,
+  deleteKubernetesResourceTool,
+  deletePodTool,
+  restartKubernetesResourceTool,
 ];
 
 export {
+  createKubernetesResourceTool,
+  deleteKubernetesResourceTool,
+  deletePodTool,
   getClusterVersionTool,
   getKubernetesResourceTool,
   getNamespacesTool,
+  getPodLogsTool,
   getWarningEventsByNamespaceTool,
   listKubernetesResourcesTool,
+  patchKubernetesResourceTool,
+  restartKubernetesResourceTool,
+  updateKubernetesResourceTool,
 };

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { AGENT_TOOLS } from "../../../common/agent-tools";
-import { type ClusterReader, type ClusterResource, createClusterTools, type ResourceApi } from "./cluster-tools";
+import { type Cluster, type ClusterResource, createClusterTools, type ResourceApi } from "./cluster-tools";
 import { runToolRequest } from "./tool-runner";
 
 const pod = (name: string, namespace: string, phase: string): ClusterResource => ({
@@ -21,20 +21,45 @@ const gateway: ClusterResource = {
 
 const node: ClusterResource = { name: "node-1", metadata: { name: "node-1" }, spec: {}, status: {} };
 
-const namespacedApi = (items: ClusterResource[]): ResourceApi => ({
+// Every change a tool makes to the fake cluster, in order.
+let writes: unknown[][] = [];
+beforeEach(() => {
+  writes = [];
+});
+
+const recordingWrites = (kind: string) => ({
+  create: async (...args: unknown[]) => void writes.push(["create", kind, ...args]),
+  update: async (...args: unknown[]) => void writes.push(["update", kind, ...args]),
+  patch: async (...args: unknown[]) => void writes.push(["patch", kind, ...args]),
+  remove: async (...args: unknown[]) => void writes.push(["remove", kind, ...args]),
+});
+
+const namespacedApi = (kind: string, items: ClusterResource[]): ResourceApi => ({
   namespaced: true,
   list: async (namespace) => items.filter((item) => !namespace || item.namespace === namespace),
   get: async (name, namespace) => items.find((item) => item.name === name && item.namespace === namespace),
+  ...recordingWrites(kind),
 });
 
-function fakeCluster(overrides: Partial<ClusterReader> = {}): ClusterReader {
+const twoContainerPod: ClusterResource = {
+  name: "api-1",
+  namespace: "shop",
+  metadata: { name: "api-1", namespace: "shop" },
+  spec: { containers: [{ name: "app" }, { name: "sidecar" }] },
+};
+
+function fakeCluster(overrides: Partial<Cluster> = {}): Cluster {
   const apis: Record<string, ResourceApi> = {
-    "Pod v1": namespacedApi([pod("web-1", "shop", "Running"), pod("db-0", "data", "Pending")]),
-    "Gateway gateway.networking.k8s.io/v1": namespacedApi([gateway]),
+    "Pod v1": namespacedApi("Pod", [pod("web-1", "shop", "Running"), pod("db-0", "data", "Pending")]),
+    "Deployment apps/v1": namespacedApi("Deployment", [
+      { name: "web", namespace: "shop", metadata: { name: "web", namespace: "shop" } },
+    ]),
+    "Gateway gateway.networking.k8s.io/v1": namespacedApi("Gateway", [gateway]),
     "Node v1": {
       namespaced: false,
       list: async (namespace) => (namespace ? [] : [node]),
       get: async (name, namespace) => (name === "node-1" && !namespace ? node : undefined),
+      ...recordingWrites("Node"),
     },
   };
   return {
@@ -56,6 +81,11 @@ function fakeCluster(overrides: Partial<ClusterReader> = {}): ClusterReader {
         : [],
     getResourceApi: (kind, apiVersion) =>
       apis[`${kind} ${apiVersion}`] ?? `No API serves kind "${kind}" at "${apiVersion}".`,
+    deletePod: async (...args) => void writes.push(["deletePod", ...args]),
+    restartWorkload: async (...args) => void writes.push(["restart", ...args]),
+    getPodLogs: async (name, _namespace, query) =>
+      `${name}/${query.container} tail=${query.tailLines}\nINFO started\nERROR failed to connect\n`,
+    podLogsTailLines: () => 500,
     ...overrides,
   };
 }
@@ -231,6 +261,7 @@ describe("cluster tools", () => {
           throw new Error("the server is currently unable to handle the request");
         },
         get: async () => undefined,
+        ...recordingWrites("Pod"),
       }),
     });
 
@@ -248,5 +279,154 @@ describe("cluster tools", () => {
     );
 
     expect(reply).toEqual({ text: "Cluster not connected", isError: true });
+    expect(writes).toEqual([]);
+  });
+
+  describe("write tools", () => {
+    it("createKubernetesResource applies the approved manifest", async () => {
+      const data = { apiVersion: "apps/v1", kind: "Deployment", metadata: { name: "api", namespace: "shop" } };
+      const reply = await call("createKubernetesResource", {
+        kind: "Deployment",
+        name: "api",
+        namespace: "shop",
+        data,
+      });
+
+      expect(reply).toEqual({ text: 'Deployment "api" created successfully', isError: false });
+      expect(writes).toEqual([["create", "Deployment", "api", "shop", data]]);
+    });
+
+    it("patchKubernetesResource patches the scale subresource of an existing workload", async () => {
+      const data = { spec: { replicas: 3 } };
+      const reply = await call("patchKubernetesResource", {
+        kind: "Deployment",
+        name: "web",
+        namespace: "shop",
+        data,
+        subresource: "scale",
+      });
+
+      expect(reply).toEqual({ text: 'Deployment "web" scale subresource patched successfully', isError: false });
+      expect(writes).toEqual([["patch", "Deployment", "web", "shop", data, "scale"]]);
+    });
+
+    it("updateKubernetesResource does not write a resource that does not exist", async () => {
+      const reply = await call("updateKubernetesResource", {
+        kind: "Deployment",
+        name: "gone",
+        namespace: "shop",
+        data: {},
+      });
+
+      expect(reply.text).toBe('The Deployment "gone" you want to update does not exist');
+      expect(writes).toEqual([]);
+    });
+
+    it("deleteKubernetesResource asks for a namespace for namespaced kinds", async () => {
+      const reply = await call("deleteKubernetesResource", { kind: "Deployment", name: "web" });
+
+      expect(reply.text).toBe('Kind "Deployment" is namespaced; please provide a namespace to delete "web".');
+      expect(writes).toEqual([]);
+    });
+
+    it("deleteKubernetesResource uses a normal delete unless a mode is given", async () => {
+      expect(
+        (await call("deleteKubernetesResource", { kind: "Deployment", name: "web", namespace: "shop" })).text,
+      ).toBe('Deployment "web" deleted successfully');
+      expect(
+        (
+          await call("deleteKubernetesResource", {
+            kind: "Deployment",
+            name: "web",
+            namespace: "shop",
+            mode: "force_finalize",
+          })
+        ).text,
+      ).toBe('Deployment "web" finalizers cleared successfully');
+      expect(writes).toEqual([
+        ["remove", "Deployment", "web", "shop", "delete"],
+        ["remove", "Deployment", "web", "shop", "force_finalize"],
+      ]);
+    });
+
+    it("deletePod evicts through the pod API", async () => {
+      const reply = await call("deletePod", { name: "web-1", namespace: "shop", mode: "evict" });
+
+      expect(reply).toEqual({ text: 'Pod "web-1" evicted successfully', isError: false });
+      expect(writes).toEqual([["deletePod", "web-1", "shop", "evict"]]);
+    });
+
+    it("restartKubernetesResource rolls a workload and rejects other kinds by schema", async () => {
+      expect(
+        (await call("restartKubernetesResource", { kind: "Deployment", name: "web", namespace: "shop" })).text,
+      ).toBe('Deployment "web" restarted successfully');
+      const rejected = await call("restartKubernetesResource", { kind: "Job", name: "x", namespace: "shop" });
+
+      expect(rejected.isError).toBe(true);
+      expect(rejected.text).toMatch(/^Invalid arguments for restartKubernetesResource/);
+      expect(writes).toEqual([["restart", "Deployment", "web", "shop"]]);
+    });
+
+    it("reports a failed write as an error", async () => {
+      const cluster = fakeCluster({
+        deletePod: async () => {
+          throw {
+            reason: "TooManyRequests",
+            message: "Cannot evict pod as it would violate the pod's disruption budget.",
+          };
+        },
+      });
+
+      const reply = await call("deletePod", { name: "web-1", namespace: "shop", mode: "evict" }, cluster);
+
+      expect(reply.isError).toBe(true);
+      expect(reply.text).toMatch(/^deletePod failed: .*disruption budget/);
+    });
+  });
+
+  describe("getPodLogs", () => {
+    it("reads a single-container pod's logs with the preference's tail length", async () => {
+      const reply = await call("getPodLogs", { name: "web-1", namespace: "shop" });
+
+      expect(reply).toEqual({
+        text: "web-1/app tail=500\nINFO started\nERROR failed to connect\n",
+        isError: false,
+      });
+    });
+
+    it("lists the containers of a multi-container pod when none is chosen", async () => {
+      const cluster = fakeCluster({ getResourceApi: () => namespacedApi("Pod", [twoContainerPod]) });
+      const reply = await call("getPodLogs", { name: "api-1", namespace: "shop" }, cluster);
+
+      expect(reply.isError).toBe(false);
+      expect(reply.text).toContain("app");
+      expect(reply.text).toContain("sidecar");
+      expect(reply.text).not.toContain("tail=");
+    });
+
+    it("keeps only the lines matching the filter", async () => {
+      const reply = await call("getPodLogs", { name: "web-1", namespace: "shop", filter: "ERROR" });
+
+      expect(reply.text).toBe("ERROR failed to connect\n");
+    });
+
+    it("reports a pod that does not exist", async () => {
+      const reply = await call("getPodLogs", { name: "gone", namespace: "shop" });
+
+      expect(reply.text).toBe('The Pod "gone" was not found in namespace "shop".');
+    });
+
+    it("treats a missing previous container as no previous logs, not as an error", async () => {
+      const cluster = fakeCluster({
+        getPodLogs: async () => {
+          throw new Error('previous terminated container "app" in pod "web-1" not found');
+        },
+      });
+
+      const reply = await call("getPodLogs", { name: "web-1", namespace: "shop", previous: true }, cluster);
+
+      expect(reply.isError).toBe(false);
+      expect(reply.text).toMatch(/previous/i);
+    });
   });
 });

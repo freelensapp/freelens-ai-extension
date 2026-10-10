@@ -1,5 +1,11 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
+import {
+  DELETE_MODES,
+  POD_DELETE_MODES,
+  RESTARTABLE_KINDS,
+  SUPPORTED_KINDS,
+} from "../../../../common/agent-tools/resource-handlers";
 import { getWarningEventsByNamespace as getWarningEventsByNamespaceFromCluster } from "../../agent-client/cluster-tools";
 import { freelensCluster } from "../../agent-client/freelens-cluster";
 import {
@@ -14,7 +20,6 @@ import {
   restartKubernetesResource as restartKubernetesResourceImpl,
   updateKubernetesResource as updateKubernetesResourceImpl,
 } from "./kubernetes-resource";
-import { DELETE_MODES, POD_DELETE_MODES, RESTARTABLE_KINDS, SUPPORTED_KINDS } from "./resource-handlers";
 
 const supportedKindsHint = `Built-in kinds with extra validation: ${SUPPORTED_KINDS.join(", ")}. Any other kind (including CRDs) is also accepted and passed through as a free manifest; for those provide the apiVersion explicitly.`;
 

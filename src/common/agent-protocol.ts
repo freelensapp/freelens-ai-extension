@@ -17,6 +17,34 @@ export interface ToolRequest {
   args: Record<string, unknown>;
 }
 
+/** What an approval is about; the frame uses it to load the current resource as a backup. */
+export interface ApprovalTarget {
+  tool: string;
+  kind?: string;
+  apiVersion?: string;
+  name?: string;
+  namespace?: string;
+}
+
+/**
+ * Main asks the user to approve a tool call: pi's `confirm` UI request, with
+ * the action as YAML in `message` and the target the frame needs for the card.
+ */
+export interface ApprovalRequest {
+  id: string;
+  toolCallId: string;
+  method: "confirm";
+  title: string;
+  message: string;
+  approval: ApprovalTarget;
+}
+
+/** An approval was answered, or denied by Stop. */
+export interface ApprovalResolution {
+  id: string;
+  confirmed: boolean;
+}
+
 interface EnvelopeBase {
   clusterId: string;
   sessionId: string;
@@ -26,7 +54,9 @@ interface EnvelopeBase {
 
 export type AgentEnvelope =
   | (EnvelopeBase & { kind: "event"; payload: JsonAgentSessionEvent })
-  | (EnvelopeBase & { kind: "tool_request"; payload: ToolRequest });
+  | (EnvelopeBase & { kind: "tool_request"; payload: ToolRequest })
+  | (EnvelopeBase & { kind: "ui_request"; payload: ApprovalRequest })
+  | (EnvelopeBase & { kind: "ui_resolved"; payload: ApprovalResolution });
 
 /** A message of the chat transcript as main sends it in a snapshot. */
 export type ChatMessage = UserMessage | AssistantMessage;
@@ -44,8 +74,8 @@ export interface AgentSnapshot {
   isStreaming: boolean;
   /** Tool calls main is still waiting on; a remounted frame answers them. */
   pendingToolRequests: ToolRequest[];
-  /** Filled by the approval gate (ticket 05). */
-  pendingUiRequest?: unknown;
+  /** The approval main is waiting on; the card comes back on remount. */
+  pendingUiRequest?: ApprovalRequest;
   /** Filled by "Approve all in this chat" (ticket 07). */
   autoApprove: boolean;
   /** The last envelope main sent for this cluster. */
@@ -56,7 +86,8 @@ export type AgentCommand =
   | { type: "prompt"; message: string }
   | { type: "abort" }
   | { type: "get_snapshot" }
-  | { type: "tool_result"; requestId: string; text: string; isError?: boolean };
+  | { type: "tool_result"; requestId: string; text: string; isError?: boolean }
+  | { type: "ui_response"; id: string; confirmed: boolean };
 
 export type AgentResponse =
   | { type: "response"; command: string; success: true; data?: unknown }

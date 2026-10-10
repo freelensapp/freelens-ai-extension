@@ -1,15 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
 import { interrupt } from "@langchain/langgraph";
 import { stringify as stringifyYaml } from "yaml";
-import { PreferencesStore } from "../../../../common/store";
-import {
-  type GetResourceInput,
-  getClusterVersion as getClusterVersionFromCluster,
-  getKubernetesResource as getKubernetesResourceFromCluster,
-  type ListResourceInput,
-  listKubernetesResources as listKubernetesResourcesFromCluster,
-} from "../../agent-client/cluster-tools";
-import { freelensCluster } from "../../agent-client/freelens-cluster";
 import {
   capLogOutput,
   capTailLines,
@@ -21,7 +12,7 @@ import {
   isPreviousContainerNotFoundError,
   noMatchingLogsMessage,
   resolveContainer,
-} from "./pod-logs";
+} from "../../../../common/agent-tools/pod-logs";
 import {
   DEFAULT_DELETE_MODE,
   type DeleteMode,
@@ -33,7 +24,16 @@ import {
   RESTARTABLE_KINDS,
   resolveApiVersion,
   validateManifest,
-} from "./resource-handlers";
+} from "../../../../common/agent-tools/resource-handlers";
+import { PreferencesStore } from "../../../../common/store";
+import {
+  type GetResourceInput,
+  getClusterVersion as getClusterVersionFromCluster,
+  getKubernetesResource as getKubernetesResourceFromCluster,
+  type ListResourceInput,
+  listKubernetesResources as listKubernetesResourcesFromCluster,
+} from "../../agent-client/cluster-tools";
+import { freelensCluster } from "../../agent-client/freelens-cluster";
 
 type KubeApi = Renderer.K8sApi.KubeApi;
 type KubeObject = Renderer.K8sApi.KubeObject;

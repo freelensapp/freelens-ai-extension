@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getClusterVersionTool } from "../../common/agent-tools";
+import {
+  createKubernetesResourceTool,
+  getClusterVersionTool,
+  getPodLogsTool,
+  patchKubernetesResourceTool,
+} from "../../common/agent-tools";
 import { AgentHost, type AgentHostOptions } from "./agent-host";
 
 import type { AgentEnvelope, AgentSnapshot } from "../../common/agent-protocol";
@@ -329,5 +334,170 @@ describe("AgentHost", () => {
     expect(seenTools).toEqual(["getClusterVersion"]);
     expect(seenPrompt).toContain("You are the Freelens AI test assistant.");
     expect(seenPrompt).not.toMatch(/\bbash\b/i);
+  });
+
+  describe("approval gate", () => {
+    const gatedTools = [
+      getClusterVersionTool,
+      getPodLogsTool,
+      createKubernetesResourceTool,
+      patchKubernetesResourceTool,
+    ];
+
+    // The model calls `toolName` once, then answers with the text of the tool result it got.
+    const callThenEcho = (toolName: string, args: Parameters<typeof fauxToolCall>[1]) => [
+      fauxAssistantMessage([fauxToolCall(toolName, args)], { stopReason: "toolUse" }),
+      (context: { messages: Array<{ role: string; content?: unknown }> }) => {
+        const last = context.messages[context.messages.length - 1];
+        const parts = last?.role === "toolResult" ? (last.content as Array<{ type: string; text?: string }>) : [];
+        return fauxAssistantMessage([fauxText(`Result: ${parts.map((part) => part.text ?? "").join("")}`)]);
+      },
+    ];
+    const scaleWeb = { kind: "Deployment", name: "web", namespace: "default", data: { spec: { replicas: 3 } } };
+
+    const uiRequests = () => envelopes.flatMap((e) => (e.kind === "ui_request" ? [e.payload] : []));
+    const uiResolved = () => envelopes.flatMap((e) => (e.kind === "ui_resolved" ? [e.payload] : []));
+    const toolRequests = () => envelopes.flatMap((e) => (e.kind === "tool_request" ? [e.payload] : []));
+    const answerText = () =>
+      envelopes
+        .flatMap((e) => (e.kind === "event" && e.payload.type === "message_update" ? [e.payload] : []))
+        .map((p) => (p.assistantMessageEvent.type === "text_delta" ? p.assistantMessageEvent.delta : ""))
+        .join("");
+
+    it("asks before a mutating call and runs it in the frame once approved", async () => {
+      faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
+      const host = createHost({ tools: gatedTools, toolTimeoutMs: 60_000 });
+
+      await host.handleCommand("c1", { type: "prompt", message: "scale web to 3" });
+      await waitFor(() => uiRequests().length > 0);
+
+      const request = uiRequests()[0]!;
+      expect(request).toMatchObject({
+        method: "confirm",
+        title: "PATCH DEPLOYMENT",
+        approval: {
+          tool: "patchKubernetesResource",
+          kind: "Deployment",
+          apiVersion: "apps/v1",
+          name: "web",
+          namespace: "default",
+        },
+      });
+      expect(request.message).toContain("replicas: 3");
+      expect(toolRequests()).toEqual([]);
+      expect((await snapshotOf(host)).pendingUiRequest).toEqual(request);
+
+      const response = await host.handleCommand("c1", { type: "ui_response", id: request.id, confirmed: true });
+      expect(response).toMatchObject({ success: true });
+      await waitFor(() => toolRequests().length > 0);
+      expect(uiResolved()).toEqual([{ id: request.id, confirmed: true }]);
+      expect(toolRequests()[0]).toMatchObject({ toolName: "patchKubernetesResource", args: scaleWeb });
+      expect((await snapshotOf(host)).pendingUiRequest).toBeUndefined();
+
+      await host.handleCommand("c1", { type: "tool_result", requestId: toolRequests()[0]!.requestId, text: "patched" });
+      await waitFor(settled);
+      expect(answerText()).toBe("Result: patched");
+    });
+
+    it("blocks a denied call without sending it to the frame", async () => {
+      faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
+      const host = createHost({ tools: gatedTools });
+
+      await host.handleCommand("c1", { type: "prompt", message: "scale web to 3" });
+      await waitFor(() => uiRequests().length > 0);
+      await host.handleCommand("c1", { type: "ui_response", id: uiRequests()[0]!.id, confirmed: false });
+      await waitFor(settled);
+
+      expect(toolRequests()).toEqual([]);
+      expect(uiResolved()).toEqual([{ id: uiRequests()[0]!.id, confirmed: false }]);
+      expect(answerText()).toBe("Result: The user denied the action");
+    });
+
+    it("rejects an invalid manifest with its validation error and never asks", async () => {
+      faux.setResponses(callThenEcho("createKubernetesResource", { kind: "Pod", data: { metadata: { name: "p" } } }));
+      const host = createHost({ tools: gatedTools });
+
+      await host.handleCommand("c1", { type: "prompt", message: "create a pod" });
+      await waitFor(settled);
+
+      expect(uiRequests()).toEqual([]);
+      expect(toolRequests()).toEqual([]);
+      expect(answerText()).toMatch(/^Result: The Pod manifest is invalid: /);
+    });
+
+    it("sends the prepared manifest the user approved to the frame", async () => {
+      const service = {
+        kind: "Service",
+        data: {
+          apiVersion: "v9",
+          kind: "Wrong",
+          metadata: { name: "svc", namespace: "shop" },
+          spec: { ports: [{ port: 80, targetPort: 8080 }] },
+        },
+      };
+      faux.setResponses(callThenEcho("createKubernetesResource", service));
+      const host = createHost({ tools: gatedTools, toolTimeoutMs: 60_000 });
+
+      await host.handleCommand("c1", { type: "prompt", message: "create a service" });
+      await waitFor(() => uiRequests().length > 0);
+      const request = uiRequests()[0]!;
+      expect(request).toMatchObject({
+        title: "CREATE SERVICE",
+        approval: { kind: "Service", apiVersion: "v1", name: "svc", namespace: "shop" },
+      });
+      await host.handleCommand("c1", { type: "ui_response", id: request.id, confirmed: true });
+      await waitFor(() => toolRequests().length > 0);
+
+      expect(toolRequests()[0]!.args).toEqual({
+        kind: "Service",
+        name: "svc",
+        namespace: "shop",
+        data: {
+          apiVersion: "v1",
+          kind: "Service",
+          metadata: { name: "svc", namespace: "shop" },
+          spec: { ports: [{ port: 80, targetPort: 8080, protocol: "TCP" }] },
+        },
+      });
+      expect(request.message).toContain("protocol: TCP");
+    });
+
+    it("denies a pending approval on Stop and ends the run", async () => {
+      faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
+      const host = createHost({ tools: gatedTools });
+
+      await host.handleCommand("c1", { type: "prompt", message: "scale web to 3" });
+      await waitFor(() => uiRequests().length > 0);
+
+      expect(await host.handleCommand("c1", { type: "abort" })).toMatchObject({ success: true });
+      await waitFor(settled);
+
+      expect(uiResolved()).toEqual([{ id: uiRequests()[0]!.id, confirmed: false }]);
+      expect(toolRequests()).toEqual([]);
+      const snapshot = await snapshotOf(host);
+      expect(snapshot.isStreaming).toBe(false);
+      expect(snapshot.pendingUiRequest).toBeUndefined();
+    });
+
+    it("asks for pod logs only while the approval setting says so", async () => {
+      faux.setResponses(callThenEcho("getPodLogs", { name: "web-1", namespace: "default" }));
+      const host = createHost({
+        tools: gatedTools,
+        toolTimeoutMs: 60_000,
+        requiresApproval: (tool) => tool.name !== "getPodLogs" && tool.requiresApprovalByDefault,
+      });
+
+      await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
+      await waitFor(() => toolRequests().length > 0);
+
+      expect(uiRequests()).toEqual([]);
+      expect(toolRequests()[0]).toMatchObject({ toolName: "getPodLogs" });
+    });
+
+    it("rejects a ui_response for an unknown request", async () => {
+      const host = createHost();
+      const response = await host.handleCommand("c1", { type: "ui_response", id: "nope", confirmed: true });
+      expect(response).toMatchObject({ success: false });
+    });
   });
 });

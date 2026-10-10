@@ -1,4 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
+import { stringify as stringifyYaml } from "yaml";
 import {
   AGENT_COMMAND_CHANNEL,
   AGENT_ENVELOPE_CHANNEL,
@@ -6,12 +7,14 @@ import {
   type AgentEnvelope,
   type AgentResponse,
   type AgentSnapshot,
+  type ApprovalTarget,
   type ToolRequest,
 } from "../../../common/agent-protocol";
+import { AGENT_TOOLS, createKubernetesResourceTool } from "../../../common/agent-tools";
 import { ChatSessionStore } from "../../../common/store";
 import { IS_LOADING_KEY } from "../../context/chat-session-storage";
 import { getFrameClusterId } from "../cluster/active-cluster";
-import { type ChatViewState, chatFromSnapshot, reduceEnvelope } from "./chat-reducer";
+import { type ChatViewState, chatFromSnapshot, reduceEnvelope, withApprovalBackup } from "./chat-reducer";
 import { createClusterTools } from "./cluster-tools";
 import { freelensCluster } from "./freelens-cluster";
 import { runToolRequest } from "./tool-runner";
@@ -36,6 +39,8 @@ let buffered: AgentEnvelope[] | undefined;
 // got the result does not run them twice.
 const MAX_HANDLED_TOOLS = 200;
 const handledTools = new Set<string>();
+// Approval cards whose resource backup was loaded or is loading.
+const backupsRequested = new Set<string>();
 
 const failure = (command: AgentCommand, error: string): AgentResponse => ({
   type: "response",
@@ -149,6 +154,47 @@ function update(next: ChatViewState): void {
   }
   for (const listener of listeners) {
     listener(next);
+  }
+  for (const message of next.messages) {
+    if (message.approvalId && message.approved === null) {
+      void loadApprovalBackup(message.approvalId, message.approvalTarget);
+    }
+  }
+}
+
+/**
+ * Answers a pending approval card. The card turns approved or denied when main
+ * broadcasts the result, so a card answered elsewhere (Stop) stays in step.
+ */
+export async function answerApproval(clusterId: string, id: string, confirmed: boolean): Promise<AgentResponse> {
+  return sendAgentCommand(clusterId, { type: "ui_response", id, confirmed });
+}
+
+// Best effort, as before the pi agent: the current YAML of the resource a
+// change would touch, shown folded on the card so the change can be undone.
+// Only this frame can reach the cluster, so it loads it, once per card.
+async function loadApprovalBackup(approvalId: string, target: ApprovalTarget | undefined): Promise<void> {
+  if (backupsRequested.has(approvalId)) return;
+  backupsRequested.add(approvalId);
+  const tool = AGENT_TOOLS.find((candidate) => candidate.name === target?.tool);
+  if (!target?.kind || !target.apiVersion || !target.name || !tool?.mutating) return;
+  if (tool.name === createKubernetesResourceTool.name) return;
+  const { kind, apiVersion, name, namespace } = target;
+  try {
+    const api = freelensCluster.getResourceApi(kind, apiVersion);
+    if (typeof api === "string") return;
+    const object = await api.get(name, api.namespaced ? namespace : undefined);
+    if (!object) return;
+    const yaml = stringifyYaml({
+      apiVersion,
+      kind,
+      metadata: object.metadata,
+      spec: object.spec,
+      status: object.status,
+    });
+    update(withApprovalBackup(getAgentChat()!, approvalId, yaml));
+  } catch (error) {
+    console.warn("[freelens-ai] Loading the resource backup for the approval failed:", error);
   }
 }
 

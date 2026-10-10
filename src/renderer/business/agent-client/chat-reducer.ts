@@ -1,7 +1,7 @@
 import { generateUuid } from "../../../common/utils/uuid";
 import { MessageType } from "../objects/message-type";
 
-import type { AgentEnvelope, AgentSnapshot, ChatMessage } from "../../../common/agent-protocol";
+import type { AgentEnvelope, AgentSnapshot, ApprovalRequest, ChatMessage } from "../../../common/agent-protocol";
 import type { MessageObject } from "../objects/message-object";
 
 /** What the chat of one cluster frame shows, rebuilt from main's snapshot and envelopes. */
@@ -111,6 +111,47 @@ const isRunningAfter = (isRunning: boolean, envelope: AgentEnvelope) => {
   return isRunning;
 };
 
+const approvalCard = (request: ApprovalRequest): MessageObject => ({
+  messageId: generateUuid(),
+  type: MessageType.INTERRUPT,
+  action: request.title,
+  question: "Do you want to approve this action?",
+  text: `\`\`\`yaml\n${request.message}\`\`\``,
+  actionDetails: request.message,
+  options: ["yes", "no"],
+  approved: null,
+  approvalId: request.id,
+  approvalTarget: request.approval,
+  sent: false,
+});
+
+const updateApproval = (messages: MessageObject[], id: string, update: Partial<MessageObject>) => {
+  const index = messages.findIndex((message) => message.approvalId === id);
+  if (index < 0) return messages;
+  return [...messages.slice(0, index), { ...messages[index]!, ...update }, ...messages.slice(index + 1)];
+};
+
+function reduceMessages(messages: MessageObject[], envelope: AgentEnvelope): MessageObject[] {
+  switch (envelope.kind) {
+    case "event":
+      return reduceEvent(messages, envelope.payload);
+    case "ui_request":
+      return messages.some((message) => message.approvalId === envelope.payload.id)
+        ? messages
+        : [...messages, approvalCard(envelope.payload)];
+    case "ui_resolved":
+      return updateApproval(messages, envelope.payload.id, { approved: envelope.payload.confirmed });
+    default:
+      return messages;
+  }
+}
+
+/** Shows the current YAML of the resource an approval would change, once the frame has loaded it. */
+export function withApprovalBackup(state: ChatViewState, approvalId: string, yaml: string): ChatViewState {
+  const messages = updateApproval(state.messages, approvalId, { resources: yaml });
+  return messages === state.messages ? state : { ...state, messages };
+}
+
 /**
  * Applies one envelope from main to the chat. Envelopes for other clusters and
  * envelopes already applied leave the state untouched. Seq 1 always applies:
@@ -121,7 +162,7 @@ export function reduceEnvelope(state: ChatViewState, envelope: AgentEnvelope): C
     return state;
   }
   const missed = envelope.seq !== 1 && envelope.seq > state.seq + 1;
-  const messages = envelope.kind === "event" ? reduceEvent(state.messages, envelope.payload) : state.messages;
+  const messages = reduceMessages(state.messages, envelope);
   return {
     ...state,
     seq: envelope.seq,
@@ -161,5 +202,6 @@ export function chatFromSnapshot(clusterId: string, snapshot: AgentSnapshot): Ch
   }
   const streaming = snapshot.streamingMessage && assistantMessage(snapshot.streamingMessage, true);
   if (streaming) messages = [...messages, streaming];
+  if (snapshot.pendingUiRequest) messages = [...messages, approvalCard(snapshot.pendingUiRequest)];
   return { clusterId, seq: snapshot.seq, messages, isRunning: snapshot.isStreaming };
 }

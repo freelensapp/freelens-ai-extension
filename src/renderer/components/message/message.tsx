@@ -37,6 +37,10 @@ export const Message = ({ message }: MessageProps) => {
             options={message.options!}
             approved={message.approved!}
             onAction={(option) => {
+              if (message.approvalId) {
+                chatService.answerApproval(message.approvalId, option === "yes");
+                return;
+              }
               if ("yes" === option) {
                 chatService.changeInterruptStatus(message.messageId, true);
               } else if ("no" === option) {

@@ -1,5 +1,9 @@
 import { Command } from "@langchain/langgraph";
-import { getAgentChat, sendAgentCommand } from "../../renderer/business/agent-client/agent-client";
+import {
+  answerApproval as answerApprovalInMain,
+  getAgentChat,
+  sendAgentCommand,
+} from "../../renderer/business/agent-client/agent-client";
 import {
   getErrorMessage,
   getExplainMessage,
@@ -181,6 +185,16 @@ const useChatService = () => {
     }
   };
 
+  // Answers a pi agent approval card. The card itself changes when main
+  // broadcasts the result; an answer main no longer waits for (the run was
+  // stopped meanwhile) is only logged.
+  const answerApproval = async (approvalId: string, confirmed: boolean) => {
+    const response = await answerApprovalInMain(applicationStatusStore.clusterId, approvalId, confirmed);
+    if (!response.success) {
+      log.error("The approval answer was not accepted: ", response.error);
+    }
+  };
+
   const changeInterruptStatus = (id: string, status: boolean) => {
     applicationStatusStore.changeInterruptStatus(id, status);
   };
@@ -283,7 +297,7 @@ const useChatService = () => {
     }
   };
 
-  return { sendMessageToAgent, resumeInterrupt, changeInterruptStatus, retry };
+  return { sendMessageToAgent, resumeInterrupt, changeInterruptStatus, answerApproval, retry };
 };
 
 export default useChatService;

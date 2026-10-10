@@ -9,7 +9,10 @@ import {
   type ModelRuntime,
   SessionManager,
   SettingsManager,
+  type ToolCallEvent,
+  type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
+import { prepareApproval } from "../../common/agent-tools/approval";
 import { toJsonEvent } from "./json-event";
 import { SYSTEM_PROMPT } from "./system-prompt";
 
@@ -20,12 +23,14 @@ import type {
   AgentEnvelope,
   AgentResponse,
   AgentSnapshot,
+  ApprovalRequest,
   ChatMessage,
   ToolRequest,
 } from "../../common/agent-protocol";
 import type { AgentToolDefinition } from "../../common/agent-tools";
 
 export const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
+export const DENIED_REASON = "The user denied the action";
 
 export interface ModelRef {
   provider: string;
@@ -40,6 +45,8 @@ export interface AgentHostOptions {
   tools: readonly AgentToolDefinition[];
   /** The model the next prompt runs on, or undefined when none is selected. */
   getModelRef: () => ModelRef | undefined;
+  /** Whether a call of `tool` waits for the user's approval; read before every call. */
+  requiresApproval?: (tool: AgentToolDefinition) => boolean;
   systemPrompt?: string;
   toolTimeoutMs?: number;
   /** pi retries temporary provider errors; tests turn that off. */
@@ -55,6 +62,12 @@ interface PendingToolRequest {
   request: ToolRequest;
   resolve: (text: string) => void;
   reject: (error: Error) => void;
+}
+
+interface PendingApproval {
+  clusterId: string;
+  request: ApprovalRequest;
+  settle: (confirmed: boolean) => void;
 }
 
 const ok = (command: string, data?: unknown): AgentResponse => ({ type: "response", command, success: true, data });
@@ -78,6 +91,8 @@ const safeFolderName = (clusterId: string) => clusterId.replace(/[^A-Za-z0-9._-]
 export class AgentHost {
   private readonly clusters = new Map<string, Promise<ClusterAgent>>();
   private readonly pendingTools = new Map<string, PendingToolRequest>();
+  // No timeout: an approval waits until the user answers or stops the run.
+  private readonly pendingApprovals = new Map<string, PendingApproval>();
   // Per cluster rather than per session, so a snapshot taken before the first
   // run reports 0.
   private readonly seqs = new Map<string, number>();
@@ -94,12 +109,17 @@ export class AgentHost {
         return this.snapshot(clusterId);
       case "tool_result":
         return this.toolResult(clusterId, command.requestId, command.text, command.isError ?? false);
+      case "ui_response":
+        return this.uiResponse(clusterId, command.id, command.confirmed);
       default:
         return fail((command as { type?: string }).type ?? "unknown", "Unknown command");
     }
   }
 
   dispose(): void {
+    for (const pending of [...this.pendingApprovals.values()]) {
+      pending.settle(false);
+    }
     for (const [requestId, pending] of this.pendingTools) {
       pending.reject(new Error("The agent was stopped."));
       this.pendingTools.delete(requestId);
@@ -160,11 +180,14 @@ export class AgentHost {
     });
   }
 
-  // Stop first fails the tool calls still waiting on the frame, so the run is
-  // not left waiting on a frame that may never answer.
+  // Stop first denies a pending approval and fails the tool calls still waiting
+  // on the frame: pi's abort waits for them, and they may never be answered.
   private async abort(clusterId: string): Promise<AgentResponse> {
     const agent = this.clusters.get(clusterId);
     if (!agent) return ok("abort");
+    for (const pending of [...this.pendingApprovals.values()]) {
+      if (pending.clusterId === clusterId) pending.settle(false);
+    }
     for (const pending of [...this.pendingTools.values()]) {
       if (pending.clusterId === clusterId) pending.reject(new Error("The user stopped the run."));
     }
@@ -202,6 +225,8 @@ export class AgentHost {
         pendingToolRequests: [...this.pendingTools.values()]
           .filter((pending) => pending.clusterId === clusterId)
           .map((pending) => pending.request),
+        pendingUiRequest: [...this.pendingApprovals.values()].find((pending) => pending.clusterId === clusterId)
+          ?.request,
       };
       return ok("get_snapshot", snapshot);
     } catch (error) {
@@ -230,6 +255,56 @@ export class AgentHost {
       pending.resolve(text);
     }
     return ok("tool_result");
+  }
+
+  private uiResponse(clusterId: string, id: string, confirmed: boolean): AgentResponse {
+    const pending = this.pendingApprovals.get(id);
+    if (!pending || pending.clusterId !== clusterId) {
+      return fail("ui_response", `No pending approval ${id}`);
+    }
+    pending.settle(confirmed === true);
+    return ok("ui_response");
+  }
+
+  // pi's `tool_call` hook: a call that needs approval is validated and
+  // prepared, the prepared input replaces the model's in place, and the run
+  // waits for the user. pi asks for one call at a time.
+  private async gate(clusterId: string, event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
+    const tool = this.options.tools.find((candidate) => candidate.name === event.toolName);
+    const requiresApproval = this.options.requiresApproval ?? ((definition) => definition.requiresApprovalByDefault);
+    if (!tool || !requiresApproval(tool)) return undefined;
+
+    const input = event.input as Record<string, unknown>;
+    const prepared = prepareApproval(tool.name, input);
+    if (!prepared.ok) {
+      return { block: true, reason: prepared.error };
+    }
+    for (const key of Object.keys(input)) delete input[key];
+    Object.assign(input, prepared.input);
+
+    const agent = await this.clusters.get(clusterId);
+    if (!agent) return { block: true, reason: "The cluster session is not available." };
+    const request: ApprovalRequest = {
+      id: randomUUID(),
+      toolCallId: event.toolCallId,
+      method: "confirm",
+      title: prepared.title,
+      message: prepared.message,
+      approval: prepared.approval,
+    };
+    const confirmed = await new Promise<boolean>((resolve) => {
+      this.pendingApprovals.set(request.id, {
+        clusterId,
+        request,
+        settle: (answer) => {
+          if (!this.pendingApprovals.delete(request.id)) return;
+          this.send(clusterId, agent, { kind: "ui_resolved", payload: { id: request.id, confirmed: answer } });
+          resolve(answer);
+        },
+      });
+      this.send(clusterId, agent, { kind: "ui_request", payload: request });
+    });
+    return confirmed ? undefined : { block: true, reason: DENIED_REASON };
   }
 
   // The model is optional: a snapshot opens the session before a prompt has
@@ -266,6 +341,7 @@ export class AgentHost {
           for (const tool of tools) {
             pi.registerTool(this.toPiTool(clusterId, tool));
           }
+          pi.on("tool_call", (event) => this.gate(clusterId, event));
         },
       ],
     });

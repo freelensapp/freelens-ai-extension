@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { type ChatViewState, chatFromSnapshot, reduceEnvelope } from "./chat-reducer";
+import { MessageType } from "../objects/message-type";
+import { type ChatViewState, chatFromSnapshot, reduceEnvelope, withApprovalBackup } from "./chat-reducer";
 
-import type { AgentEnvelope, AgentSnapshot, ChatMessage } from "../../../common/agent-protocol";
+import type { AgentEnvelope, AgentSnapshot, ApprovalRequest, ChatMessage } from "../../../common/agent-protocol";
 import type { MessageObject } from "../objects/message-object";
 
 const userMessage: MessageObject = {
@@ -314,5 +315,65 @@ describe("chatFromSnapshot", () => {
 
     expect(agentTexts(state)).toEqual(["Once upon a time."]);
     expect(state.messages.every((m) => !m.streaming)).toBe(true);
+  });
+});
+
+describe("approvals", () => {
+  const request: ApprovalRequest = {
+    id: "a1",
+    toolCallId: "t1",
+    method: "confirm",
+    title: "PATCH DEPLOYMENT",
+    message: "action: PATCH DEPLOYMENT\nname: web\n",
+    approval: { tool: "patchKubernetesResource", kind: "Deployment", apiVersion: "apps/v1", name: "web" },
+  };
+  const envelope = (seq: number, kind: string, payload: unknown) =>
+    ({ clusterId: "c1", sessionId: "s1", seq, kind, payload }) as unknown as AgentEnvelope;
+  const card = (state: ChatViewState) => state.messages.find((m) => m.approvalId === "a1");
+
+  it("shows a pending approval card with the action YAML", () => {
+    const state = reduceEnvelope(initial(), envelope(1, "ui_request", request));
+
+    expect(card(state)).toMatchObject({
+      type: MessageType.INTERRUPT,
+      action: "PATCH DEPLOYMENT",
+      actionDetails: "action: PATCH DEPLOYMENT\nname: web\n",
+      approved: null,
+      approvalTarget: request.approval,
+      sent: false,
+    });
+    expect(state.seq).toBe(1);
+  });
+
+  it("marks the card approved or denied when main settles it", () => {
+    const pending = reduceEnvelope(initial(), envelope(1, "ui_request", request));
+    const settle = (confirmed: boolean) =>
+      card(reduceEnvelope(pending, envelope(2, "ui_resolved", { id: "a1", confirmed })))?.approved;
+
+    expect(settle(true)).toBe(true);
+    expect(settle(false)).toBe(false);
+  });
+
+  it("brings a pending approval back from the snapshot", () => {
+    const state = chatFromSnapshot("c1", {
+      messages: [{ role: "user", content: "scale web", timestamp: 1 } as ChatMessage],
+      isStreaming: true,
+      pendingToolRequests: [],
+      pendingUiRequest: request,
+      autoApprove: false,
+      seq: 7,
+    });
+
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[0]?.text).toBe("scale web");
+    expect(card(state)?.approved).toBeNull();
+  });
+
+  it("adds the current resource as a backup once the frame has loaded it", () => {
+    const pending = reduceEnvelope(initial(), envelope(1, "ui_request", request));
+    const state = withApprovalBackup(pending, "a1", "kind: Deployment\n");
+
+    expect(card(state)?.resources).toBe("kind: Deployment\n");
+    expect(withApprovalBackup(state, "other", "x")).toBe(state);
   });
 });
