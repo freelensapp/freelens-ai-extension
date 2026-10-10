@@ -535,9 +535,12 @@ export class AgentHost {
     session.subscribe((event) => {
       // Repeats message_end and can carry large tool results.
       if (event.type === "entry_appended") return;
-      // pi writes the file with the first message, so the marker is done.
-      if (event.type === "message_end" && session.sessionFile && existsSync(session.sessionFile)) {
-        rmSync(markerPath, { force: true });
+      // pi writes the file with the first saved message, so the marker is done.
+      // pi saves a message right after telling its listeners, hence the microtask.
+      if (event.type === "message_end") {
+        queueMicrotask(() => {
+          if (session.sessionFile && existsSync(session.sessionFile)) rmSync(markerPath, { force: true });
+        });
       }
       this.send(clusterId, agent, { kind: "event", payload: toJsonEvent(event) });
     });

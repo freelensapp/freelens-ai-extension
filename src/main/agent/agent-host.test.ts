@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
@@ -409,6 +409,23 @@ describe("AgentHost", () => {
 
       const again = createHost();
       expect(answers(await snapshotOf(again))).toEqual(["new chat"]);
+    });
+
+    it("drops the New chat marker as soon as the first prompt is saved, so a restart reopens that chat", async () => {
+      const first = createHost();
+      await chat(first, "c1", "old chat");
+      await first.handleCommand("c1", { type: "new_session" });
+      let markerWhenAnswering: boolean | undefined;
+      faux.setResponses([
+        () => {
+          markerWhenAnswering = existsSync(join(dataDir, "sessions", "c1", ".new-chat"));
+          return fauxAssistantMessage([fauxText("new answer")]);
+        },
+      ]);
+      await first.handleCommand("c1", { type: "prompt", message: "new question" });
+      await waitFor(() => markerWhenAnswering !== undefined);
+
+      expect(markerWhenAnswering).toBe(false);
     });
 
     it("deletes every session file of the cluster and starts an empty chat", async () => {
