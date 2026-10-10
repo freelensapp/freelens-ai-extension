@@ -63,8 +63,8 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
   const modelSelections = models ? groupModels(models) : [];
   const pickedModel = models ? resolvePickedModel(models, preferencesStore.agentModel) : undefined;
 
-  // Remember the model the picker falls back to, so main runs the one shown:
-  // the first listed when none was chosen yet or the chosen one went away.
+  // Remember the first listed model when none was chosen yet, so main runs the
+  // one shown. A chosen model is only replaced by the user picking another.
   useEffect(() => {
     if (pickedModel && pickedModel !== preferencesStore.agentModel) {
       applicationStatusStore.setSelectedModel(pickedModel);

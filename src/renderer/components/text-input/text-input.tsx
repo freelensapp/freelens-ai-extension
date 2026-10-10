@@ -118,6 +118,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                   id="chat-model-picker"
                   options={textInputHook.modelSelections}
                   value={textInputHook.pickedModel ?? null}
+                  placeholder="Choose a model"
                   onChange={textInputHook.onChangeModel}
                   themeName="lens"
                   className="text-input-select-box"

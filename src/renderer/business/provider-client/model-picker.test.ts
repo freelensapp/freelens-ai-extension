@@ -48,8 +48,8 @@ describe("resolvePickedModel", () => {
     expect(resolvePickedModel(models, "")).toBe("anthropic/claude-opus-5-5");
   });
 
-  it("picks the first listed model when the remembered one is no longer available", () => {
-    expect(resolvePickedModel(models, "xai/grok-5")).toBe("anthropic/claude-opus-5-5");
+  it("keeps the remembered model unpicked, not replaced, while its provider is missing from the list", () => {
+    expect(resolvePickedModel(models, "xai/grok-5")).toBeUndefined();
   });
 
   it("picks nothing when no provider is connected", () => {

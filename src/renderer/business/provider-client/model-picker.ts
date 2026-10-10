@@ -32,11 +32,13 @@ export const groupModels = (models: readonly ProviderModelSummary[]): ModelGroup
 };
 
 /**
- * The model the chat runs on: the remembered one while its provider is
- * connected, else the first one the picker lists, or undefined when no
- * provider is connected.
+ * The model the picker shows: the remembered one while it is listed, the
+ * first listed one when none was chosen yet, else undefined. A remembered
+ * model missing from the list is not replaced: its provider may only have
+ * failed to list for a moment, and the picker then asks for a choice while
+ * main says which provider to connect.
  */
 export const resolvePickedModel = (models: readonly ProviderModelSummary[], saved: string): string | undefined => {
   if (models.some((model) => modelRef(model) === saved)) return saved;
-  return groupModels(models)[0]?.options[0]?.value;
+  return saved ? undefined : groupModels(models)[0]?.options[0]?.value;
 };
