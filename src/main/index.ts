@@ -9,6 +9,7 @@ import { PROVIDER_COMMAND_CHANNEL, PROVIDER_ENVELOPE_CHANNEL, type ProviderComma
 import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
 import { AgentHost, type ModelRef } from "./agent/agent-host";
 import { importLegacyCredentials } from "./agent/credentials-import";
+import { loadDeviceId } from "./agent/device-id";
 import { ProviderService } from "./agent/provider-service";
 import { startAiProxyServer } from "./ai-proxy-server";
 
@@ -122,6 +123,7 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       modelRuntime,
       broadcast: (envelope) => ipc.broadcast(PROVIDER_ENVELOPE_CHANNEL, envelope),
       onCredentialsChanged: () => void refreshPiOpenAIKey().catch(logKeyError),
+      getDeviceId: () => loadDeviceId(join(piDir, "device-id")),
     });
     this.providerService = providerService;
     ipc.handle(PROVIDER_COMMAND_CHANNEL, (_event, command: ProviderCommand) => providerService.handleCommand(command));

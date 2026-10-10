@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fauxProvider } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ProviderService } from "./provider-service";
+import { ProviderService, type ProviderServiceOptions } from "./provider-service";
 
 import type { ApiKeyCredential, AuthPrompt, Provider, ProviderAuth } from "@earendil-works/pi-ai";
 
@@ -100,8 +100,8 @@ describe("ProviderService", () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
-  const createService = () => {
-    service = new ProviderService({ modelRuntime, broadcast: (envelope) => envelopes.push(envelope) });
+  const createService = (overrides: Partial<ProviderServiceOptions> = {}) => {
+    service = new ProviderService({ modelRuntime, broadcast: (envelope) => envelopes.push(envelope), ...overrides });
     return service;
   };
 
@@ -313,5 +313,28 @@ describe("ProviderService", () => {
     expect((await provider(svc, "fake-oauth")).methods).toEqual([
       { type: "oauth", label: "Sign in with Fake", isSubscription: true },
     ]);
+  });
+
+  // Sign in with ChatGPT refuses to start without this installation's device id.
+  it("gives a sign-in this installation's device id", async () => {
+    const seen: (string | undefined)[] = [];
+    modelRuntime.registerNativeProvider(
+      fakeProvider("fake-device", "Fake Device", {
+        oauth: {
+          name: "Fake Device",
+          login: async (_interaction, options) => {
+            seen.push(options?.getDeviceId?.());
+            return { type: "oauth", access: "token", refresh: "refresh", expires: Date.now() + 3_600_000 };
+          },
+          refresh: async (credential) => credential,
+          toAuth: async (credential) => ({ apiKey: credential.access }),
+        },
+      }),
+    );
+    const svc = createService({ getDeviceId: () => "6f1c1a52-4f7e-4d55-9d43-8f3a2c1b9e10" });
+
+    await svc.handleCommand({ type: "login", loginId: "l1", providerId: "fake-device", method: "oauth" });
+
+    expect(seen).toEqual(["6f1c1a52-4f7e-4d55-9d43-8f3a2c1b9e10"]);
   });
 });

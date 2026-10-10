@@ -23,6 +23,11 @@ export interface ProviderServiceOptions {
   broadcast: (envelope: ProviderEnvelope) => void;
   /** Called after a login or logout changed the stored credentials. */
   onCredentialsChanged?: () => void;
+  /**
+   * A UUID that stays the same for this installation. Sign in with ChatGPT
+   * refuses to start without it.
+   */
+  getDeviceId?: () => string;
 }
 
 interface ActiveLogin {
@@ -247,7 +252,12 @@ export class ProviderService {
 
     let response: ProviderResponse;
     try {
-      await modelRuntime.login(providerId, method, { signal: controller.signal, prompt, notify });
+      await modelRuntime.login(
+        providerId,
+        method,
+        { signal: controller.signal, prompt, notify },
+        this.options.getDeviceId ? { getDeviceId: this.options.getDeviceId } : undefined,
+      );
       response = ok("login");
     } catch (error) {
       response = fail("login", controller.signal.aborted ? LOGIN_CANCELLED : errorText(error));
