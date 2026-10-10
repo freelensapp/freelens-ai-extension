@@ -239,6 +239,9 @@ export async function createKubernetesResource(
 ): Promise<string> {
   const api = resolveResourceApi(cluster, kind, apiVersion);
   if (typeof api === "string") return api;
+  if (api.namespaced && !namespace) {
+    return `Kind "${kind}" is namespaced; please provide a namespace to create "${name}".`;
+  }
   await api.create(name, api.namespaced ? namespace : undefined, data);
   return `${kind} "${name}" created successfully`;
 }

@@ -310,6 +310,13 @@ describe("cluster tools", () => {
       expect(writes).toEqual([["patch", "Deployment", "web", "shop", data, "scale"]]);
     });
 
+    it("createKubernetesResource asks for a namespace for namespaced kinds", async () => {
+      const reply = await call("createKubernetesResource", { kind: "Deployment", name: "api", data: {} });
+
+      expect(reply.text).toBe('Kind "Deployment" is namespaced; please provide a namespace to create "api".');
+      expect(writes).toEqual([]);
+    });
+
     it("updateKubernetesResource does not write a resource that does not exist", async () => {
       const reply = await call("updateKubernetesResource", {
         kind: "Deployment",
