@@ -1,9 +1,8 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { isDefaultOpenAIBaseUrl } from "../../common/openai-base-url";
 
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-
-const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 
 export interface LegacyCredentials {
   openAIKey: string;
@@ -15,11 +14,6 @@ export interface LegacyImportResult {
   /** "provider/id" of the model the chat should start on, when one was imported. */
   seededModel?: string;
 }
-
-const isDefaultBaseUrl = (baseUrl: string) => {
-  const trimmed = baseUrl.trim().replace(/\/+$/, "");
-  return trimmed === "" || trimmed === DEFAULT_OPENAI_BASE_URL;
-};
 
 /**
  * One-time move of the old OpenAI settings into pi's `auth.json`, so an
@@ -38,7 +32,7 @@ export async function importLegacyCredentials(
 
   const key = legacy.openAIKey.trim();
   let result: LegacyImportResult = {};
-  if (key && isDefaultBaseUrl(legacy.openAIBaseUrl)) {
+  if (key && isDefaultOpenAIBaseUrl(legacy.openAIBaseUrl)) {
     await modelRuntime.login("openai", "api_key", {
       prompt: async () => key,
       notify: () => undefined,

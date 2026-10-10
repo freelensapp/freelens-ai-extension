@@ -11,6 +11,7 @@ const { useCallback, useEffect, useRef, useState } = React;
 import { DEFAULT_CHAT_RETENTION_DAYS } from "../../../common/agent-protocol";
 import { AGENT_TOOLS } from "../../../common/agent-tools";
 import { requiresApproval, withApprovalOverride } from "../../../common/agent-tools/approval-settings";
+import { isDefaultOpenAIBaseUrl } from "../../../common/openai-base-url";
 import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore, parseRetentionDays } from "../../../common/store";
 
 interface DraftFieldProps {
@@ -105,7 +106,8 @@ export const PreferencesPage = observer(() => {
       {/* Still read by AI Explain, which runs on the old OpenAI client until it moves to pi. */}
       <div style={{ fontWeight: "bold", fontSize: 16 }}>AI Explain</div>
       <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
-        AI Explain uses the OpenAI API key from the OpenAI provider above, or OPENAI_API_KEY.
+        With the default Base URL, AI Explain uses the API key of the OpenAI provider above, or OPENAI_API_KEY. A custom
+        Base URL uses its own key.
       </div>
       <div style={{ marginTop: 8, fontWeight: "bold" }}>Base URL</div>
       <Input
@@ -113,6 +115,17 @@ export const PreferencesPage = observer(() => {
         value={preferencesStore.openAIBaseUrl}
         onChange={(value: string) => (preferencesStore.openAIBaseUrl = value)}
       />
+      {!isDefaultOpenAIBaseUrl(preferencesStore.openAIBaseUrl) && (
+        <>
+          <div style={{ marginTop: 8, fontWeight: "bold" }}>API key for this Base URL</div>
+          <Input
+            type="password"
+            placeholder="The key of your custom endpoint"
+            value={preferencesStore.openAIKey}
+            onChange={(value: string) => (preferencesStore.openAIKey = value)}
+          />
+        </>
+      )}
       <div style={{ marginTop: 8, fontWeight: "bold" }}>Reasoning effort</div>
       <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
         Applied only to reasoning-capable models (o-series, gpt-5.x).

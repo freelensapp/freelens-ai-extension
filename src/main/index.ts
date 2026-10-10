@@ -5,6 +5,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Main } from "@freelensapp/extensions";
 import { AGENT_COMMAND_CHANNEL, AGENT_ENVELOPE_CHANNEL, type AgentCommand } from "../common/agent-protocol";
 import { AGENT_TOOLS } from "../common/agent-tools";
+import { isDefaultOpenAIBaseUrl } from "../common/openai-base-url";
 import { PROVIDER_COMMAND_CHANNEL, PROVIDER_ENVELOPE_CHANNEL, type ProviderCommand } from "../common/provider-protocol";
 import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
 import { AgentHost, type ModelRef } from "./agent/agent-host";
@@ -65,7 +66,11 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     // requires the per-launch shared secret on every request.
     preferencesStore.aiProxyPort = await startAiProxyServer(
       aiProxyToken,
-      () => process.env.OPENAI_API_KEY || this.piOpenAIKey || preferencesStore.openAIKey || undefined,
+      // pi's OpenAI key is for api.openai.com; a custom endpoint keeps its own key.
+      () =>
+        process.env.OPENAI_API_KEY ||
+        (isDefaultOpenAIBaseUrl(preferencesStore.openAIBaseUrl) ? this.piOpenAIKey : preferencesStore.openAIKey) ||
+        undefined,
     );
   }
 
@@ -102,6 +107,14 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       );
       if (seededModel && !preferencesStore.agentModel) {
         preferencesStore.agentModel = seededModel;
+      }
+      // Once pi holds the OpenAI key, the copy in the preferences is no longer
+      // read and must not linger there in plain text.
+      const piHasOpenAIKey = (await modelRuntime.listCredentials()).some(
+        (credential) => credential.providerId === "openai",
+      );
+      if (preferencesStore.openAIKey && isDefaultOpenAIBaseUrl(preferencesStore.openAIBaseUrl) && piHasOpenAIKey) {
+        preferencesStore.openAIKey = "";
       }
     } catch (error) {
       console.error("[freelens-ai] Importing the old OpenAI key into pi failed:", error);
