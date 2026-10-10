@@ -190,7 +190,10 @@ const LoginDialog = ({ provider, onClose, onEnded }: LoginDialogProps) => {
   // Closing the settings page mid-login ends it, so main does not wait for answers.
   useEffect(
     () => () => {
-      if (running.current) void sendProviderCommand({ type: "cancel_login", loginId: running.current });
+      const loginId = running.current;
+      // Also stops start() from updating this dialog once the login answers.
+      running.current = undefined;
+      if (loginId) void sendProviderCommand({ type: "cancel_login", loginId });
     },
     [],
   );
@@ -387,6 +390,7 @@ export const ProviderSettings = () => {
 
   const logout = async (provider: ProviderSummary) => {
     const response = await sendProviderCommand({ type: "logout", providerId: provider.id });
+    if (!mounted.current) return;
     if (!response.success) setError(response.error);
     await reload();
   };
