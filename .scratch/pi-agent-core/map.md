@@ -100,14 +100,19 @@ ones, with chats saved as pi JSON sessions, and no LangChain/LangGraph left.
 
 ## Open tickets
 
-None. The map is clear; next is `/to-spec`.
+None. The map is clear and has been handed off.
+
+## Spec and build tickets
+
+- Spec: [`../pi-agent-build/spec.md`](../pi-agent-build/spec.md).
+- Build tickets: [`../pi-agent-build/issues/`](../pi-agent-build/issues/),
+  fourteen tracer-bullet tickets. The first is the end-to-end tracer, which
+  also covers the HITL check the spike left open (`pnpm pack:dev` with pi in
+  `src/main`, installed in a real Freelens). The last deletes LangChain.
 
 ## Not yet specified
 
-- **Build order and LangChain removal**: how the spec slices into tracer
-  bullets. `/to-tickets` settles this once the map is clear. The first slice
-  should also cover the HITL part the spike left open: `pnpm pack:dev` with pi
-  in `src/main`, installed in a real Freelens.
+Nothing.
 
 ## Out of scope
 
