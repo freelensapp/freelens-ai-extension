@@ -268,8 +268,13 @@ export class AgentHost {
 
   // pi's `tool_call` hook: a call that needs approval is validated and
   // prepared, the prepared input replaces the model's in place, and the run
-  // waits for the user. pi asks for one call at a time.
-  private async gate(clusterId: string, event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
+  // waits for the user. pi asks for one call at a time. A run aborted some
+  // other way than our Stop denies the approval too, so the hook never hangs.
+  private async gate(
+    clusterId: string,
+    event: ToolCallEvent,
+    signal: AbortSignal | undefined,
+  ): Promise<ToolCallEventResult | undefined> {
     const tool = this.options.tools.find((candidate) => candidate.name === event.toolName);
     const requiresApproval = this.options.requiresApproval ?? ((definition) => definition.requiresApprovalByDefault);
     if (!tool || !requiresApproval(tool)) return undefined;
@@ -292,16 +297,17 @@ export class AgentHost {
       message: prepared.message,
       approval: prepared.approval,
     };
+    if (signal?.aborted) return { block: true, reason: DENIED_REASON };
     const confirmed = await new Promise<boolean>((resolve) => {
-      this.pendingApprovals.set(request.id, {
-        clusterId,
-        request,
-        settle: (answer) => {
-          if (!this.pendingApprovals.delete(request.id)) return;
-          this.send(clusterId, agent, { kind: "ui_resolved", payload: { id: request.id, confirmed: answer } });
-          resolve(answer);
-        },
-      });
+      const onAbort = () => settle(false);
+      const settle = (answer: boolean) => {
+        if (!this.pendingApprovals.delete(request.id)) return;
+        signal?.removeEventListener("abort", onAbort);
+        this.send(clusterId, agent, { kind: "ui_resolved", payload: { id: request.id, confirmed: answer } });
+        resolve(answer);
+      };
+      this.pendingApprovals.set(request.id, { clusterId, request, settle });
+      signal?.addEventListener("abort", onAbort, { once: true });
       this.send(clusterId, agent, { kind: "ui_request", payload: request });
     });
     return confirmed ? undefined : { block: true, reason: DENIED_REASON };
@@ -341,7 +347,7 @@ export class AgentHost {
           for (const tool of tools) {
             pi.registerTool(this.toPiTool(clusterId, tool));
           }
-          pi.on("tool_call", (event) => this.gate(clusterId, event));
+          pi.on("tool_call", (event, ctx) => this.gate(clusterId, event, ctx.signal));
         },
       ],
     });
