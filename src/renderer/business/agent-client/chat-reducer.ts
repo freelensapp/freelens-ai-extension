@@ -1,24 +1,52 @@
 import { generateUuid } from "../../../common/utils/uuid";
 import { MessageType } from "../objects/message-type";
 
-import type { AgentEnvelope } from "../../../common/agent-protocol";
+import type { AgentEnvelope, AgentSnapshot, ChatMessage } from "../../../common/agent-protocol";
 import type { MessageObject } from "../objects/message-object";
 
-/** What the chat of one cluster frame shows, rebuilt from main's envelopes. */
+/** What the chat of one cluster frame shows, rebuilt from main's snapshot and envelopes. */
 export interface ChatViewState {
   clusterId: string;
   /** The last envelope applied; older or repeated envelopes are ignored. */
   seq: number;
   messages: MessageObject[];
+  /** True from the run's start until it settles: the input is disabled and Stop is shown. */
+  isRunning: boolean;
+  /** Set when envelopes were missed; the frame then asks main for a fresh snapshot. */
+  stale?: boolean;
 }
 
 type EventPayload = Extract<AgentEnvelope, { kind: "event" }>["payload"];
+type AssistantChatMessage = Extract<ChatMessage, { role: "assistant" }>;
 
 const lastUserText = (messages: MessageObject[]) => {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]?.sent) return messages[i]!.text;
   }
   return "";
+};
+
+const textMessage = (text: string, extra: Partial<MessageObject> = {}): MessageObject => ({
+  messageId: generateUuid(),
+  type: MessageType.MESSAGE,
+  text,
+  sent: false,
+  ...extra,
+});
+
+const notice = (text: string) => textMessage(text, { notice: true });
+
+const errorMessage = (error: string | undefined, messages: MessageObject[]) =>
+  textMessage(`Error while running Freelens Agent: ${error ?? "unknown error"}`, {
+    error: true,
+    retryContext: { kind: "message", text: lastUserText(messages) },
+  });
+
+// The lines that follow an assistant message that did not end normally.
+const endLines = (message: AssistantChatMessage, messages: MessageObject[]): MessageObject[] => {
+  if (message.stopReason === "error") return [errorMessage(message.errorMessage, messages)];
+  if (message.stopReason === "aborted") return [notice("Stopped.")];
+  return [];
 };
 
 // The message being streamed is the last one while it carries `streaming`.
@@ -32,10 +60,7 @@ function reduceEvent(messages: MessageObject[], event: EventPayload): MessageObj
   switch (event.type) {
     case "message_start":
       if (event.message.role !== "assistant") return messages;
-      return [
-        ...messages,
-        { messageId: generateUuid(), type: MessageType.MESSAGE, text: "", sent: false, streaming: true },
-      ];
+      return [...messages, textMessage("", { streaming: true })];
 
     case "message_update": {
       const delta = event.assistantMessageEvent;
@@ -57,18 +82,20 @@ function reduceEvent(messages: MessageObject[], event: EventPayload): MessageObj
           ? [...messages.slice(0, -1), { ...last, streaming: false }]
           : messages.slice(0, -1)
         : messages;
-      const { stopReason, errorMessage } = event.message;
-      if (stopReason !== "error") return closed;
+      return [...closed, ...endLines(event.message, closed)];
+    }
+
+    // pi retries the failed request on its own, so the error it just showed
+    // becomes a notice without a Retry button.
+    case "auto_retry_start": {
+      const last = messages[messages.length - 1];
+      const kept = last?.error ? messages.slice(0, -1) : messages;
+      const seconds = Math.round(event.delayMs / 1000);
       return [
-        ...closed,
-        {
-          messageId: generateUuid(),
-          type: MessageType.MESSAGE,
-          text: `Error while running Freelens Agent: ${errorMessage ?? "unknown error"}`,
-          error: true,
-          retryContext: { kind: "message", text: lastUserText(closed) },
-          sent: false,
-        },
+        ...kept,
+        notice(
+          `Provider error: ${event.errorMessage}. Retrying in ${seconds} s (attempt ${event.attempt} of ${event.maxAttempts}).`,
+        ),
       ];
     }
 
@@ -76,6 +103,13 @@ function reduceEvent(messages: MessageObject[], event: EventPayload): MessageObj
       return messages;
   }
 }
+
+const isRunningAfter = (isRunning: boolean, envelope: AgentEnvelope) => {
+  if (envelope.kind !== "event") return isRunning;
+  if (envelope.payload.type === "agent_start") return true;
+  if (envelope.payload.type === "agent_settled") return false;
+  return isRunning;
+};
 
 /**
  * Applies one envelope from main to the chat. Envelopes for other clusters and
@@ -86,11 +120,46 @@ export function reduceEnvelope(state: ChatViewState, envelope: AgentEnvelope): C
   if (envelope.clusterId !== state.clusterId || (envelope.seq <= state.seq && envelope.seq !== 1)) {
     return state;
   }
+  const missed = envelope.seq !== 1 && envelope.seq > state.seq + 1;
   const messages = envelope.kind === "event" ? reduceEvent(state.messages, envelope.payload) : state.messages;
-  return { ...state, seq: envelope.seq, messages };
+  return {
+    ...state,
+    seq: envelope.seq,
+    messages,
+    isRunning: isRunningAfter(state.isRunning, envelope),
+    stale: state.stale || missed || undefined,
+  };
 }
 
-/** True when the envelope ends this cluster's run, so the chat can stop its spinner. */
-export function isRunEnd(clusterId: string, envelope: AgentEnvelope): boolean {
-  return envelope.clusterId === clusterId && envelope.kind === "event" && envelope.payload.type === "agent_settled";
+const userText = (message: Extract<ChatMessage, { role: "user" }>) =>
+  typeof message.content === "string"
+    ? message.content
+    : message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+
+const assistantMessage = (message: AssistantChatMessage, streaming: boolean): MessageObject | undefined => {
+  const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+  const reasoning = message.content.map((part) => (part.type === "thinking" ? part.thinking : "")).join("");
+  // An answer still streaming keeps its bubble even when empty, so its deltas
+  // have somewhere to go.
+  if (!text && !reasoning && !streaming) return undefined;
+  return textMessage(text, { reasoning: reasoning || undefined, streaming: streaming || undefined });
+};
+
+/**
+ * Rebuilds a cluster's chat from main's snapshot: on mount, after a restart and
+ * after missed envelopes. Envelopes up to the snapshot's `seq` are already in it.
+ */
+export function chatFromSnapshot(clusterId: string, snapshot: AgentSnapshot): ChatViewState {
+  let messages: MessageObject[] = [];
+  for (const message of snapshot.messages) {
+    if (message.role === "user") {
+      messages = [...messages, textMessage(userText(message), { sent: true })];
+      continue;
+    }
+    const answer = assistantMessage(message, false);
+    messages = [...messages, ...(answer ? [answer] : []), ...endLines(message, messages)];
+  }
+  const streaming = snapshot.streamingMessage && assistantMessage(snapshot.streamingMessage, true);
+  if (streaming) messages = [...messages, streaming];
+  return { clusterId, seq: snapshot.seq, messages, isRunning: snapshot.isStreaming };
 }

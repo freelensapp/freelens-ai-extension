@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getClusterVersionTool } from "../../common/agent-tools";
 import { AgentHost, type AgentHostOptions } from "./agent-host";
 
-import type { AgentEnvelope } from "../../common/agent-protocol";
+import type { AgentEnvelope, AgentSnapshot } from "../../common/agent-protocol";
 
 type Faux = ReturnType<typeof fauxProvider>;
 
@@ -198,6 +198,111 @@ describe("AgentHost", () => {
     expect(c2.every((e) => e.clusterId === "c2")).toBe(true);
     expect(c2[0]?.seq).toBe(1);
     expect(c2[0]?.sessionId).not.toBe(envelopes[0]?.sessionId);
+  });
+
+  const toolCallThenText = () => [
+    fauxAssistantMessage([fauxToolCall("getClusterVersion", {})], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxText("done")]),
+  ];
+  const snapshotOf = async (host: AgentHost, clusterId = "c1") => {
+    const response = await host.handleCommand(clusterId, { type: "get_snapshot" });
+    if (!response.success) throw new Error(response.error);
+    return response.data as AgentSnapshot;
+  };
+
+  it("stops a run on abort, failing the tool call the frame has not answered", async () => {
+    faux.setResponses(toolCallThenText());
+    const host = createHost({ toolTimeoutMs: 60_000 });
+
+    await host.handleCommand("c1", { type: "prompt", message: "which version?" });
+    await waitFor(() => envelopes.some((e) => e.kind === "tool_request"));
+
+    const response = await host.handleCommand("c1", { type: "abort" });
+    expect(response).toMatchObject({ command: "abort", success: true });
+
+    await waitFor(settled);
+    expect(eventTypes()).toContain("tool_execution_end");
+    expect((await snapshotOf(host)).isStreaming).toBe(false);
+  });
+
+  it("answers abort when nothing is running", async () => {
+    const host = createHost();
+    expect(await host.handleCommand("c1", { type: "abort" })).toMatchObject({ success: true });
+  });
+
+  it("snapshots a run in progress with its pending tool request and current seq", async () => {
+    faux.setResponses(toolCallThenText());
+    const host = createHost({ toolTimeoutMs: 60_000 });
+
+    await host.handleCommand("c1", { type: "prompt", message: "which version?" });
+    await waitFor(() => envelopes.some((e) => e.kind === "tool_request"));
+
+    const snapshot = await snapshotOf(host);
+    const request = envelopes.find((e) => e.kind === "tool_request");
+    expect(snapshot.isStreaming).toBe(true);
+    expect(snapshot.seq).toBe(envelopes[envelopes.length - 1]?.seq);
+    expect(snapshot.sessionId).toBe(envelopes[0]?.sessionId);
+    expect(snapshot.pendingToolRequests).toEqual([request?.payload]);
+    expect(snapshot.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(snapshot.autoApprove).toBe(false);
+  });
+
+  it("snapshots an empty chat for a cluster that never ran", async () => {
+    const host = createHost();
+    const snapshot = await snapshotOf(host, "fresh");
+
+    expect(snapshot).toMatchObject({ messages: [], isStreaming: false, pendingToolRequests: [], seq: 0 });
+  });
+
+  it("rebuilds the chat from the session file after a restart", async () => {
+    faux.setResponses([fauxAssistantMessage([fauxText("Saved answer")])]);
+    const first = createHost();
+    await first.handleCommand("c1", { type: "prompt", message: "hi" });
+    await waitFor(settled);
+    first.dispose();
+
+    const restarted = createHost();
+    const snapshot = await snapshotOf(restarted);
+
+    expect(snapshot.isStreaming).toBe(false);
+    expect(snapshot.seq).toBe(0);
+    expect(snapshot.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    const answer = snapshot.messages[1];
+    expect(answer?.role === "assistant" && answer.content).toEqual([{ type: "text", text: "Saved answer" }]);
+  });
+
+  it("does not wait for the frames: a broadcast that never completes does not stall the run", async () => {
+    faux.setResponses([fauxAssistantMessage([fauxText("Not blocked")])]);
+    const host = createHost({
+      broadcast: (envelope) => {
+        envelopes.push(envelope);
+        return new Promise<void>(() => undefined) as unknown as void;
+      },
+    });
+
+    await host.handleCommand("c1", { type: "prompt", message: "hi" });
+    await waitFor(settled);
+  });
+
+  it("keeps the run going when a broadcast throws", async () => {
+    faux.setResponses([fauxAssistantMessage([fauxText("Still running")])]);
+    let calls = 0;
+    const host = createHost({
+      broadcast: () => {
+        calls += 1;
+        throw new Error("frame gone");
+      },
+    });
+
+    await host.handleCommand("c1", { type: "prompt", message: "hi" });
+    await waitFor(() => calls > 0);
+    const deadline = Date.now() + 5000;
+    while ((await snapshotOf(host)).isStreaming && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const snapshot = await snapshotOf(host);
+    expect(snapshot.isStreaming).toBe(false);
+    expect(snapshot.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
   });
 
   it("gives the agent only our tools and our system prompt", async () => {

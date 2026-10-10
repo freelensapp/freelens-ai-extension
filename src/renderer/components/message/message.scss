@@ -21,6 +21,14 @@
   gap: 8px;
 }
 
+// Status lines from the agent run (stopped, retrying): dimmed, not a bubble.
+.notice-message {
+  margin: 6px 0;
+  font-size: 0.85em;
+  font-style: italic;
+  color: var(--textColorSecondary);
+}
+
 .retry-button {
   display: inline-flex;
   align-items: center;

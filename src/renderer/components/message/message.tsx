@@ -47,6 +47,13 @@ export const Message = ({ message }: MessageProps) => {
           />
         </>
       );
+    } else if (message.notice) {
+      return (
+        <div className="notice-message">
+          <style>{styleInline}</style>
+          {message.text}
+        </div>
+      );
     } else if (message.error) {
       return (
         <div className="error-message">

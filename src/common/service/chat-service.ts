@@ -1,5 +1,5 @@
 import { Command } from "@langchain/langgraph";
-import { sendAgentCommand } from "../../renderer/business/agent-client/agent-client";
+import { getAgentChat, sendAgentCommand } from "../../renderer/business/agent-client/agent-client";
 import {
   getErrorMessage,
   getExplainMessage,
@@ -148,6 +148,13 @@ const useChatService = () => {
     const response = await sendAgentCommand(applicationStatusStore.clusterId, { type: "prompt", message: text });
     if (!response.success) {
       _sendMessage(getErrorMessage(response.error, { kind: "message", text }));
+      applicationStatusStore.setLoading(false);
+      return;
+    }
+    // pi may queue or handle the prompt without starting a run, so no run
+    // events would clear the spinner.
+    const disposition = (response.data as { disposition?: string } | undefined)?.disposition;
+    if (disposition && disposition !== "started" && !getAgentChat()?.isRunning) {
       applicationStatusStore.setLoading(false);
     }
   };

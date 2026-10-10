@@ -13,8 +13,7 @@ import useLog from "../../common/utils/logger/logger-service";
 import { generateUuid } from "../../common/utils/uuid";
 import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
 import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
-import { onAgentEnvelope } from "../business/agent-client/agent-client";
-import { isRunEnd } from "../business/agent-client/chat-reducer";
+import { getAgentChat, onAgentChat, sendAgentCommand } from "../business/agent-client/agent-client";
 import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
@@ -27,6 +26,7 @@ import { useSessionCompactionService } from "../business/service/session-compact
 import { emptyTokenUsage, addTokenUsage as sumTokenUsage, type TokenUsage } from "../business/service/token-usage";
 import { IS_CONVERSATION_INTERRUPTED_KEY, IS_LOADING_KEY } from "./chat-session-storage";
 
+import type { ChatViewState } from "../business/agent-client/chat-reducer";
 import type { MessageObject } from "../business/objects/message-object";
 
 // Transient status shown while the session is compacted: dimmed "Compacting
@@ -45,6 +45,8 @@ export interface AppContextType {
   explainEvent: MessageObject;
   conversationId: string;
   isLoading: boolean;
+  // True while this cluster's pi agent run is going: the Stop button shows.
+  isAgentRunning: boolean;
   isConversationInterrupted: boolean;
   chatMessages: MessageObject[] | null;
   tokenUsage: TokenUsage;
@@ -76,6 +78,7 @@ export interface AppContextType {
   setExplainEvent: (messageObject: MessageObject) => void;
   setBypassApprovals: (bypassApprovals: boolean) => void;
   setLoading: (isLoading: boolean) => void;
+  stopAgent: () => Promise<void>;
   setConversationInterrupted: (isConversationInterrupted: boolean) => void;
   addMessage: (message: MessageObject) => void;
   removeMessage: (messageId: string) => void;
@@ -105,6 +108,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const [clusterId] = useState<string>(() => getActiveClusterId());
   const [conversationId, _setConversationId] = useState("");
   const [isLoading, _setLoading] = useState(false);
+  const [isAgentRunning, _setAgentRunning] = useState(false);
   const [isConversationInterrupted, _setConversationInterrupted] = useState(false);
   const [chatMessages, _setChatMessages] = useState<MessageObject[] | null>(null);
   const [tokenUsage, _setTokenUsage] = useState<TokenUsage>(emptyTokenUsage());
@@ -140,19 +144,26 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     _initFreeLensAgent();
   }, []);
 
-  // The pi agent in main streams this cluster's run as envelopes, which the
-  // agent client folds into the saved transcript: show it, and stop the spinner
-  // when the run settles.
-  useEffect(
-    () =>
-      onAgentEnvelope((envelope, messages) => {
-        _setChatMessages(messages);
-        if (isRunEnd(clusterId, envelope)) {
-          setLoading(false);
-        }
-      }),
-    [],
-  );
+  // The agent client keeps this cluster's chat in step with the pi agent in
+  // main: show its transcript, and keep the spinner, the disabled input and the
+  // Stop button in step with the run, including a run that was already going
+  // when this page mounted.
+  useEffect(() => {
+    // Undefined so the first call also clears a spinner restored from
+    // sessionStorage for a run that has ended.
+    let wasRunning: boolean | undefined;
+    const show = (chat: ChatViewState) => {
+      _setChatMessages(chat.messages);
+      _setAgentRunning(chat.isRunning);
+      if (chat.isRunning !== wasRunning) {
+        wasRunning = chat.isRunning;
+        setLoading(chat.isRunning);
+      }
+    };
+    const current = getAgentChat();
+    if (current) show(current);
+    return onAgentChat(show);
+  }, []);
 
   // Fetch model pricing on start and whenever the model list, endpoint, or proxy
   // changes. Best-effort: failures leave the map empty and the cost is hidden.
@@ -525,6 +536,14 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     return freeLensAgentSystem.availableTools;
   };
 
+  // The run ends with the usual settled event, which clears the spinner.
+  const stopAgent = async () => {
+    const response = await sendAgentCommand(clusterId, { type: "abort" });
+    if (!response.success) {
+      log.error("Stopping the agent failed: ", response.error);
+    }
+  };
+
   const setExplainEvent = (messageObject: MessageObject) => {
     preferencesStore.explainEvent = messageObject;
   };
@@ -558,6 +577,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         explainEvent: preferencesStore.explainEvent,
         conversationId,
         isLoading,
+        isAgentRunning,
         isConversationInterrupted,
         chatMessages,
         tokenUsage,
@@ -576,6 +596,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         setExplainEvent,
         setBypassApprovals,
         setLoading,
+        stopAgent,
         setConversationInterrupted,
         addMessage,
         removeMessage,

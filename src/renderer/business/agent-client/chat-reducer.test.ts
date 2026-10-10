@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { type ChatViewState, isRunEnd, reduceEnvelope } from "./chat-reducer";
+import { type ChatViewState, chatFromSnapshot, reduceEnvelope } from "./chat-reducer";
 
-import type { AgentEnvelope } from "../../../common/agent-protocol";
+import type { AgentEnvelope, AgentSnapshot, ChatMessage } from "../../../common/agent-protocol";
 import type { MessageObject } from "../objects/message-object";
 
 const userMessage: MessageObject = {
@@ -11,7 +11,12 @@ const userMessage: MessageObject = {
   sent: true,
 };
 
-const initial = (messages: MessageObject[] = [userMessage]): ChatViewState => ({ clusterId: "c1", seq: 0, messages });
+const initial = (messages: MessageObject[] = [userMessage]): ChatViewState => ({
+  clusterId: "c1",
+  seq: 0,
+  messages,
+  isRunning: false,
+});
 
 // Builds a recorded envelope stream for one cluster, numbering seq in order.
 const stream = (clusterId: string, payloads: unknown[], firstSeq = 1): AgentEnvelope[] =>
@@ -148,14 +153,166 @@ describe("reduceEnvelope", () => {
   });
 });
 
-describe("isRunEnd", () => {
-  it("is true only for agent_settled of the given cluster", () => {
-    const [settled] = stream("c1", [{ type: "agent_settled" }]);
-    const [other] = stream("c2", [{ type: "agent_settled" }]);
-    const [start] = stream("c1", [{ type: "agent_start" }]);
+describe("run state", () => {
+  it("is running from agent_start until agent_settled", () => {
+    const [start, settled] = stream("c1", [{ type: "agent_start" }, { type: "agent_settled" }]);
+    const running = reduceEnvelope(initial(), start!);
+    expect(running.isRunning).toBe(true);
+    expect(reduceEnvelope(running, settled!).isRunning).toBe(false);
+  });
 
-    expect(isRunEnd("c1", settled!)).toBe(true);
-    expect(isRunEnd("c1", other!)).toBe(false);
-    expect(isRunEnd("c1", start!)).toBe(false);
+  it("ignores another cluster's run", () => {
+    const [start] = stream("c2", [{ type: "agent_start" }]);
+    expect(reduceEnvelope(initial(), start!).isRunning).toBe(false);
+  });
+
+  it("shows a stopped run as a notice after its partial answer", () => {
+    const state = reduceAll(
+      initial(),
+      stream("c1", [assistantStart, textDelta("Half an ans"), assistantEnd({ stopReason: "aborted" })]),
+    );
+
+    expect(state.messages.slice(1).map((m) => [m.text, !!m.notice, !!m.error])).toEqual([
+      ["Half an ans", false, false],
+      ["Stopped.", true, false],
+    ]);
+  });
+
+  it("turns a provider error that pi retries into a retry notice instead of an error", () => {
+    const state = reduceAll(
+      initial(),
+      stream("c1", [
+        assistantStart,
+        assistantEnd({ stopReason: "error", errorMessage: "503 overloaded" }),
+        { type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "503 overloaded" },
+        { type: "auto_retry_end", success: true, attempt: 1 },
+        assistantStart,
+        textDelta("Recovered."),
+        assistantEnd(),
+      ]),
+    );
+
+    const agent = state.messages.slice(1);
+    expect(agent.some((m) => m.error)).toBe(false);
+    expect(agent[0]).toMatchObject({ notice: true });
+    expect(agent[0]?.text).toBe("Provider error: 503 overloaded. Retrying in 2 s (attempt 1 of 3).");
+    expect(agent[1]?.text).toBe("Recovered.");
+  });
+
+  it("shows the final error with Retry when pi's retries run out", () => {
+    const state = reduceAll(
+      initial(),
+      stream("c1", [
+        { type: "auto_retry_start", attempt: 3, maxAttempts: 3, delayMs: 8000, errorMessage: "503" },
+        assistantStart,
+        assistantEnd({ stopReason: "error", errorMessage: "503" }),
+        { type: "auto_retry_end", success: false, attempt: 3, finalError: "503" },
+      ]),
+    );
+
+    expect(state.messages[state.messages.length - 1]).toMatchObject({ error: true });
+  });
+});
+
+describe("seq gaps", () => {
+  it("marks the state stale when envelopes were missed, so the frame asks for a snapshot", () => {
+    const state = reduceAll(initial(), stream("c1", [assistantStart, textDelta("a")]));
+    const [late] = stream("c1", [textDelta("z")], 7);
+
+    expect(state.stale).toBeFalsy();
+    expect(reduceEnvelope(state, late!).stale).toBe(true);
+  });
+});
+
+describe("chatFromSnapshot", () => {
+  const user = (text: string) => ({ role: "user", content: text, timestamp: 1 }) as ChatMessage;
+  const assistant = (content: unknown[], extra: Record<string, unknown> = {}) =>
+    ({ role: "assistant", content, stopReason: "stop", ...extra }) as unknown as ChatMessage;
+
+  const snapshot = (overrides: Partial<AgentSnapshot> = {}): AgentSnapshot => ({
+    messages: [],
+    isStreaming: false,
+    pendingToolRequests: [],
+    autoApprove: false,
+    seq: 0,
+    ...overrides,
+  });
+
+  it("rebuilds the saved transcript, skipping turns with only tool calls", () => {
+    const state = chatFromSnapshot(
+      "c1",
+      snapshot({
+        seq: 12,
+        messages: [
+          user("which version?"),
+          assistant([{ type: "toolCall", id: "t1", name: "getClusterVersion", arguments: {} }], {
+            stopReason: "toolUse",
+          }),
+          assistant([
+            { type: "thinking", thinking: "Read the result." },
+            { type: "text", text: "It runs v1.31.2." },
+          ]),
+        ],
+      }),
+    );
+
+    expect(state.seq).toBe(12);
+    expect(state.isRunning).toBe(false);
+    expect(state.messages.map((m) => ({ text: m.text, sent: m.sent, reasoning: m.reasoning }))).toEqual([
+      { text: "which version?", sent: true, reasoning: undefined },
+      { text: "It runs v1.31.2.", sent: false, reasoning: "Read the result." },
+    ]);
+  });
+
+  it("reads a user message given as text parts", () => {
+    const state = chatFromSnapshot(
+      "c1",
+      snapshot({
+        messages: [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: 1 } as ChatMessage],
+      }),
+    );
+    expect(state.messages[0]).toMatchObject({ text: "hello", sent: true });
+  });
+
+  it("keeps saved errors and stops visible", () => {
+    const state = chatFromSnapshot(
+      "c1",
+      snapshot({
+        messages: [
+          user("hi"),
+          assistant([], { stopReason: "error", errorMessage: "401 invalid_api_key" }),
+          user("again"),
+          assistant([{ type: "text", text: "Part" }], { stopReason: "aborted" }),
+        ],
+      }),
+    );
+
+    expect(state.messages.map((m) => [m.text, !!m.error, !!m.notice])).toEqual([
+      ["hi", false, false],
+      ["Error while running Freelens Agent: 401 invalid_api_key", true, false],
+      ["again", false, false],
+      ["Part", false, false],
+      ["Stopped.", false, true],
+    ]);
+    expect(state.messages[1]?.retryContext).toEqual({ kind: "message", text: "hi" });
+  });
+
+  it("continues a remount mid-stream from the partial answer and later envelopes", () => {
+    const remounted = chatFromSnapshot(
+      "c1",
+      snapshot({
+        seq: 4,
+        isStreaming: true,
+        messages: [user("tell me a story")],
+        streamingMessage: assistant([{ type: "text", text: "Once upon" }], { stopReason: "pending" }) as never,
+      }),
+    );
+    expect(remounted.isRunning).toBe(true);
+
+    // Seq 4 is already part of the snapshot's partial answer.
+    const state = reduceAll(remounted, stream("c1", [textDelta(" upon"), textDelta(" a time."), assistantEnd()], 4));
+
+    expect(agentTexts(state)).toEqual(["Once upon a time."]);
+    expect(state.messages.every((m) => !m.streaming)).toBe(true);
   });
 });

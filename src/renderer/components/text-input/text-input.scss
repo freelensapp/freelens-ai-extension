@@ -116,8 +116,14 @@ body.theme-light .text-input-token-capacity-arc {
   padding-right: 0;
 }
 
-#send-button {
+#send-button,
+#stop-button {
   padding-left: 10px;
+}
+
+.text-input-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .chat-clear-button {

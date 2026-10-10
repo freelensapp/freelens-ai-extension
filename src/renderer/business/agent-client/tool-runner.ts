@@ -14,10 +14,14 @@ export interface ToolReply {
 export async function runToolRequest(
   request: ToolRequest,
   implementations: Readonly<Record<string, ToolImplementation>>,
+  { isClusterConnected = () => true }: { isClusterConnected?: () => boolean } = {},
 ): Promise<ToolReply> {
   const implementation = implementations[request.toolName];
   if (!implementation) {
     return { text: `Unknown tool: ${request.toolName}`, isError: true };
+  }
+  if (!isClusterConnected()) {
+    return { text: "Cluster not connected", isError: true };
   }
   try {
     return { text: await implementation(request.args ?? {}), isError: false };

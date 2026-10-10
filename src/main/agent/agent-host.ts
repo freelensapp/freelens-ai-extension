@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   type AgentSession,
@@ -15,7 +15,14 @@ import { SYSTEM_PROMPT } from "./system-prompt";
 
 import type { Model } from "@earendil-works/pi-ai";
 
-import type { AgentCommand, AgentEnvelope, AgentResponse, ToolRequest } from "../../common/agent-protocol";
+import type {
+  AgentCommand,
+  AgentEnvelope,
+  AgentResponse,
+  AgentSnapshot,
+  ChatMessage,
+  ToolRequest,
+} from "../../common/agent-protocol";
 import type { AgentToolDefinition } from "../../common/agent-tools";
 
 export const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
@@ -41,11 +48,11 @@ export interface AgentHostOptions {
 
 interface ClusterAgent {
   session: AgentSession;
-  seq: number;
 }
 
 interface PendingToolRequest {
   clusterId: string;
+  request: ToolRequest;
   resolve: (text: string) => void;
   reject: (error: Error) => void;
 }
@@ -53,6 +60,11 @@ interface PendingToolRequest {
 const ok = (command: string, data?: unknown): AgentResponse => ({ type: "response", command, success: true, data });
 const fail = (command: string, error: string): AgentResponse => ({ type: "response", command, success: false, error });
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+// The chat shows only these; pi's system prompt, tool results and custom
+// entries stay in main.
+const isChatMessage = (message: { role: string }): message is ChatMessage =>
+  message.role === "user" || message.role === "assistant";
 
 // Cluster ids name a folder on disk, so keep them to safe characters.
 const safeFolderName = (clusterId: string) => clusterId.replace(/[^A-Za-z0-9._-]/g, "_");
@@ -66,6 +78,9 @@ const safeFolderName = (clusterId: string) => clusterId.replace(/[^A-Za-z0-9._-]
 export class AgentHost {
   private readonly clusters = new Map<string, Promise<ClusterAgent>>();
   private readonly pendingTools = new Map<string, PendingToolRequest>();
+  // Per cluster rather than per session, so a snapshot taken before the first
+  // run reports 0.
+  private readonly seqs = new Map<string, number>();
 
   constructor(private readonly options: AgentHostOptions) {}
 
@@ -73,6 +88,10 @@ export class AgentHost {
     switch (command.type) {
       case "prompt":
         return this.prompt(clusterId, command.message);
+      case "abort":
+        return this.abort(clusterId);
+      case "get_snapshot":
+        return this.snapshot(clusterId);
       case "tool_result":
         return this.toolResult(clusterId, command.requestId, command.text, command.isError ?? false);
       default:
@@ -141,6 +160,64 @@ export class AgentHost {
     });
   }
 
+  // Stop first fails the tool calls still waiting on the frame, so the run is
+  // not left waiting on a frame that may never answer.
+  private async abort(clusterId: string): Promise<AgentResponse> {
+    const agent = this.clusters.get(clusterId);
+    if (!agent) return ok("abort");
+    for (const pending of [...this.pendingTools.values()]) {
+      if (pending.clusterId === clusterId) pending.reject(new Error("The user stopped the run."));
+    }
+    try {
+      await (await agent).session.abort();
+      return ok("abort");
+    } catch (error) {
+      return fail("abort", errorText(error));
+    }
+  }
+
+  private async snapshot(clusterId: string): Promise<AgentResponse> {
+    const empty: AgentSnapshot = {
+      messages: [],
+      isStreaming: false,
+      pendingToolRequests: [],
+      autoApprove: false,
+      seq: this.seqs.get(clusterId) ?? 0,
+    };
+    // Opening a session for a cluster that never chatted would create files.
+    if (!this.clusters.has(clusterId) && !this.hasSessionFile(clusterId)) {
+      return ok("get_snapshot", empty);
+    }
+    try {
+      const { session } = await this.getClusterAgent(clusterId);
+      // Read seq together with the state, after the await, so they match.
+      const streaming = session.state.streamingMessage;
+      const snapshot: AgentSnapshot = {
+        ...empty,
+        seq: this.seqs.get(clusterId) ?? 0,
+        sessionId: session.sessionId,
+        messages: session.messages.filter(isChatMessage),
+        streamingMessage: streaming?.role === "assistant" ? streaming : undefined,
+        isStreaming: session.isStreaming,
+        pendingToolRequests: [...this.pendingTools.values()]
+          .filter((pending) => pending.clusterId === clusterId)
+          .map((pending) => pending.request),
+      };
+      return ok("get_snapshot", snapshot);
+    } catch (error) {
+      return fail("get_snapshot", errorText(error));
+    }
+  }
+
+  private sessionDir(clusterId: string): string {
+    return join(this.options.dataDir, "sessions", safeFolderName(clusterId));
+  }
+
+  private hasSessionFile(clusterId: string): boolean {
+    const dir = this.sessionDir(clusterId);
+    return existsSync(dir) && readdirSync(dir).some((file) => file.endsWith(".jsonl"));
+  }
+
   private toolResult(clusterId: string, requestId: string, text: string, isError: boolean): AgentResponse {
     const pending = this.pendingTools.get(requestId);
     if (!pending || pending.clusterId !== clusterId) {
@@ -155,7 +232,9 @@ export class AgentHost {
     return ok("tool_result");
   }
 
-  private getClusterAgent(clusterId: string, model: Model<any>): Promise<ClusterAgent> {
+  // The model is optional: a snapshot opens the session before a prompt has
+  // chosen one, and the prompt then sets it.
+  private getClusterAgent(clusterId: string, model?: Model<any>): Promise<ClusterAgent> {
     let agent = this.clusters.get(clusterId);
     if (!agent) {
       agent = this.createClusterAgent(clusterId, model);
@@ -165,9 +244,9 @@ export class AgentHost {
     return agent;
   }
 
-  private async createClusterAgent(clusterId: string, model: Model<any>): Promise<ClusterAgent> {
+  private async createClusterAgent(clusterId: string, model: Model<any> | undefined): Promise<ClusterAgent> {
     const { dataDir, modelRuntime, tools } = this.options;
-    const sessionDir = join(dataDir, "sessions", safeFolderName(clusterId));
+    const sessionDir = this.sessionDir(clusterId);
     const agentDir = join(dataDir, "pi");
     mkdirSync(sessionDir, { recursive: true });
 
@@ -205,7 +284,7 @@ export class AgentHost {
       settingsManager: SettingsManager.inMemory(this.options.retry === false ? { retry: { enabled: false } } : {}),
     });
 
-    const agent: ClusterAgent = { session, seq: 0 };
+    const agent: ClusterAgent = { session };
     session.subscribe((event) => {
       // Repeats message_end and can carry large tool results.
       if (event.type === "entry_appended") return;
@@ -214,14 +293,16 @@ export class AgentHost {
     return agent;
   }
 
+  // Fire and forget: the session listener never waits on the frames, and a
+  // failing broadcast must not break the run.
   private send(clusterId: string, agent: ClusterAgent, body: Pick<AgentEnvelope, "kind" | "payload">): void {
-    agent.seq += 1;
-    this.options.broadcast({
-      clusterId,
-      sessionId: agent.session.sessionId,
-      seq: agent.seq,
-      ...body,
-    } as AgentEnvelope);
+    const seq = (this.seqs.get(clusterId) ?? 0) + 1;
+    this.seqs.set(clusterId, seq);
+    try {
+      this.options.broadcast({ clusterId, sessionId: agent.session.sessionId, seq, ...body } as AgentEnvelope);
+    } catch (error) {
+      console.error(`[freelens-ai] Broadcasting to the frames of cluster ${clusterId} failed:`, error);
+    }
   }
 
   private toPiTool(clusterId: string, tool: AgentToolDefinition) {
@@ -272,8 +353,10 @@ export class AgentHost {
         );
       }, timeoutMs);
       signal?.addEventListener("abort", onAbort, { once: true });
+      const request: ToolRequest = { requestId, toolName, args };
       this.pendingTools.set(requestId, {
         clusterId,
+        request,
         resolve: (text) => {
           cleanup();
           resolve(text);
@@ -284,7 +367,6 @@ export class AgentHost {
         },
       });
 
-      const request: ToolRequest = { requestId, toolName, args };
       this.send(clusterId, agent, { kind: "tool_request", payload: request });
     });
   }

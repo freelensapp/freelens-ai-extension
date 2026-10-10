@@ -34,5 +34,7 @@ export interface MessageObject {
   retryContext?: RetryContext;
   // Set while the pi agent is still streaming this message.
   streaming?: boolean;
+  // A status line from the agent run (stopped, retrying), not an answer.
+  notice?: boolean;
   sent: boolean;
 }

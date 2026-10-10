@@ -26,6 +26,23 @@ describe("runToolRequest", () => {
     expect(reply).toEqual({ text: "Unknown tool: deleteEverything", isError: true });
   });
 
+  it("replies 'Cluster not connected' without running the tool when the cluster is disconnected", async () => {
+    let ran = false;
+    const reply = await runToolRequest(
+      request("getClusterVersion"),
+      {
+        getClusterVersion: () => {
+          ran = true;
+          return "v1";
+        },
+      },
+      { isClusterConnected: () => false },
+    );
+
+    expect(reply).toEqual({ text: "Cluster not connected", isError: true });
+    expect(ran).toBe(false);
+  });
+
   it("turns a thrown error into an error reply", async () => {
     const reply = await runToolRequest(request("getClusterVersion"), {
       getClusterVersion: async () => {

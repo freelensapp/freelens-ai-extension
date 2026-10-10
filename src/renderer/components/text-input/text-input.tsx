@@ -1,5 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
-import { Eraser, SendHorizonal, ShieldOff } from "lucide-react";
+import { Eraser, SendHorizonal, ShieldOff, Square } from "lucide-react";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
 import { formatCost } from "../../business/provider/model-pricing";
@@ -39,7 +39,8 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
             ref={textInputHook.textareaRef}
             rows={1}
             className="text-input-textarea"
-            placeholder="Write a message..."
+            placeholder={applicationStatusStore.isLoading ? "The agent is working..." : "Write a message..."}
+            disabled={applicationStatusStore.isLoading}
             value={textInputHook.message}
             onChange={(e) => textInputHook.setMessage(e.target.value)}
             onKeyDown={textInputHook.handleKeyDown}
@@ -156,15 +157,27 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                   peakTokens={applicationStatusStore.lastPeakInputTokens}
                 />
               )}
-              <button
-                className="text-input-send-button"
-                onClick={textInputHook.handleSend}
-                disabled={applicationStatusStore.isLoading || !textInputHook.message.trim()}
-                title="Send"
-                id="send-button"
-              >
-                <SendHorizonal size={25} />
-              </button>
+              {/* While a run is going, Stop is the only action */}
+              {applicationStatusStore.isAgentRunning ? (
+                <button
+                  className="text-input-send-button text-input-stop-button"
+                  onClick={() => applicationStatusStore.stopAgent()}
+                  title="Stop"
+                  id="stop-button"
+                >
+                  <Square size={20} fill="currentColor" />
+                </button>
+              ) : (
+                <button
+                  className="text-input-send-button"
+                  onClick={textInputHook.handleSend}
+                  disabled={applicationStatusStore.isLoading || !textInputHook.message.trim()}
+                  title="Send"
+                  id="send-button"
+                >
+                  <SendHorizonal size={25} />
+                </button>
+              )}
             </div>
           </div>
           {/* List of tools */}
