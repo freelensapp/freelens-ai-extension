@@ -30,9 +30,15 @@ pure and tested). `ProviderModelSummary` gained `providerName` for the group
 labels. The choice is stored in the `agentModel` preference as `provider/id`,
 which main reads before every prompt and applies with `session.setModel`.
 
-- The remembered model is kept while its provider is connected. When none was
-  chosen yet, or its provider is gone, the picker falls back to the first
-  listed model and stores it, so main always runs the model the picker shows.
+- The remembered model is kept while it is listed. When none was chosen yet,
+  the picker stores the first listed model, so main runs the model it shows.
+- A remembered model missing from the list is not replaced: its provider may
+  only have failed to list for a moment, and overwriting the preference would
+  lose the choice in every window. The picker shows "Choose a model" instead,
+  and a prompt gets main's "No credentials for ..." answer.
+- The context gauge and the cost estimate use the picked model's context size
+  and prices from pi's catalog, so they are right for any provider. The token
+  counts behind them are still the old ones until ticket 09.
 - The old fallback in main to `openai/<selectedModel>` is gone: `agentModel`
   is the only source.
 
@@ -64,10 +70,11 @@ run without thinking. A test reproduced this before the fix.
 
 **AI Explain until ticket 13.** It still runs on the old OpenAI client:
 
-- It maps the thinking level to its reasoning effort. `off` sends no effort
-  (the model's default), because the values that turn reasoning off differ
-  per OpenAI model family. The `thinking: disabled` body field is no longer
-  sent.
+- It maps the thinking level to its reasoning fields
+  (`explainReasoningOptions`). `off` sends the old "Disable thinking mode"
+  field it was imported from. This client does not clamp per model the way pi
+  does, so `minimal` and `xhigh` become `low` and `high`, which every OpenAI
+  reasoning model accepts.
 - Picking an OpenAI model in the chat also makes it AI Explain's model. A
   model of another provider leaves AI Explain on its last OpenAI model.
 
@@ -76,7 +83,8 @@ and a plain model): switching the model between prompts, the level read
 before each prompt reaching the provider, the level surviving a detour
 through a model without reasoning, and `off` sending no reasoning. Provider
 service (1): `credentials_changed` after login and logout, without the key.
-Picker helpers (6) and the thinking level import (6).
+Picker helpers (6), the thinking level import (6) and the AI Explain mapping
+(3).
 
 **HITL:** connect two providers, pick a model of each in turn in one chat,
 and check the answers come from the chosen model. Log out of one provider in
