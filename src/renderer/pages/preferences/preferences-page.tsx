@@ -89,6 +89,11 @@ export const PreferencesPage = observer(() => {
   const [newModelProvider, setNewModelProvider] = useState<AIProviders>(AIProviders.OPEN_AI);
   const [newModelName, setNewModelName] = useState<string>("");
 
+  // Committed on blur, so the field can be emptied while typing a new number.
+  const chatRetentionField = useStoreValueOnBlur(
+    String(preferencesStore.chatRetentionDays),
+    (next) => (preferencesStore.chatRetentionDays = parseRetentionDays(Number.parseInt(next, 10))),
+  );
   const customAgentRulesField = useStoreValueOnBlur(
     preferencesStore.customAgentRules,
     (next) => (preferencesStore.customAgentRules = next),
@@ -235,10 +240,10 @@ export const PreferencesPage = observer(() => {
         type="number"
         min={0}
         placeholder={String(DEFAULT_CHAT_RETENTION_DAYS)}
-        value={String(preferencesStore.chatRetentionDays)}
-        onChange={(value: string) => {
-          preferencesStore.chatRetentionDays = parseRetentionDays(Number.parseInt(value, 10));
-        }}
+        value={chatRetentionField.value}
+        onChange={chatRetentionField.onChange}
+        onFocus={chatRetentionField.onFocus}
+        onBlur={chatRetentionField.onBlur}
       />
 
       <HorizontalLine />
