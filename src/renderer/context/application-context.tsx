@@ -24,6 +24,7 @@ import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
 import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../business/provider/ai-models";
+import { addModel } from "../business/provider/model-list";
 import { computeSessionCost, type ModelPricingMap } from "../business/provider/model-pricing";
 import { fetchModelPricing } from "../business/provider/model-pricing-provider";
 import { approximateTokenCount } from "../business/provider/token-estimate";
@@ -72,7 +73,8 @@ export interface AppContextType {
   compactionStatus: CompactionStatus;
   freeLensAgent: FreeLensAgent | null;
   mcpAgent: MPCAgent | null;
-  setSelectedModel: (selectedModel: string) => void;
+  // The chat model as "provider/id", remembered as the last one used.
+  setSelectedModel: (modelRef: string) => void;
   addTokenUsage: (usage: TokenUsage) => void;
   setLastInputTokens: (lastInputTokens: number) => void;
   setLastPeakInputTokens: (lastPeakInputTokens: number) => void;
@@ -527,11 +529,16 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     return freeLensAgent;
   };
 
-  const setSelectedModel = (selectedModel: string) => {
-    preferencesStore.selectedModel = selectedModel;
-    // The chat picker still lists the old OpenAI models; the pi agent reads its
-    // model from `agentModel` until the picker lists pi's models.
-    preferencesStore.agentModel = `openai/${selectedModel}`;
+  // Takes the picker's "provider/id"; main runs the next prompt on it.
+  const setSelectedModel = (modelRef: string) => {
+    preferencesStore.agentModel = modelRef;
+    // AI Explain still runs on the old OpenAI client until it moves to pi, so
+    // an OpenAI model chosen in the chat becomes its model too.
+    const openAIModel = modelRef.startsWith("openai/") ? modelRef.slice("openai/".length) : "";
+    if (openAIModel) {
+      preferencesStore.models = addModel(preferencesStore.models, AIProviders.OPEN_AI, openAIModel);
+      preferencesStore.selectedModel = openAIModel;
+    }
   };
 
   // The API key to use depends on the selected model's provider. Only OpenAI is

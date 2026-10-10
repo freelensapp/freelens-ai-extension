@@ -16,8 +16,6 @@ const {
   Component: { Button, Select },
 } = Renderer;
 
-type TextInputOption = Renderer.Component.SelectOption<string>;
-
 type TextInputProps = {
   onSend: (message: string) => void;
 };
@@ -25,7 +23,6 @@ type TextInputProps = {
 export const TextInput = observer(({ onSend }: TextInputProps) => {
   const applicationStatusStore = useApplicationStatusStore();
   const textInputHook = useTextInput({ onSend });
-  const textInputOptions = textInputHook.modelSelections as TextInputOption[];
 
   // State for showing/hiding the vertical list
   const [showList, setShowList] = React.useState(false);
@@ -116,22 +113,26 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                   {applicationStatusStore.sessionCost > 0 ? ` = ${formatCost(applicationStatusStore.sessionCost)}` : ""}
                 </span>
               )}
-              {textInputHook.agentConfigured ? (
+              {textInputHook.agentConfigured && (
                 <Select
-                  id="update-channel-input"
-                  options={textInputOptions}
-                  value={applicationStatusStore.selectedModel}
+                  id="chat-model-picker"
+                  options={textInputHook.modelSelections}
+                  value={textInputHook.pickedModel ?? null}
                   onChange={textInputHook.onChangeModel}
                   themeName="lens"
                   className="text-input-select-box"
                 />
-              ) : (
-                <Button
-                  primary
-                  label="Configure agent"
-                  onClick={textInputHook.goToPreferences}
-                  title="Set an API key and add a model in Freelens AI settings."
-                />
+              )}
+              {textInputHook.noProviderConnected && (
+                <>
+                  <span className="text-input-no-provider">No AI provider is connected.</span>
+                  <Button
+                    primary
+                    label="Connect a provider"
+                    onClick={textInputHook.goToPreferences}
+                    title="Add an API key or sign in to a provider in the Freelens AI settings."
+                  />
+                </>
               )}
               {textInputHook.agentConfigured && (
                 <TokenCapacityIndicator

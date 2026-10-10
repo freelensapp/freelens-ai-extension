@@ -47,6 +47,8 @@ export interface ProviderSummary {
 /** A model of pi's catalog, with what the cards show. */
 export interface ProviderModelSummary {
   provider: string;
+  /** The provider's display name, e.g. "OpenAI"; the chat picker groups by it. */
+  providerName: string;
   id: string;
   name: string;
   contextWindow: number;
@@ -88,7 +90,13 @@ export type ProviderEnvelope =
   /** The prompt no longer needs an answer, e.g. a browser callback arrived before the pasted code. */
   | (ProviderEnvelopeBase & { kind: "ui_resolved"; payload: { id: string } })
   | (ProviderEnvelopeBase & { kind: "login_event"; payload: LoginEvent })
-  | (ProviderEnvelopeBase & { kind: "login_end"; payload: { success: boolean; error?: string } });
+  | (ProviderEnvelopeBase & { kind: "login_end"; payload: { success: boolean; error?: string } })
+  /**
+   * A login or logout changed the stored credentials, so the connected
+   * providers and their models may have changed. Not tied to a login: every
+   * window reloads what it shows, e.g. the chat's model picker.
+   */
+  | { kind: "credentials_changed" };
 
 export type ProviderCommand =
   /** Every pi built-in provider with its status; answers with `ProviderSummary[]`. */

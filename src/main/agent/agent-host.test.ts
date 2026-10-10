@@ -338,6 +338,97 @@ describe("AgentHost", () => {
     expect(seenPrompt).not.toMatch(/\bbash\b/i);
   });
 
+  describe("model and thinking level", () => {
+    let models: Faux;
+
+    beforeEach(() => {
+      models = fauxProvider({
+        provider: "faux-models",
+        tokensPerSecond: 100_000,
+        models: [{ id: "fast" }, { id: "deep", reasoning: true }],
+      });
+      modelRuntime.registerNativeProvider(models.provider);
+    });
+
+    const answerWith = (seen: { model: string; reasoning?: string }[]) => {
+      const step = (
+        _context: unknown,
+        options: { reasoning?: string } | undefined,
+        _state: unknown,
+        model: { id: string },
+      ) => {
+        seen.push({ model: model.id, reasoning: options?.reasoning });
+        return fauxAssistantMessage([fauxText("ok")]);
+      };
+      return [step, step, step];
+    };
+
+    const promptAndSettle = async (host: AgentHost, message: string) => {
+      const before = eventTypes().filter((type) => type === "agent_settled").length;
+      const response = await host.handleCommand("c1", { type: "prompt", message });
+      expect(response).toMatchObject({ success: true });
+      await waitFor(() => eventTypes().filter((type) => type === "agent_settled").length > before);
+    };
+
+    it("switches the model between prompts of one chat", async () => {
+      const seen: { model: string }[] = [];
+      models.setResponses(answerWith(seen));
+      let ref = { provider: "faux-models", id: "fast" };
+      const host = createHost({ getModelRef: () => ref });
+
+      await promptAndSettle(host, "first");
+      ref = { provider: "faux-models", id: "deep" };
+      await promptAndSettle(host, "second");
+
+      expect(seen.map((call) => call.model)).toEqual(["fast", "deep"]);
+    });
+
+    it("sends the thinking level read before each prompt", async () => {
+      const seen: { model: string; reasoning?: string }[] = [];
+      models.setResponses(answerWith(seen));
+      let level: "low" | "high" = "high";
+      const host = createHost({
+        getModelRef: () => ({ provider: "faux-models", id: "deep" }),
+        getThinkingLevel: () => level,
+      });
+
+      await promptAndSettle(host, "first");
+      level = "low";
+      await promptAndSettle(host, "second");
+
+      expect(seen.map((call) => call.reasoning)).toEqual(["high", "low"]);
+    });
+
+    it("keeps the chosen level for a reasoning model after a model without reasoning", async () => {
+      const seen: { model: string; reasoning?: string }[] = [];
+      models.setResponses(answerWith(seen));
+      let ref = { provider: "faux-models", id: "fast" };
+      const host = createHost({ getModelRef: () => ref, getThinkingLevel: () => "high" });
+
+      await promptAndSettle(host, "first");
+      ref = { provider: "faux-models", id: "deep" };
+      await promptAndSettle(host, "second");
+
+      expect(seen).toEqual([
+        { model: "fast", reasoning: undefined },
+        { model: "deep", reasoning: "high" },
+      ]);
+    });
+
+    it("sends no reasoning when the thinking level is off", async () => {
+      const seen: { model: string; reasoning?: string }[] = [];
+      models.setResponses(answerWith(seen));
+      const host = createHost({
+        getModelRef: () => ({ provider: "faux-models", id: "deep" }),
+        getThinkingLevel: () => "off",
+      });
+
+      await promptAndSettle(host, "first");
+
+      expect(seen).toEqual([{ model: "deep", reasoning: undefined }]);
+    });
+  });
+
   describe("chats and retention", () => {
     const DAY_MS = 24 * 60 * 60 * 1000;
     const sessionFiles = (clusterId: string) => {

@@ -195,6 +195,7 @@ export class ProviderService {
     );
     return perProvider.flat().map((model) => ({
       provider: model.provider,
+      providerName: modelRuntime.getProvider(model.provider)?.name ?? model.provider,
       id: model.id,
       name: model.name,
       contextWindow: model.contextWindow,
@@ -272,7 +273,7 @@ export class ProviderService {
     }
     // pi may have saved the credential before a late cancel or a failed refresh
     // afterwards, so the stored credentials can have changed either way.
-    this.options.onCredentialsChanged?.();
+    this.credentialsChanged();
     broadcast({
       loginId,
       kind: "login_end",
@@ -329,7 +330,12 @@ export class ProviderService {
       );
     }
     await modelRuntime.logout(providerId);
-    this.options.onCredentialsChanged?.();
+    this.credentialsChanged();
     return ok("logout");
+  }
+
+  private credentialsChanged(): void {
+    this.options.onCredentialsChanged?.();
+    this.options.broadcast({ kind: "credentials_changed" });
   }
 }

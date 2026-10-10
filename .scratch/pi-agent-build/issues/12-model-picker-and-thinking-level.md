@@ -9,15 +9,75 @@ switch.
 
 **Blocked by:** 10
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending)
 
-- [ ] The picker shows only models of providers with working auth, grouped by
+- [x] The picker shows only models of providers with working auth, grouped by
       provider, and updates after a login or logout.
-- [ ] The chosen model applies from the next prompt (pi's `set_model`) and is
+- [x] The chosen model applies from the next prompt (pi's `set_model`) and is
       remembered as the last used across restarts.
-- [ ] With no connected provider, the chat explains how to connect one and
+- [x] With no connected provider, the chat explains how to connect one and
       links to the settings page.
-- [ ] The thinking level is a global preference read by main on each prompt.
-- [ ] Agent host tests cover switching the model between prompts and the
+- [x] The thinking level is a global preference read by main on each prompt.
+- [x] Agent host tests cover switching the model between prompts and the
       thinking level reaching the session.
 - [ ] HITL: switch between two providers' models in one chat.
+
+## Answer
+
+**Picker.** Each cluster window asks main for `list_models` and groups the
+answer by provider name (`src/renderer/business/provider-client/model-picker.ts`,
+pure and tested). `ProviderModelSummary` gained `providerName` for the group
+labels. The choice is stored in the `agentModel` preference as `provider/id`,
+which main reads before every prompt and applies with `session.setModel`.
+
+- The remembered model is kept while its provider is connected. When none was
+  chosen yet, or its provider is gone, the picker falls back to the first
+  listed model and stores it, so main always runs the model the picker shows.
+- The old fallback in main to `openai/<selectedModel>` is gone: `agentModel`
+  is the only source.
+
+**Reload after login or logout.** The provider service broadcasts a new
+envelope, `{ kind: "credentials_changed" }`, after every login (successful or
+not, since pi can save a credential and still fail) and logout. It carries no
+`loginId` and no credential. The provider IPC client now starts in every
+window, not only the root one, so cluster windows receive it and reload the
+list.
+
+**No provider connected.** The input shows "No AI provider is connected." and
+a **Connect a provider** button that opens the Freelens AI settings. It
+replaces "Configure agent".
+
+**Thinking level.** A new `thinkingLevel` preference
+(`src/common/thinking-level.ts`), set by a select under the provider cards.
+Main passes it to the session when it is created and calls
+`session.setThinkingLevel` before every prompt. That second call matters: pi
+keeps the clamped level, so after a prompt on a model without reasoning the
+session holds `off`, and switching back to a reasoning model would otherwise
+run without thinking. A test reproduced this before the fix.
+
+- **Upgrade:** `thinkingLevel` has no store default, so a missing value means
+  the old settings were not imported yet. "Disable thinking mode" on becomes
+  `off`; a reasoning effort of `low`, `medium` or `high` is kept; anything
+  else becomes `medium`.
+- The reasoning-effort select and the "Disable thinking mode" switch are gone
+  from the settings page. Their preference fields stay until ticket 14.
+
+**AI Explain until ticket 13.** It still runs on the old OpenAI client:
+
+- It maps the thinking level to its reasoning effort. `off` sends no effort
+  (the model's default), because the values that turn reasoning off differ
+  per OpenAI model family. The `thinking: disabled` body field is no longer
+  sent.
+- Picking an OpenAI model in the chat also makes it AI Explain's model. A
+  model of another provider leaves AI Explain on its last OpenAI model.
+
+**Tests:** agent host (4, written first, pi's faux provider with a reasoning
+and a plain model): switching the model between prompts, the level read
+before each prompt reaching the provider, the level surviving a detour
+through a model without reasoning, and `off` sending no reasoning. Provider
+service (1): `credentials_changed` after login and logout, without the key.
+Picker helpers (6) and the thinking level import (6).
+
+**HITL:** connect two providers, pick a model of each in turn in one chat,
+and check the answers come from the chosen model. Log out of one provider in
+the settings: its models should leave the picker in the open cluster window.

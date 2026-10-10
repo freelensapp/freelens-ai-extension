@@ -49,8 +49,9 @@ export const useModelProvider = () => {
           upstreamBaseUrl: openAIBaseUrl,
           proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
           proxyToken: preferencesStore.aiProxyToken,
-          reasoningEffort: preferencesStore.openAIReasoningEffort,
-          disableThinking: preferencesStore.disableThinking,
+          // The chat's thinking level; "off" leaves the model's default, because the
+          // effort values that turn reasoning off differ per OpenAI model family.
+          reasoningEffort: preferencesStore.thinkingLevel === "off" ? "" : preferencesStore.thinkingLevel,
         });
 
         // DeepSeek models leak their native "DSML" tool-call markup into the

@@ -4,6 +4,7 @@ import { type CustomModel, DEFAULT_MODELS, DEFAULT_OPENAI_BASE_URL } from "../..
 import { resolveSelectedModel } from "../../renderer/business/provider/model-list";
 import { DEFAULT_CHAT_RETENTION_DAYS } from "../agent-protocol";
 import { loadApprovalOverrides, type ToolApprovalOverrides } from "../agent-tools/approval-settings";
+import { DEFAULT_THINKING_LEVEL, loadThinkingLevel, type ThinkingLevel } from "../thinking-level";
 
 import type { MessageObject } from "../../renderer/business/objects/message-object";
 
@@ -16,7 +17,9 @@ export const parseRetentionDays = (value: unknown): number =>
 export interface PreferencesModel {
   openAIKey: string;
   openAIBaseUrl: string;
+  /** Read once to import into `thinkingLevel`; no longer used. */
   openAIReasoningEffort: string;
+  /** Read once to import into `thinkingLevel`; no longer used. */
   disableThinking: boolean;
   aiProxyPort: number | null;
   aiProxyToken: string | null;
@@ -32,6 +35,8 @@ export interface PreferencesModel {
   customAgentRules: string;
   agentModel: string;
   chatRetentionDays: number;
+  /** Absent until the old reasoning-effort settings have been imported. */
+  thinkingLevel?: ThinkingLevel;
 }
 
 export const DEFAULT_POD_LOGS_TAIL_LINES = 1000;
@@ -63,6 +68,9 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   agentModel: string = "";
   // Main deletes chats not changed for longer than this many days; 0 keeps them.
   chatRetentionDays: number = DEFAULT_CHAT_RETENTION_DAYS;
+  // The global thinking level; main reads it before every prompt and pi clamps
+  // it to the model. AI Explain maps it to its reasoning effort.
+  thinkingLevel: ThinkingLevel = DEFAULT_THINKING_LEVEL;
 
   // Not persistent
   explainEvent: MessageObject = {} as MessageObject;
@@ -88,6 +96,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         customAgentRules: "",
         agentModel: "",
         chatRetentionDays: DEFAULT_CHAT_RETENTION_DAYS,
+        // No `thinkingLevel` default: a missing field means the old reasoning
+        // settings have not been imported yet.
         mcpConfiguration: JSON.stringify(
           {
             mcpServers: {
@@ -123,6 +133,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       customAgentRules: observable,
       agentModel: observable,
       chatRetentionDays: observable,
+      thinkingLevel: observable,
       explainEvent: observable,
       bypassApprovals: observable,
     });
@@ -153,6 +164,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this.customAgentRules = preferencesModel.customAgentRules ?? "";
     this.agentModel = preferencesModel.agentModel ?? "";
     this.chatRetentionDays = parseRetentionDays(preferencesModel.chatRetentionDays);
+    this.thinkingLevel = loadThinkingLevel(preferencesModel);
   }
 
   toJSON(): PreferencesModel {
@@ -177,6 +189,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       customAgentRules: this.customAgentRules,
       agentModel: this.agentModel,
       chatRetentionDays: this.chatRetentionDays,
+      thinkingLevel: this.thinkingLevel,
     };
   }
 }

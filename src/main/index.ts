@@ -152,11 +152,9 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       tools: AGENT_TOOLS,
       // Read before every call, so a changed preference applies to the next one.
       getApprovalOverrides: () => preferencesStore.toolApprovalOverrides,
-      // Until the chat picker lists pi's models, fall back to the old OpenAI
-      // selection, so a key from OPENAI_API_KEY alone still works.
-      getModelRef: () =>
-        parseModelRef(preferencesStore.agentModel) ??
-        (preferencesStore.selectedModel ? { provider: "openai", id: preferencesStore.selectedModel } : undefined),
+      // The chat's model picker remembers the last model used here.
+      getModelRef: () => parseModelRef(preferencesStore.agentModel),
+      getThinkingLevel: () => preferencesStore.thinkingLevel,
       getRetentionDays: () => preferencesStore.chatRetentionDays,
       // Hosts before the main cluster API (Freelens 1.10) keep every cluster's latest chat.
       knownClusterIds: () => Main.Catalog?.getAllClusters?.()?.map((cluster) => cluster.id),

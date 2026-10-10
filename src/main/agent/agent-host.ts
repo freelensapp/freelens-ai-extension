@@ -15,6 +15,7 @@ import {
 import { DEFAULT_CHAT_RETENTION_DAYS } from "../../common/agent-protocol";
 import { prepareApproval } from "../../common/agent-tools/approval";
 import { requiresApproval, type ToolApprovalOverrides } from "../../common/agent-tools/approval-settings";
+import { DEFAULT_THINKING_LEVEL, type ThinkingLevel } from "../../common/thinking-level";
 import { toJsonEvent } from "./json-event";
 import { SYSTEM_PROMPT } from "./system-prompt";
 
@@ -51,6 +52,8 @@ export interface AgentHostOptions {
   tools: readonly AgentToolDefinition[];
   /** The model the next prompt runs on, or undefined when none is selected. */
   getModelRef: () => ModelRef | undefined;
+  /** The global thinking level; read before every prompt, and pi clamps it to what the model supports. */
+  getThinkingLevel?: () => ThinkingLevel;
   /** The user's "Requires approval" choices by tool name; read before every call. */
   getApprovalOverrides?: () => ToolApprovalOverrides;
   systemPrompt?: string;
@@ -198,6 +201,9 @@ export class AgentHost {
       if (current?.provider !== model.provider || current?.id !== model.id) {
         await agent.session.setModel(model);
       }
+      // Set on every prompt: pi clamps the level to the current model, so after
+      // a model without reasoning the session holds "off", not the user's choice.
+      agent.session.setThinkingLevel(this.thinkingLevel());
     } catch (error) {
       prepared();
       return fail("prompt", errorText(error));
@@ -506,6 +512,10 @@ export class AgentHost {
     return confirmed ? undefined : { block: true, reason: DENIED_REASON };
   }
 
+  private thinkingLevel(): ThinkingLevel {
+    return this.options.getThinkingLevel?.() ?? DEFAULT_THINKING_LEVEL;
+  }
+
   // The model is optional: a snapshot opens the session before a prompt has
   // chosen one, and the prompt then sets it.
   private getClusterAgent(clusterId: string, model?: Model<any>): Promise<ClusterAgent> {
@@ -551,7 +561,7 @@ export class AgentHost {
       cwd: sessionDir,
       agentDir,
       model,
-      thinkingLevel: "medium",
+      thinkingLevel: this.thinkingLevel(),
       modelRuntime,
       resourceLoader,
       noTools: "builtin",

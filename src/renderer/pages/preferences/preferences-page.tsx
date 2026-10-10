@@ -13,6 +13,7 @@ import { AGENT_TOOLS } from "../../../common/agent-tools";
 import { requiresApproval, withApprovalOverride } from "../../../common/agent-tools/approval-settings";
 import { isDefaultOpenAIBaseUrl } from "../../../common/openai-base-url";
 import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore, parseRetentionDays } from "../../../common/store";
+import { THINKING_LEVELS, type ThinkingLevel } from "../../../common/thinking-level";
 
 interface DraftFieldProps {
   value: string;
@@ -73,12 +74,19 @@ const {
 
 type SelectOption<T> = Renderer.Component.SelectOption<T>;
 
-const REASONING_EFFORT_OPTIONS: SelectOption<string>[] = [
-  { value: "", label: "Default" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-];
+const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+};
+
+const THINKING_LEVEL_OPTIONS: SelectOption<ThinkingLevel>[] = THINKING_LEVELS.map((level) => ({
+  value: level,
+  label: THINKING_LEVEL_LABELS[level],
+}));
 
 export const PreferencesPage = observer(() => {
   const preferencesStore: PreferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
@@ -100,6 +108,23 @@ export const PreferencesPage = observer(() => {
   return (
     <>
       <ProviderSettings />
+
+      <HorizontalLine />
+
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Thinking level</div>
+      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
+        How much the model reasons before it answers, for every chat and AI Explain. Higher levels are slower and cost
+        more. Models that support fewer levels use the closest one; models without reasoning ignore it.
+      </div>
+      <Select
+        id="thinking-level"
+        options={THINKING_LEVEL_OPTIONS}
+        value={preferencesStore.thinkingLevel}
+        onChange={(option: SingleValue<SelectOption<ThinkingLevel>>) => {
+          if (option) preferencesStore.thinkingLevel = option.value;
+        }}
+        themeName="lens"
+      />
 
       <HorizontalLine />
 
@@ -126,29 +151,6 @@ export const PreferencesPage = observer(() => {
           />
         </>
       )}
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Reasoning effort</div>
-      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Applied only to reasoning-capable models (o-series, gpt-5.x).
-      </div>
-      <Select
-        options={REASONING_EFFORT_OPTIONS}
-        value={preferencesStore.openAIReasoningEffort}
-        onChange={(option: SingleValue<SelectOption<string>>) =>
-          (preferencesStore.openAIReasoningEffort = option?.value ?? "")
-        }
-        themeName="lens"
-      />
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Disable thinking mode</div>
-      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Turn off the model&apos;s thinking mode. Required by some providers (e.g. DeepSeek via LiteLLM) whose thinking
-        mode conflicts with the forced tool selection used for structured output.
-      </div>
-      <Switch
-        style={{ marginBottom: 8 }}
-        label="Disable thinking mode"
-        checked={preferencesStore.disableThinking}
-        onChange={(checked: boolean) => (preferencesStore.disableThinking = checked)}
-      />
 
       <HorizontalLine />
 

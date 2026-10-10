@@ -1,6 +1,6 @@
-// Pure helper deciding whether the agent is configured enough to start a chat.
-// Kept free of any host (`@freelensapp/extensions`) or MobX dependency so it can
-// be unit-tested in isolation and reused by the chat input.
+// Pure helper deciding whether AI Explain, which still runs on the old OpenAI
+// client, has a model. Kept free of any host or MobX dependency so it can be
+// unit-tested in isolation. The chat uses the model picker instead.
 
 import type { CustomModel } from "./ai-models";
 
@@ -8,14 +8,11 @@ export interface AgentReadinessInput {
   models: CustomModel[];
 }
 
-// Whether the chat has a model to offer. When false, the chat UI shows a single
-// "Configure agent" button linking to the extension preferences instead of the
-// model dropdown. Credentials are not checked here: they live in main, which
-// refuses a prompt without them and says which provider to connect.
+// Whether AI Explain has a model to run on. Credentials are not checked here:
+// they live in main.
 export const isAgentConfigured = ({ models }: AgentReadinessInput): boolean => models.length > 0;
 
-// Single place building the readiness input from the preferences store, so the
-// chat and AI Explain agree on what "configured" means.
+// Builds the readiness input from the preferences store.
 export const buildAgentReadinessInput = (prefs: { models: CustomModel[] }): AgentReadinessInput => ({
   models: prefs.models,
 });

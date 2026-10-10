@@ -39,7 +39,7 @@ export default class FreeLensAIRenderer extends Renderer.LensExtension {
     ChatSessionStore.getInstanceOrCreate<ChatSessionStore>().loadExtension(this);
     // The chat runs on the pi agent in main; this frame answers its tool calls.
     startAgentClient(this);
-    // The settings page in the root window reads providers and runs logins in main.
+    // Provider status, models and logins in main: for the settings page and the chat's model picker.
     startProviderClient(this);
   }
 

@@ -6,11 +6,11 @@ import {
   type ProviderEnvelope,
   type ProviderResponse,
 } from "../../../common/provider-protocol";
-import { getFrameClusterId } from "../cluster/active-cluster";
 
-// The settings page's side of the provider protocol: it asks main for provider
-// status and models, runs logins and receives their prompts. Only the root
-// window takes part, because the settings page lives there.
+// The renderer side of the provider protocol. The settings page in the root
+// window asks main for provider status and models, runs logins and receives
+// their prompts. The chat in each cluster window lists the connected models and
+// reloads them when main reports changed credentials.
 
 class ProviderRendererIpc extends Renderer.Ipc {}
 
@@ -20,7 +20,7 @@ const listeners = new Set<EnvelopeListener>();
 let ipc: ProviderRendererIpc | undefined;
 
 export function startProviderClient(extension: Renderer.LensExtension): void {
-  if (getFrameClusterId() || ipc) {
+  if (ipc) {
     return;
   }
   ipc = ProviderRendererIpc.createInstance(extension) as ProviderRendererIpc;

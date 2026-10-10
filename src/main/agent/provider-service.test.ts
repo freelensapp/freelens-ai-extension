@@ -235,7 +235,8 @@ describe("ProviderService", () => {
 
     expect(await first).toMatchObject({ success: false, error: "Login cancelled." });
     const prompt = await waitForPrompt(2);
-    expect(envelopes.find((e) => e.kind === "ui_request" && e.payload.id === prompt.id)?.loginId).toBe("l2");
+    const request = envelopes.find((e) => e.kind === "ui_request" && e.payload.id === prompt.id);
+    expect(request?.kind === "ui_request" ? request.loginId : undefined).toBe("l2");
     await svc.handleCommand({ type: "ui_response", id: prompt.id, value: "sk-second" });
     expect(await second).toMatchObject({ success: true });
   });
@@ -257,6 +258,19 @@ describe("ProviderService", () => {
 
     expect((await provider(svc, "fake-key")).status).toEqual({ connected: false, stored: false });
     expect(readFileSync(authPath, "utf8")).not.toContain("sk-fake");
+  });
+
+  it("tells every window that the credentials changed after a login and a logout", async () => {
+    const svc = createService();
+    const changes = () => envelopes.filter((e) => e.kind === "credentials_changed").length;
+    const login = svc.handleCommand({ type: "login", loginId: "l1", providerId: "fake-key", method: "api_key" });
+    await svc.handleCommand({ type: "ui_response", id: (await waitForPrompt(1)).id, value: "sk-fake" });
+    await login;
+    expect(changes()).toBe(1);
+
+    await svc.handleCommand({ type: "logout", providerId: "fake-key" });
+    expect(changes()).toBe(2);
+    expect(JSON.stringify(envelopes)).not.toContain("sk-fake");
   });
 
   it("shows a provider whose key comes from an environment variable as connected, without logout", async () => {
@@ -283,7 +297,12 @@ describe("ProviderService", () => {
     const models = (response.success ? response.data : []) as ProviderModelSummary[];
 
     expect(models.filter((m) => m.provider.startsWith("fake-"))).toEqual([
-      expect.objectContaining({ provider: "fake-env", id: "fake-env-model", name: "Fake Env Model" }),
+      expect.objectContaining({
+        provider: "fake-env",
+        providerName: "Fake Env",
+        id: "fake-env-model",
+        name: "Fake Env Model",
+      }),
     ]);
     expect(models[0]).toHaveProperty("contextWindow");
     expect(models[0]).toHaveProperty("inputCost");

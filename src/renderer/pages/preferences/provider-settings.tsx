@@ -64,7 +64,7 @@ interface LoginState {
 
 /** Applies one envelope of main's login to the dialog; envelopes of other logins are ignored. */
 const reduceLogin = (state: LoginState, envelope: ProviderEnvelope): LoginState => {
-  if (envelope.loginId !== state.loginId) {
+  if (envelope.kind === "credentials_changed" || envelope.loginId !== state.loginId) {
     return state;
   }
   switch (envelope.kind) {
