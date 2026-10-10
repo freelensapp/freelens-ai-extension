@@ -35,6 +35,12 @@ const openLink = (url: string) => {
   }
 };
 
+// Opens the link in the system browser instead of following "#" in the Freelens window.
+const linkHandler = (url: string) => (event: React.MouseEvent) => {
+  event.preventDefault();
+  openLink(url);
+};
+
 const statusLabel = ({ status }: ProviderSummary): string => {
   if (!status.stored) {
     return status.source ? `From ${status.source}` : "Connected";
@@ -91,7 +97,7 @@ const LoginEventView = ({ event }: { event: LoginEvent }) => {
         <div style={{ marginBottom: 8 }}>
           <div>
             Open{" "}
-            <a href="#" onClick={() => openLink(event.verificationUri)}>
+            <a href="#" onClick={linkHandler(event.verificationUri)}>
               {event.verificationUri}
             </a>{" "}
             and enter this code:
@@ -107,7 +113,7 @@ const LoginEventView = ({ event }: { event: LoginEvent }) => {
           {event.message}
           {event.links?.map((link) => (
             <div key={link.url}>
-              <a href="#" onClick={() => openLink(link.url)}>
+              <a href="#" onClick={linkHandler(link.url)}>
                 {link.label ?? link.url}
               </a>
             </div>
