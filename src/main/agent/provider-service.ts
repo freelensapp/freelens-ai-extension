@@ -267,9 +267,9 @@ export class ProviderService {
       }
       this.rejectPrompts(loginId);
     }
-    if (response.success) {
-      this.options.onCredentialsChanged?.();
-    }
+    // pi may have saved the credential before a late cancel or a failed refresh
+    // afterwards, so the stored credentials can have changed either way.
+    this.options.onCredentialsChanged?.();
     broadcast({
       loginId,
       kind: "login_end",

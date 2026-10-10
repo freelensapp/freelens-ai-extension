@@ -156,6 +156,8 @@ const PromptView = ({ prompt, onAnswer }: { prompt: LoginPrompt; onAnswer: (valu
 interface LoginDialogProps {
   provider: ProviderSummary;
   onClose: (connected: boolean) => void;
+  /** Called when a login ends, whatever the outcome. */
+  onEnded: () => void;
 }
 
 /**
@@ -163,7 +165,7 @@ interface LoginDialogProps {
  * shows whatever pi's login asks or reports. The answers go to main; nothing
  * typed here is kept in the renderer.
  */
-const LoginDialog = ({ provider, onClose }: LoginDialogProps) => {
+const LoginDialog = ({ provider, onClose, onEnded }: LoginDialogProps) => {
   const [login, setLogin] = useState<LoginState | undefined>();
   const [error, setError] = useState<string | undefined>();
   const running = useRef<string | undefined>(undefined);
@@ -205,6 +207,8 @@ const LoginDialog = ({ provider, onClose }: LoginDialogProps) => {
         providerId: provider.id,
         method: method.type,
       });
+      // Even a failed or cancelled login may have saved a credential.
+      onEnded();
       if (running.current !== loginId) {
         return;
       }
@@ -218,7 +222,7 @@ const LoginDialog = ({ provider, onClose }: LoginDialogProps) => {
         setError(response.error);
       }
     },
-    [provider, onClose],
+    [provider, onClose, onEnded],
   );
 
   // One method: start right away, once.
@@ -386,13 +390,9 @@ export const ProviderSettings = () => {
     await reload();
   };
 
-  const onLoginClosed = useCallback(
-    (connected: boolean) => {
-      setConnecting(undefined);
-      if (connected) void reload();
-    },
-    [reload],
-  );
+  // The cards reload when a login ends (onLoginEnded), so closing only hides the dialog.
+  const onLoginClosed = useCallback(() => setConnecting(undefined), []);
+  const onLoginEnded = useCallback(() => void reload(), [reload]);
 
   const connected = providers?.filter((provider) => provider.status.connected) ?? [];
   const connectable = (providers ?? [])
@@ -427,7 +427,9 @@ export const ProviderSettings = () => {
           />
         </div>
       )}
-      {connecting && <LoginDialog key={connecting.id} provider={connecting} onClose={onLoginClosed} />}
+      {connecting && (
+        <LoginDialog key={connecting.id} provider={connecting} onClose={onLoginClosed} onEnded={onLoginEnded} />
+      )}
       {error && <div style={{ marginBottom: 8, color: "var(--colorError, #ce3933)" }}>{error}</div>}
       {!providers && !error && <Spinner />}
       {providers && connected.length === 0 && hint("No provider is connected yet. Use Add provider to connect one.")}
