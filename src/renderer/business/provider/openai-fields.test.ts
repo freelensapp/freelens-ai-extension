@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildOpenAIChatFields, PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
+import {
+  buildOpenAIChatFields,
+  explainReasoningOptions,
+  PROXY_TOKEN_HEADER,
+  UPSTREAM_BASE_URL_HEADER,
+} from "./openai-fields";
 
 const baseOptions = {
   apiKey: "sk-test",
@@ -56,5 +61,22 @@ describe("buildOpenAIChatFields", () => {
   it("omits the thinking modelKwargs when not requested", () => {
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "deepseek-v4-pro" });
     expect(fields.modelKwargs).toBeUndefined();
+  });
+});
+
+describe("explainReasoningOptions", () => {
+  it("turns thinking off with the old Disable thinking mode field", () => {
+    expect(explainReasoningOptions("off")).toEqual({ reasoningEffort: "", disableThinking: true });
+  });
+
+  it("keeps the levels every OpenAI reasoning model accepts", () => {
+    expect(explainReasoningOptions("low")).toEqual({ reasoningEffort: "low", disableThinking: false });
+    expect(explainReasoningOptions("medium")).toEqual({ reasoningEffort: "medium", disableThinking: false });
+    expect(explainReasoningOptions("high")).toEqual({ reasoningEffort: "high", disableThinking: false });
+  });
+
+  it("moves minimal and xhigh to the nearest level the o-series accepts", () => {
+    expect(explainReasoningOptions("minimal")).toEqual({ reasoningEffort: "low", disableThinking: false });
+    expect(explainReasoningOptions("xhigh")).toEqual({ reasoningEffort: "high", disableThinking: false });
   });
 });

@@ -7,6 +7,8 @@ import { isReasoningModel } from "./model-capabilities";
 
 import type { ChatOpenAIFields } from "@langchain/openai";
 
+import type { ThinkingLevel } from "../../../common/thinking-level";
+
 // Header read by the local AI proxy to decide which upstream to forward to,
 // letting the user configure a custom base URL without changing the proxy code.
 export const UPSTREAM_BASE_URL_HEADER = "x-upstream-base-url";
@@ -39,6 +41,25 @@ export interface OpenAIChatFieldsOptions {
   // tool_choice". User-controlled because it is provider-specific.
   disableThinking?: boolean;
 }
+
+// AI Explain's reasoning fields for the chat's thinking level, until it moves to
+// pi, which clamps per model. This client does not clamp, so minimal and xhigh
+// move to the nearest level every OpenAI reasoning model accepts. "off" keeps
+// the old "Disable thinking mode" behavior that it was imported from.
+export const explainReasoningOptions = (
+  level: ThinkingLevel,
+): Required<Pick<OpenAIChatFieldsOptions, "reasoningEffort" | "disableThinking">> => {
+  switch (level) {
+    case "off":
+      return { reasoningEffort: "", disableThinking: true };
+    case "minimal":
+      return { reasoningEffort: "low", disableThinking: false };
+    case "xhigh":
+      return { reasoningEffort: "high", disableThinking: false };
+    default:
+      return { reasoningEffort: level, disableThinking: false };
+  }
+};
 
 export const buildOpenAIChatFields = ({
   modelName,
