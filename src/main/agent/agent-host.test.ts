@@ -336,6 +336,166 @@ describe("AgentHost", () => {
     expect(seenPrompt).not.toMatch(/\bbash\b/i);
   });
 
+  describe("chats and retention", () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const sessionFiles = (clusterId: string) => {
+      try {
+        return readdirSync(join(dataDir, "sessions", clusterId))
+          .filter((file) => file.endsWith(".jsonl"))
+          .sort();
+      } catch {
+        return [];
+      }
+    };
+    const chat = async (host: AgentHost, clusterId: string, text: string) => {
+      const before = envelopes.length;
+      faux.setResponses([fauxAssistantMessage([fauxText(text)])]);
+      const response = await host.handleCommand(clusterId, { type: "prompt", message: text });
+      if (!response.success) throw new Error(response.error);
+      await waitFor(() =>
+        envelopes
+          .slice(before)
+          .some((e) => e.clusterId === clusterId && e.kind === "event" && e.payload.type === "agent_settled"),
+      );
+    };
+    const answers = (snapshot: AgentSnapshot) =>
+      snapshot.messages
+        .flatMap((m) => (m.role === "assistant" ? m.content : []))
+        .map((c) => (c as { text?: string }).text);
+
+    it("starts a new chat in a new session file and keeps the old file", async () => {
+      const host = createHost();
+      await chat(host, "c1", "first chat");
+      const [firstFile] = sessionFiles("c1");
+      const firstSession = (await snapshotOf(host)).sessionId;
+
+      const response = await host.handleCommand("c1", { type: "new_session" });
+      expect(response).toMatchObject({ command: "new_session", success: true });
+      const fresh = response.success ? (response.data as AgentSnapshot) : undefined;
+      expect(fresh).toMatchObject({ messages: [], isStreaming: false });
+      expect(fresh?.sessionId).not.toBe(firstSession);
+      expect(sessionFiles("c1")).toEqual([firstFile]);
+
+      await chat(host, "c1", "second chat");
+      expect(sessionFiles("c1")).toHaveLength(2);
+      expect(answers(await snapshotOf(host))).toEqual(["second chat"]);
+    });
+
+    it("stops a running run before starting the new chat", async () => {
+      faux.setResponses(toolCallThenText());
+      const host = createHost({ toolTimeoutMs: 60_000 });
+      await host.handleCommand("c1", { type: "prompt", message: "which version?" });
+      await waitFor(() => envelopes.some((e) => e.kind === "tool_request"));
+
+      const response = await host.handleCommand("c1", { type: "new_session" });
+
+      expect(response).toMatchObject({ success: true });
+      expect(eventTypes()).toContain("agent_settled");
+      const snapshot = await snapshotOf(host);
+      expect(snapshot).toMatchObject({ messages: [], isStreaming: false, pendingToolRequests: [] });
+      expect(response.success && (response.data as AgentSnapshot).seq).toBe(snapshot.seq);
+    });
+
+    it("keeps the new chat after a restart instead of reopening the old one", async () => {
+      const first = createHost();
+      await chat(first, "c1", "old chat");
+      await first.handleCommand("c1", { type: "new_session" });
+      first.dispose();
+
+      const restarted = createHost();
+      expect((await snapshotOf(restarted)).messages).toEqual([]);
+      await chat(restarted, "c1", "new chat");
+      restarted.dispose();
+
+      const again = createHost();
+      expect(answers(await snapshotOf(again))).toEqual(["new chat"]);
+    });
+
+    it("deletes every session file of the cluster and starts an empty chat", async () => {
+      const host = createHost();
+      await chat(host, "c1", "one");
+      await host.handleCommand("c1", { type: "new_session" });
+      await chat(host, "c1", "two");
+      await chat(host, "c2", "other cluster");
+
+      const response = await host.handleCommand("c1", { type: "delete_sessions" });
+
+      expect(response).toMatchObject({ command: "delete_sessions", success: true });
+      expect(sessionFiles("c1")).toEqual([]);
+      expect(sessionFiles("c2")).toHaveLength(1);
+      expect((await snapshotOf(host)).messages).toEqual([]);
+      await chat(host, "c1", "after delete");
+      expect(answers(await snapshotOf(host))).toEqual(["after delete"]);
+    });
+
+    it("prunes chats older than the retention period but keeps each cluster's active chat", async () => {
+      let now = Date.now();
+      const host = createHost({ now: () => now, getRetentionDays: () => 30 });
+      await chat(host, "c1", "old");
+      await host.handleCommand("c1", { type: "new_session" });
+      await chat(host, "c1", "active");
+      // File names start with their creation time, so the new chat sorts last.
+      const [, activeFile] = sessionFiles("c1");
+      expect(sessionFiles("c1")).toHaveLength(2);
+
+      expect(await host.pruneSessions()).toBe(0);
+      expect(sessionFiles("c1")).toHaveLength(2);
+
+      now += 31 * DAY_MS;
+      expect(await host.pruneSessions()).toBe(1);
+      expect(sessionFiles("c1")).toEqual([activeFile]);
+      expect(answers(await snapshotOf(host))).toEqual(["active"]);
+    });
+
+    it("keeps chats newer than the retention period", async () => {
+      const now = Date.now() + 31 * DAY_MS;
+      const host = createHost({ now: () => now, getRetentionDays: () => 60 });
+      await chat(host, "c1", "old");
+      await host.handleCommand("c1", { type: "new_session" });
+      await chat(host, "c1", "active");
+
+      expect(await host.pruneSessions()).toBe(0);
+      expect(sessionFiles("c1")).toHaveLength(2);
+    });
+
+    it("never prunes when the retention is 0 days", async () => {
+      const now = Date.now() + 365 * DAY_MS;
+      const host = createHost({ now: () => now, getRetentionDays: () => 0 });
+      await chat(host, "c1", "old");
+      await host.handleCommand("c1", { type: "new_session" });
+
+      expect(await host.pruneSessions()).toBe(0);
+      expect(sessionFiles("c1")).toHaveLength(1);
+    });
+
+    it("prunes the folders of clusters that are not loaded, keeping their latest chat unless the cluster is gone", async () => {
+      const first = createHost();
+      await chat(first, "c1", "c1 old");
+      await first.handleCommand("c1", { type: "new_session" });
+      await chat(first, "c1", "c1 latest");
+      await chat(first, "removed", "removed cluster");
+      first.dispose();
+
+      const now = Date.now() + 31 * DAY_MS;
+      const restarted = createHost({ now: () => now, knownClusterIds: () => ["c1"] });
+      expect(await restarted.pruneSessions()).toBe(2);
+      expect(sessionFiles("c1")).toHaveLength(1);
+      expect(sessionFiles("removed")).toEqual([]);
+      expect(answers(await snapshotOf(restarted))).toEqual(["c1 latest"]);
+    });
+
+    it("prunes on New chat, so the chat it leaves behind can go too", async () => {
+      const now = Date.now() + 31 * DAY_MS;
+      const host = createHost({ now: () => now });
+      await chat(host, "c1", "stale");
+      expect(sessionFiles("c1")).toHaveLength(1);
+
+      await host.handleCommand("c1", { type: "new_session" });
+
+      await waitFor(() => sessionFiles("c1").length === 0);
+    });
+  });
+
   describe("approval gate", () => {
     const gatedTools = [
       getClusterVersionTool,

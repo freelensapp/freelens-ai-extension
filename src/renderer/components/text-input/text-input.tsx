@@ -1,5 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
-import { Eraser, SendHorizonal, ShieldOff, Square } from "lucide-react";
+import { MessageSquarePlus, SendHorizonal, ShieldOff, Square, Trash2 } from "lucide-react";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
 import { formatCost } from "../../business/provider/model-pricing";
@@ -47,14 +47,25 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
           />
           <div className="text-input-buttons-container">
             <div id="chatButtonsContainer" style={{ display: "flex" }}>
-              {/* Button to clear the chat history */}
+              {/* New chat: stops a run, the old chat stays saved until retention deletes it */}
               <button
                 className="chat-button chat-clear-button"
-                onClick={async () => applicationStatusStore.clearChat()}
+                onClick={() => applicationStatusStore.clearChat()}
                 disabled={applicationStatusStore.chatMessages?.length === 0}
-                title="Clear chat"
+                title="New chat"
               >
-                <Eraser size={20} />
+                <MessageSquarePlus size={20} />
+              </button>
+              <button
+                className="chat-button chat-clear-button"
+                onClick={() => {
+                  if (window.confirm("Delete all saved chats of this cluster? This cannot be undone.")) {
+                    void applicationStatusStore.deleteAllChats();
+                  }
+                }}
+                title="Delete all chats of this cluster"
+              >
+                <Trash2 size={20} />
               </button>
               {/* Button to toggle tools */}
               <button

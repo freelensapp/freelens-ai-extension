@@ -10,6 +10,9 @@ import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
 export const AGENT_COMMAND_CHANNEL = "agent:command";
 export const AGENT_ENVELOPE_CHANNEL = "agent:envelope";
 
+/** Chats not changed for this many days are deleted unless the user sets otherwise; 0 keeps them forever. */
+export const DEFAULT_CHAT_RETENTION_DAYS = 30;
+
 /** A tool call that main asks the cluster frame to run. */
 export interface ToolRequest {
   requestId: string;
@@ -86,6 +89,10 @@ export type AgentCommand =
   | { type: "prompt"; message: string }
   | { type: "abort" }
   | { type: "get_snapshot" }
+  /** Stops a run, then starts a new chat; answers with the new chat's snapshot. */
+  | { type: "new_session" }
+  /** Stops a run, deletes every chat of the cluster and starts a new one; answers with its snapshot. */
+  | { type: "delete_sessions" }
   | { type: "tool_result"; requestId: string; text: string; isError?: boolean }
   | { type: "ui_response"; id: string; confirmed: boolean };
 

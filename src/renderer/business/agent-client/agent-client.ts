@@ -173,6 +173,23 @@ function update(next: ChatViewState): void {
 }
 
 /**
+ * New chat, or Delete all chats of this cluster. Main stops a run first and
+ * answers with the empty chat's snapshot, which replaces the transcript; its
+ * `seq` makes the frame ignore late envelopes of the old chat.
+ */
+export async function resetAgentChat(
+  clusterId: string,
+  type: "new_session" | "delete_sessions",
+): Promise<AgentResponse> {
+  const response = await sendAgentCommand(clusterId, { type });
+  if (response.success && chat?.clusterId === clusterId) {
+    const snapshot = response.data as AgentSnapshot;
+    update(chatFromSnapshot(clusterId, snapshot));
+  }
+  return response;
+}
+
+/**
  * Answers a pending approval card. The card turns approved or denied when main
  * broadcasts the result, so a card answered elsewhere (Stop) stays in step.
  */

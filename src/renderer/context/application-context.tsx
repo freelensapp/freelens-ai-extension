@@ -13,7 +13,7 @@ import useLog from "../../common/utils/logger/logger-service";
 import { generateUuid } from "../../common/utils/uuid";
 import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
 import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
-import { getAgentChat, onAgentChat, sendAgentCommand } from "../business/agent-client/agent-client";
+import { getAgentChat, onAgentChat, resetAgentChat, sendAgentCommand } from "../business/agent-client/agent-client";
 import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
@@ -85,7 +85,10 @@ export interface AppContextType {
   removeErrorMessages: () => void;
   updateLastMessage: (newText: string) => void;
   updateLastMessageReasoning: (newText: string) => void;
-  clearChat: () => void;
+  // New chat: the cluster's current chat stays on disk until retention deletes it.
+  clearChat: () => Promise<void>;
+  // Deletes every saved chat of this cluster and starts an empty one.
+  deleteAllChats: () => Promise<void>;
   getActiveAgent: () => Promise<any>;
   changeInterruptStatus: (id: string, status: boolean) => void;
   getAvailableTools: () => Promise<any[]>;
@@ -407,30 +410,35 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     }, 5000);
   };
 
-  const clearChat = async () => {
+  // New chat or Delete all chats: main stops a run and starts the cluster's new
+  // pi session, and the agent client empties the transcript. The LangChain
+  // state that AI Explain still uses is cleared as before.
+  const resetChat = async (type: "new_session" | "delete_sessions") => {
+    const response = await resetAgentChat(clusterId, type);
+    if (!response.success) {
+      log.error("Starting a new chat failed: ", response.error);
+      return;
+    }
     // Zero the per-session token counter and context-size estimate alongside the
     // transcript, and drop any lingering compaction status.
     _setTokenUsage(emptyTokenUsage());
     setLastInputTokens(0);
     setLastPeakInputTokens(0);
     _setCompactionStatus(null);
-    if (freeLensAgent) {
-      cleanAgentMessageHistory(freeLensAgent).finally(() => {
-        _setChatMessages([]);
-        chatSessionStore.clear(clusterId);
-      });
-    }
-    if (mcpAgent) {
-      await cleanAgentMessageHistory(mcpAgent).finally(() => {
-        _setChatMessages([]);
-        chatSessionStore.clear(clusterId);
-      });
+    chatSessionStore.clear(clusterId);
+    for (const agent of [freeLensAgent, mcpAgent]) {
+      if (agent) {
+        await cleanAgentMessageHistory(agent).catch((error) => log.error("Cleaning the agent history failed: ", error));
+      }
     }
     // Wipe this cluster's durable LangGraph checkpointer state so a restart right
     // after a clear does not restore the model-side conversation context. Other
     // clusters' memory is left untouched.
     AgentStateStore.getInstanceOrCreate<AgentStateStore>().clearForCluster(clusterId);
   };
+
+  const clearChat = () => resetChat("new_session");
+  const deleteAllChats = () => resetChat("delete_sessions");
 
   const cleanAgentMessageHistory = async (agent: FreeLensAgent | MPCAgent) => {
     log.debug("Cleaning agent message history for agent: ", agent);
@@ -604,6 +612,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         updateLastMessage,
         updateLastMessageReasoning,
         clearChat,
+        deleteAllChats,
         getActiveAgent,
         changeInterruptStatus,
         getAvailableTools,

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   type AgentSession,
@@ -12,6 +12,7 @@ import {
   type ToolCallEvent,
   type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_CHAT_RETENTION_DAYS } from "../../common/agent-protocol";
 import { prepareApproval } from "../../common/agent-tools/approval";
 import { toJsonEvent } from "./json-event";
 import { SYSTEM_PROMPT } from "./system-prompt";
@@ -31,6 +32,10 @@ import type { AgentToolDefinition } from "../../common/agent-tools";
 
 export const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 export const DENIED_REASON = "The user denied the action";
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Left in a cluster's session folder by New chat until the new chat has a
+// file, so a restart in between does not reopen the chat the user left.
+const NEW_CHAT_MARKER = ".new-chat";
 
 export interface ModelRef {
   provider: string;
@@ -51,6 +56,15 @@ export interface AgentHostOptions {
   toolTimeoutMs?: number;
   /** pi retries temporary provider errors; tests turn that off. */
   retry?: boolean;
+  /** Chats not changed for longer than this are deleted; 0 keeps them forever. Read before every prune. */
+  getRetentionDays?: () => number;
+  /**
+   * The ids of the clusters Freelens knows. The folder of any other cluster
+   * loses its latest chat to retention too. Undefined or empty: every folder
+   * counts as a known cluster.
+   */
+  knownClusterIds?: () => readonly string[] | undefined;
+  now?: () => number;
 }
 
 interface ClusterAgent {
@@ -107,6 +121,9 @@ export class AgentHost {
         return this.abort(clusterId);
       case "get_snapshot":
         return this.snapshot(clusterId);
+      case "new_session":
+      case "delete_sessions":
+        return this.resetChat(clusterId, command.type);
       case "tool_result":
         return this.toolResult(clusterId, command.requestId, command.text, command.isError ?? false);
       case "ui_response":
@@ -197,6 +214,111 @@ export class AgentHost {
     } catch (error) {
       return fail("abort", errorText(error));
     }
+  }
+
+  /**
+   * Deletes the session files not changed within the retention period, in
+   * every cluster's folder, also of clusters that were since removed. The
+   * active chat of each cluster is kept: the open session, or else the file
+   * the next start would continue. Returns how many files were deleted.
+   */
+  async pruneSessions(): Promise<number> {
+    const days = this.options.getRetentionDays?.() ?? DEFAULT_CHAT_RETENTION_DAYS;
+    const root = join(this.options.dataDir, "sessions");
+    if (!(days > 0) || !existsSync(root)) return 0;
+    const cutoff = (this.options.now ?? Date.now)() - days * DAY_MS;
+    const known = this.options.knownClusterIds?.();
+    const knownFolders = known?.length ? new Set(known.map(safeFolderName)) : undefined;
+
+    let deleted = 0;
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const dir = join(root, entry.name);
+      const sessions = await SessionManager.listAll(dir);
+      const active = await this.activeSessionFile(entry.name, dir, knownFolders, sessions);
+      let left = 0;
+      for (const session of sessions) {
+        if (session.path === active.file || session.modified.getTime() >= cutoff) {
+          left += 1;
+          continue;
+        }
+        try {
+          unlinkSync(session.path);
+          deleted += 1;
+        } catch (error) {
+          left += 1;
+          console.error(`[freelens-ai] Deleting the old chat ${session.path} failed:`, error);
+        }
+      }
+      // Tidy up the folder of a cluster with no chats left and no open session.
+      if (left === 0 && !active.loaded) {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    return deleted;
+  }
+
+  private async activeSessionFile(
+    folder: string,
+    dir: string,
+    knownFolders: Set<string> | undefined,
+    sessions: readonly { path: string }[],
+  ): Promise<{ file?: string; loaded: boolean }> {
+    for (const [clusterId, agent] of this.clusters) {
+      if (safeFolderName(clusterId) !== folder) continue;
+      const loaded = await agent.catch(() => undefined);
+      if (loaded) return { file: loaded.session.sessionFile, loaded: true };
+    }
+    if ((knownFolders && !knownFolders.has(folder)) || existsSync(join(dir, NEW_CHAT_MARKER))) {
+      return { loaded: false };
+    }
+    // The file SessionManager.continueRecent would open: the last one written.
+    let latest: { path: string; mtime: number } | undefined;
+    for (const { path } of sessions) {
+      try {
+        const mtime = statSync(path).mtimeMs;
+        if (!latest || mtime > latest.mtime) latest = { path, mtime };
+      } catch {
+        // Deleted meanwhile.
+      }
+    }
+    return { file: latest?.path, loaded: false };
+  }
+
+  // New chat and Delete all chats: stop the run and close the session; the
+  // snapshot that answers opens a new one. New chat keeps the old files.
+  private async resetChat(clusterId: string, command: "new_session" | "delete_sessions"): Promise<AgentResponse> {
+    try {
+      await this.closeClusterAgent(clusterId);
+      const dir = this.sessionDir(clusterId);
+      if (command === "delete_sessions") {
+        rmSync(dir, { recursive: true, force: true });
+      } else if (this.hasSessionFile(clusterId)) {
+        writeFileSync(join(dir, NEW_CHAT_MARKER), "");
+      }
+    } catch (error) {
+      return fail(command, errorText(error));
+    }
+    if (command === "new_session") {
+      try {
+        await this.pruneSessions();
+      } catch (error) {
+        console.error("[freelens-ai] Deleting old chats failed:", error);
+      }
+    }
+    const snapshot = await this.snapshot(clusterId);
+    return snapshot.success ? ok(command, snapshot.data) : fail(command, snapshot.error);
+  }
+
+  private async closeClusterAgent(clusterId: string): Promise<void> {
+    const agent = await this.clusters.get(clusterId)?.catch(() => undefined);
+    if (!agent) return;
+    const stopped = await this.abort(clusterId);
+    if (!stopped.success) throw new Error(stopped.error);
+    if ((await this.clusters.get(clusterId)?.catch(() => undefined)) === agent) {
+      this.clusters.delete(clusterId);
+    }
+    agent.session.dispose();
   }
 
   private async snapshot(clusterId: string): Promise<AgentResponse> {
@@ -329,6 +451,7 @@ export class AgentHost {
     const { dataDir, modelRuntime, tools } = this.options;
     const sessionDir = this.sessionDir(clusterId);
     const agentDir = join(dataDir, "pi");
+    const markerPath = join(sessionDir, NEW_CHAT_MARKER);
     mkdirSync(sessionDir, { recursive: true });
 
     // Only our own prompt and tools: no pi coding prompt, context files,
@@ -361,8 +484,11 @@ export class AgentHost {
       modelRuntime,
       resourceLoader,
       noTools: "builtin",
-      // One active chat per cluster: continue its latest session file.
-      sessionManager: SessionManager.continueRecent(sessionDir, sessionDir),
+      // One active chat per cluster: continue its latest session file, unless
+      // New chat left its marker.
+      sessionManager: existsSync(markerPath)
+        ? SessionManager.create(sessionDir, sessionDir)
+        : SessionManager.continueRecent(sessionDir, sessionDir),
       settingsManager: SettingsManager.inMemory(this.options.retry === false ? { retry: { enabled: false } } : {}),
     });
 
@@ -370,6 +496,10 @@ export class AgentHost {
     session.subscribe((event) => {
       // Repeats message_end and can carry large tool results.
       if (event.type === "entry_appended") return;
+      // pi writes the file with the first message, so the marker is done.
+      if (event.type === "message_end" && session.sessionFile && existsSync(session.sessionFile)) {
+        rmSync(markerPath, { force: true });
+      }
       this.send(clusterId, agent, { kind: "event", payload: toJsonEvent(event) });
     });
     return agent;

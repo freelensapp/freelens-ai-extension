@@ -9,7 +9,8 @@ import type { SingleValue } from "react-select";
 const { observer } = MobxReact;
 const { useCallback, useEffect, useRef, useState } = React;
 
-import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore } from "../../../common/store";
+import { DEFAULT_CHAT_RETENTION_DAYS } from "../../../common/agent-protocol";
+import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore, parseRetentionDays } from "../../../common/store";
 
 interface DraftFieldProps {
   value: string;
@@ -220,6 +221,24 @@ export const PreferencesPage = observer(() => {
         onChange={(e) => customAgentRulesField.onChange(e.target.value)}
         onFocus={customAgentRulesField.onFocus}
         onBlur={customAgentRulesField.onBlur}
+      />
+
+      <HorizontalLine />
+
+      <div style={{ fontWeight: "bold", fontSize: 16 }}>Chats</div>
+      <div style={{ marginTop: 8, fontWeight: "bold" }}>Delete chats older than N days</div>
+      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
+        Saved chats not used for this many days are deleted when Freelens starts and on New chat. The open chat of each
+        cluster is kept. 0 keeps chats forever.
+      </div>
+      <Input
+        type="number"
+        min={0}
+        placeholder={String(DEFAULT_CHAT_RETENTION_DAYS)}
+        value={String(preferencesStore.chatRetentionDays)}
+        onChange={(value: string) => {
+          preferencesStore.chatRetentionDays = parseRetentionDays(Number.parseInt(value, 10));
+        }}
       />
 
       <HorizontalLine />

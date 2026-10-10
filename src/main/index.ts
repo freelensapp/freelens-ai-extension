@@ -112,10 +112,14 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       getModelRef: () =>
         parseModelRef(preferencesStore.agentModel) ??
         (preferencesStore.selectedModel ? { provider: "openai", id: preferencesStore.selectedModel } : undefined),
+      getRetentionDays: () => preferencesStore.chatRetentionDays,
+      // Hosts before the main cluster API (Freelens 1.10) keep every cluster's latest chat.
+      knownClusterIds: () => Main.Catalog?.getAllClusters?.()?.map((cluster) => cluster.id),
     });
     this.agentHost = agentHost;
     ipc.handle(AGENT_COMMAND_CHANNEL, (_event, clusterId: string, command: AgentCommand) =>
       agentHost.handleCommand(clusterId, command),
     );
+    agentHost.pruneSessions().catch((error) => console.error("[freelens-ai] Deleting old chats failed:", error));
   }
 }

@@ -2,10 +2,15 @@ import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
 import { type CustomModel, DEFAULT_MODELS, DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
 import { resolveSelectedModel } from "../../renderer/business/provider/model-list";
+import { DEFAULT_CHAT_RETENTION_DAYS } from "../agent-protocol";
 
 import type { MessageObject } from "../../renderer/business/objects/message-object";
 
 const DEFAULT_SELECTED_MODEL = DEFAULT_MODELS[0]?.name ?? "";
+
+/** A whole number of days, 0 or more; anything else falls back to the default. */
+export const parseRetentionDays = (value: unknown): number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : DEFAULT_CHAT_RETENTION_DAYS;
 
 export interface PreferencesModel {
   openAIKey: string;
@@ -22,6 +27,7 @@ export interface PreferencesModel {
   podLogsTailLines: number;
   customAgentRules: string;
   agentModel: string;
+  chatRetentionDays: number;
 }
 
 export const DEFAULT_POD_LOGS_TAIL_LINES = 1000;
@@ -51,6 +57,8 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   // The pi model the chat runs on, as "provider/id". Empty until one is chosen
   // or imported from the old OpenAI settings.
   agentModel: string = "";
+  // Main deletes chats not changed for longer than this many days; 0 keeps them.
+  chatRetentionDays: number = DEFAULT_CHAT_RETENTION_DAYS;
 
   // Not persistent
   explainEvent: MessageObject = {} as MessageObject;
@@ -74,6 +82,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         podLogsTailLines: DEFAULT_POD_LOGS_TAIL_LINES,
         customAgentRules: "",
         agentModel: "",
+        chatRetentionDays: DEFAULT_CHAT_RETENTION_DAYS,
         mcpConfiguration: JSON.stringify(
           {
             mcpServers: {
@@ -108,6 +117,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       podLogsTailLines: observable,
       customAgentRules: observable,
       agentModel: observable,
+      chatRetentionDays: observable,
       explainEvent: observable,
       bypassApprovals: observable,
     });
@@ -137,6 +147,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         : DEFAULT_POD_LOGS_TAIL_LINES;
     this.customAgentRules = preferencesModel.customAgentRules ?? "";
     this.agentModel = preferencesModel.agentModel ?? "";
+    this.chatRetentionDays = parseRetentionDays(preferencesModel.chatRetentionDays);
   }
 
   toJSON(): PreferencesModel {
@@ -160,6 +171,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       podLogsTailLines: this.podLogsTailLines,
       customAgentRules: this.customAgentRules,
       agentModel: this.agentModel,
+      chatRetentionDays: this.chatRetentionDays,
     };
   }
 }
