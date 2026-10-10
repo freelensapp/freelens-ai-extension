@@ -14,7 +14,13 @@ import { AGENT_TOOLS, createKubernetesResourceTool } from "../../../common/agent
 import { ChatSessionStore } from "../../../common/store";
 import { IS_LOADING_KEY } from "../../context/chat-session-storage";
 import { getFrameClusterId } from "../cluster/active-cluster";
-import { type ChatViewState, chatFromSnapshot, reduceEnvelope, withApprovalBackup } from "./chat-reducer";
+import {
+  type ChatViewState,
+  chatFromSnapshot,
+  reconcileApprovals,
+  reduceEnvelope,
+  withApprovalBackup,
+} from "./chat-reducer";
 import { createClusterTools } from "./cluster-tools";
 import { freelensCluster } from "./freelens-cluster";
 import { runToolRequest, type ToolReply } from "./tool-runner";
@@ -126,10 +132,14 @@ async function loadSnapshot(clusterId: string): Promise<void> {
   const snapshot = response.data as AgentSnapshot;
   // A cluster with no saved session keeps the transcript it has, such as a
   // prompt that was refused before any run.
-  const base =
+  const current = getAgentChat()!;
+  const base = reconcileApprovals(
     snapshot.messages.length > 0 || snapshot.streamingMessage
       ? chatFromSnapshot(clusterId, snapshot)
-      : { ...getAgentChat()!, seq: snapshot.seq, isRunning: snapshot.isStreaming, stale: undefined };
+      : { ...current, seq: snapshot.seq, isRunning: snapshot.isStreaming, stale: undefined },
+    current.messages,
+    snapshot.pendingUiRequest?.id,
+  );
   // Envelopes that came in meanwhile and are newer than the snapshot apply on
   // top of it; older ones are already in it.
   const newer = pending.filter((envelope) => envelope.seq > snapshot.seq);
@@ -176,6 +186,10 @@ export async function answerApproval(clusterId: string, id: string, confirmed: b
 async function loadApprovalBackup(approvalId: string, target: ApprovalTarget | undefined): Promise<void> {
   if (backupsRequested.has(approvalId)) return;
   backupsRequested.add(approvalId);
+  for (const id of backupsRequested) {
+    if (backupsRequested.size <= MAX_HANDLED_TOOLS) break;
+    backupsRequested.delete(id);
+  }
   const tool = AGENT_TOOLS.find((candidate) => candidate.name === target?.tool);
   if (!target?.kind || !target.apiVersion || !target.name || !tool?.mutating) return;
   if (tool.name === createKubernetesResourceTool.name) return;

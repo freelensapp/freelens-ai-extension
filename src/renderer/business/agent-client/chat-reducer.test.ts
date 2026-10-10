@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { MessageType } from "../objects/message-type";
-import { type ChatViewState, chatFromSnapshot, reduceEnvelope, withApprovalBackup } from "./chat-reducer";
+import {
+  type ChatViewState,
+  chatFromSnapshot,
+  reconcileApprovals,
+  reduceEnvelope,
+  withApprovalBackup,
+} from "./chat-reducer";
 
 import type { AgentEnvelope, AgentSnapshot, ApprovalRequest, ChatMessage } from "../../../common/agent-protocol";
 import type { MessageObject } from "../objects/message-object";
@@ -375,5 +381,32 @@ describe("approvals", () => {
 
     expect(card(state)?.resources).toBe("kind: Deployment\n");
     expect(withApprovalBackup(state, "other", "x")).toBe(state);
+  });
+
+  it("after a snapshot, keeps the loaded backup and closes cards main no longer waits on", () => {
+    const before = withApprovalBackup(
+      reduceEnvelope(
+        reduceEnvelope(initial(), envelope(1, "ui_request", { ...request, id: "old" })),
+        envelope(2, "ui_request", request),
+      ),
+      "a1",
+      "kind: Deployment\n",
+    );
+    const rebuilt = chatFromSnapshot("c1", {
+      messages: [{ role: "user", content: "scale web", timestamp: 1 } as ChatMessage],
+      isStreaming: true,
+      pendingToolRequests: [],
+      pendingUiRequest: request,
+      autoApprove: false,
+      seq: 9,
+    });
+
+    const state = reconcileApprovals(rebuilt, before.messages, "a1");
+
+    expect(card(state)).toMatchObject({ resources: "kind: Deployment\n", approved: null });
+    expect(
+      reconcileApprovals(before, before.messages, "a1").messages.find((m) => m.approvalId === "old"),
+    ).toMatchObject({ approved: false });
+    expect(card(reconcileApprovals(before, before.messages, undefined))?.approved).toBe(false);
   });
 });
