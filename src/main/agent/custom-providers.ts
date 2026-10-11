@@ -78,14 +78,18 @@ export async function addCustomProvider(
   modelsPath: string,
   input: CustomProviderInput,
 ): Promise<CustomProvider> {
-  const taken = new Set(modelRuntime.getProviders().map((provider) => provider.id));
+  const previous = readModelsJson(modelsPath);
+  // An entry pi failed to load is not among its providers, but is still the user's.
+  const taken = new Set([
+    ...modelRuntime.getProviders().map((provider) => provider.id),
+    ...Object.keys(previous.providers),
+  ]);
   const validation = validateCustomProvider(input, taken);
   if (!validation.ok) {
     throw new Error(validation.error);
   }
   const { provider } = validation;
 
-  const previous = readModelsJson(modelsPath);
   writeModelsJson(modelsPath, {
     ...previous,
     providers: {

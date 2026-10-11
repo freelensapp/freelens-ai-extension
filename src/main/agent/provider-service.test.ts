@@ -482,6 +482,21 @@ describe("ProviderService", () => {
       expect(await provider(svc, "vllm")).toMatchObject({ custom: { baseUrl: "http://localhost:8000/v1" } });
     });
 
+    it("does not replace a hand-written entry that pi could not load", async () => {
+      mkdirSync(dirname(modelsPath), { recursive: true });
+      // No "api", so pi skips it and it is not among the loaded providers.
+      const broken = { providers: { "my-litellm": { baseUrl: "http://localhost:9000/v1", models: [{ id: "x" }] } } };
+      writeFileSync(modelsPath, JSON.stringify(broken));
+      await modelRuntime.refresh({ providers: ["my-litellm"], allowNetwork: false });
+      const svc = createService();
+
+      expect(await svc.handleCommand({ type: "add_custom_provider", provider: litellm })).toMatchObject({
+        success: false,
+        error: expect.stringContaining('"my-litellm" already exists'),
+      });
+      expect(readModelsJson()).toEqual(broken);
+    });
+
     it("does not remove a built-in provider", async () => {
       const svc = createService();
 
