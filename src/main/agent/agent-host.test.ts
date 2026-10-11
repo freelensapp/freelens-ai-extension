@@ -918,6 +918,44 @@ describe("AgentHost", () => {
         expect(toolRequests()[0]).toMatchObject({ toolName: "restartKubernetesResource", args: restartWeb });
       });
 
+      // The frame applies a write tool's input as it comes, so the gate still
+      // validates and prepares it when nobody is asked.
+      it("still rejects an invalid manifest once a write tool's approval is turned off", async () => {
+        faux.setResponses(callThenEcho("createKubernetesResource", { kind: "Pod", data: { metadata: { name: "p" } } }));
+        const host = createHost({
+          tools: gatedTools,
+          getApprovalOverrides: () => ({ createKubernetesResource: false }),
+        });
+
+        await host.handleCommand("c1", { type: "prompt", message: "create a pod" });
+        await waitFor(settled);
+
+        expect(uiRequests()).toEqual([]);
+        expect(toolRequests()).toEqual([]);
+        expect(answerText()).toMatch(/^Result: The Pod manifest is invalid: /);
+      });
+
+      it("still sends the prepared input once a write tool's approval is turned off", async () => {
+        faux.setResponses(
+          callThenEcho("patchKubernetesResource", {
+            ...scaleWeb,
+            subresource: "/scale/",
+            data: { spec: { replicas: 2 } },
+          }),
+        );
+        const host = createHost({
+          tools: gatedTools,
+          toolTimeoutMs: 60_000,
+          getApprovalOverrides: () => ({ patchKubernetesResource: false }),
+        });
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web to 2" });
+        await waitFor(() => toolRequests().length > 0);
+
+        expect(uiRequests()).toEqual([]);
+        expect(toolRequests()[0]!.args).toMatchObject({ name: "web", subresource: "scale" });
+      });
+
       it("asks before a read tool once its approval is turned on", async () => {
         faux.setResponses(callThenEcho("getClusterVersion", {}));
         const host = createHost({

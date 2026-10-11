@@ -664,17 +664,21 @@ export class AgentHost {
     this.send(clusterId, agent.session.sessionId, { kind: "auto_approve", payload: { enabled } });
   }
 
-  // pi's `tool_call` hook: a call that needs approval is validated and
-  // prepared, the prepared input replaces the model's in place, and the run
-  // waits for the user. pi asks for one call at a time. A run aborted some
-  // other way than our Stop denies the approval too, so the hook never hangs.
+  // pi's `tool_call` hook: a call that needs approval, and every write call,
+  // is validated and prepared, and the prepared input replaces the model's in
+  // place: the frame applies a write tool's input as it comes. A call that
+  // needs approval then waits for the user. pi asks for one call at a time. A
+  // run aborted some other way than our Stop denies the approval too, so the
+  // hook never hangs.
   private async gate(
     clusterId: string,
     event: ToolCallEvent,
     signal: AbortSignal | undefined,
   ): Promise<ToolCallEventResult | undefined> {
     const tool = this.options.tools.find((candidate) => candidate.name === event.toolName);
-    if (!tool || !requiresApproval(tool, this.options.getApprovalOverrides?.() ?? {})) return undefined;
+    if (!tool) return undefined;
+    const ask = requiresApproval(tool, this.options.getApprovalOverrides?.() ?? {});
+    if (!ask && !tool.mutating) return undefined;
 
     const input = event.input as Record<string, unknown>;
     const prepared = prepareApproval(tool.name, input);
@@ -685,6 +689,7 @@ export class AgentHost {
     const next = { ...prepared.input };
     for (const key of Object.keys(input)) delete input[key];
     Object.assign(input, next);
+    if (!ask) return undefined;
 
     const agent = await this.clusters.get(clusterId);
     if (!agent) return { block: true, reason: "The cluster session is not available." };
