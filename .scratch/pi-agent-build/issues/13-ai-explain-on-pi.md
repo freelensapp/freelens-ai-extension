@@ -10,15 +10,43 @@ context.
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending)
 
-- [ ] `explain` streams events under a session id different from the chat's,
+- [x] `explain` streams events under a session id different from the chat's,
       and the cluster's session file is unchanged afterwards.
-- [ ] The explain prompt has the five sections without emoji and includes the
+- [x] The explain prompt has the five sections without emoji and includes the
       custom agent rules when set.
-- [ ] The explain call has no tools.
-- [ ] Explain is refused with `success: false` while a chat run is going, as
+- [x] The explain call has no tools.
+- [x] Explain is refused with `success: false` while a chat run is going, as
       the input is.
-- [ ] Agent host tests cover the separate session id, the unchanged session
+- [x] Agent host tests cover the separate session id, the unchanged session
       file and the rules section.
 - [ ] HITL: AI Explain on a failing pod streams a structured answer.
+
+## Answer
+
+- `src/main/agent/agent-host.ts`: the `explain` command runs a throwaway pi
+  session (`SessionManager.inMemory`, `EXPLAIN_PROMPT` plus the custom agent
+  rules in a `<user_rules>` block, no tools, the chat's picked model and the
+  global thinking level). Its events go out as `event` envelopes under its own
+  `sessionId`, on the cluster's shared `seq`. Nothing is written to disk.
+- Explain is refused while a chat run is going or starting, or another
+  explanation runs; a chat prompt is refused while an explanation runs. Stop
+  and New chat stop it, also while pi is still starting it. A snapshot reports
+  it as running (so a remounted frame keeps Stop) only between `agent_start`
+  and `agent_settled`, and leaves its partial answer out.
+- A provider error after an explanation retries it as an explanation.
+- Removed: `ai-analysis-service.tsx`, `chat-readiness.ts`,
+  `ANALYSIS_PROMPT_TEMPLATE`, the main process copy of pi's OpenAI key for the
+  proxy, the chat picker syncing `selectedModel` for AI Explain, and the "AI
+  Explain" Base URL and key fields on the settings page. The old
+  `openAIBaseUrl` and `openAIKey` values stay in the preferences for ticket 11
+  to import.
+
+Known gaps:
+
+- An explanation is not in the pi session, so it disappears when the chat is
+  rebuilt from a snapshot that has chat messages (remount, restart). A frame
+  that remounts mid-explanation also loses the rest of that answer.
+- `openai-fields.ts`'s `explainReasoningOptions` is now read only by the old
+  LangChain client; ticket 14 deletes both.
