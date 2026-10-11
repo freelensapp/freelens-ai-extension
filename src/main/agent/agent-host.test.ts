@@ -977,6 +977,20 @@ describe("AgentHost", () => {
         expect(uiRequests()[0]).toMatchObject({ title: "READ LOGS POD" });
         expect(toolRequests()).toEqual([]);
       });
+
+      // Pod logs, restart and delete pod are approved with their input unchanged.
+      it("sends an approved call's arguments to the frame when they need no preparation", async () => {
+        const logsOfWeb = { name: "web-1", namespace: "default" };
+        faux.setResponses(callThenEcho("getPodLogs", logsOfWeb));
+        const host = createHost({ tools: gatedTools, toolTimeoutMs: 60_000 });
+
+        await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
+        await waitFor(() => uiRequests().length > 0);
+        await host.handleCommand("c1", { type: "ui_response", id: uiRequests()[0]!.id, confirmed: true });
+        await waitFor(() => toolRequests().length > 0);
+
+        expect(toolRequests()[0]).toMatchObject({ toolName: "getPodLogs", args: logsOfWeb });
+      });
     });
 
     it("rejects a ui_response for an unknown request", async () => {

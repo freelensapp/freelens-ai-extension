@@ -681,8 +681,10 @@ export class AgentHost {
     if (!prepared.ok) {
       return { block: true, reason: prepared.error };
     }
+    // Copied first: for some tools the prepared input is the model's object itself.
+    const next = { ...prepared.input };
     for (const key of Object.keys(input)) delete input[key];
-    Object.assign(input, prepared.input);
+    Object.assign(input, next);
 
     const agent = await this.clusters.get(clusterId);
     if (!agent) return { block: true, reason: "The cluster session is not available." };
