@@ -36,6 +36,17 @@ interface VersionRequestApi {
   };
 }
 
+// A failed request rejects with the host's JsonApiErrorParsed, which keeps the
+// cluster's Status in its (private) `error` field.
+interface KubeStatusError {
+  error?: { code?: number; reason?: string };
+}
+
+const isNotFound = (error: unknown): boolean => {
+  const status = typeof error === "object" && error !== null ? (error as KubeStatusError).error : undefined;
+  return status?.code === 404 || status?.reason === "NotFound";
+};
+
 function toResource(object: KubeObject): ClusterResource {
   return {
     name: object.getName(),
@@ -95,9 +106,15 @@ export const freelensCluster: Cluster = {
         const items = loaded ?? (namespace ? store.getAllByNs(namespace) : store.items.toJSON());
         return items.map(toResource);
       },
+      // store.load rejects for a missing resource instead of resolving undefined.
       async get(name, namespace) {
-        const object = await store.load({ name, namespace });
-        return object ? toResource(object) : undefined;
+        try {
+          const object = await store.load({ name, namespace });
+          return object ? toResource(object) : undefined;
+        } catch (error) {
+          if (isNotFound(error)) return undefined;
+          throw error;
+        }
       },
       async create(name, namespace, manifest) {
         await store.create({ name, namespace }, manifest as unknown as CreateData);
