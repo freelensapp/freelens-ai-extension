@@ -81,7 +81,7 @@ describe("AgentHost", () => {
     expect(response).toMatchObject({ type: "response", command: "prompt", success: true });
 
     await waitFor(settled);
-    expect(envelopes.every((e) => e.clusterId === "c1" && e.kind === "event")).toBe(true);
+    expect(envelopes.every((e) => e.clusterId === "c1" && (e.kind === "event" || e.kind === "stats"))).toBe(true);
     expect(envelopes.map((e) => e.seq)).toEqual(envelopes.map((_, index) => index + 1));
     expect(new Set(envelopes.map((e) => e.sessionId)).size).toBe(1);
 
@@ -1278,6 +1278,95 @@ describe("AgentHost", () => {
         );
         expect(end).toMatchObject({ payload: { message: { stopReason: "aborted" } } });
       });
+    });
+  });
+
+  describe("session stats", () => {
+    const statsEnvelopes = (clusterId = "c1") =>
+      envelopes.flatMap((e) => (e.kind === "stats" && e.clusterId === clusterId ? [e] : []));
+
+    it("broadcasts stats with the answer's tokens after it is saved and when the run settles", async () => {
+      faux.setResponses([fauxAssistantMessage([fauxText("Two hundred pods are running.")])]);
+      const host = createHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "how many pods?" });
+      await waitFor(settled);
+
+      const stats = statsEnvelopes();
+      // One after the assistant message is saved, one at agent_settled.
+      expect(stats.length).toBe(2);
+      const last = stats[stats.length - 1]!;
+      expect(last.sessionId).toBe(envelopes[0]!.sessionId);
+      expect(last.payload.assistantMessages).toBe(1);
+      expect(last.payload.tokens.output).toBeGreaterThan(0);
+      expect(last.payload.tokens.total).toBeGreaterThan(0);
+      // The assistant message's stats already count it, though they go out before agent_settled.
+      expect(stats[0]!.payload.tokens).toEqual(last.payload.tokens);
+      const settledSeq = envelopes.find((e) => e.kind === "event" && e.payload.type === "agent_settled")!.seq;
+      expect(stats[0]!.seq).toBeLessThan(settledSeq);
+      expect(last.seq).toBeGreaterThan(settledSeq);
+    });
+
+    it("fills the context gauge from the model's context window", async () => {
+      faux.setResponses([fauxAssistantMessage([fauxText("ok")])]);
+      const host = createHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "hi" });
+      await waitFor(settled);
+
+      const last = statsEnvelopes().at(-1)!;
+      expect(last.payload.contextUsage).toMatchObject({ contextWindow: faux.getModel().contextWindow });
+      expect(last.payload.contextUsage?.tokens).toBeGreaterThan(0);
+    });
+
+    it("adds up the tokens of every turn of a run with tool calls", async () => {
+      faux.setResponses(toolCallThenText());
+      const host = createHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "which version?" });
+      await waitFor(() => envelopes.some((e) => e.kind === "tool_request"));
+      const request = envelopes.find((e) => e.kind === "tool_request");
+      if (request?.kind !== "tool_request") throw new Error("no tool request");
+      await host.handleCommand("c1", { type: "tool_result", requestId: request.payload.requestId, text: "v1.31" });
+      await waitFor(settled);
+
+      const stats = statsEnvelopes();
+      expect(stats.map((s) => s.payload.assistantMessages)).toEqual([1, 2, 2]);
+      expect(stats[1]!.payload.tokens.total).toBeGreaterThan(stats[0]!.payload.tokens.total);
+    });
+
+    it("answers get_session_stats and includes the stats in the snapshot", async () => {
+      faux.setResponses([fauxAssistantMessage([fauxText("ok")])]);
+      const host = createHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "hi" });
+      await waitFor(settled);
+
+      const last = statsEnvelopes().at(-1)!.payload;
+      const response = await host.handleCommand("c1", { type: "get_session_stats" });
+      expect(response).toMatchObject({ command: "get_session_stats", success: true, data: last });
+      expect((await snapshotOf(host)).stats).toEqual(last);
+    });
+
+    it("has no stats for a cluster that never chatted, and creates no files for it", async () => {
+      const host = createHost();
+
+      expect(await host.handleCommand("fresh", { type: "get_session_stats" })).toMatchObject({
+        success: true,
+        data: undefined,
+      });
+      expect((await snapshotOf(host, "fresh")).stats).toBeUndefined();
+      expect(existsSync(join(dataDir, "sessions", "fresh"))).toBe(false);
+    });
+
+    it("sends no stats for an explanation, which is not part of the chat", async () => {
+      faux.setResponses([fauxAssistantMessage([fauxText("Explained.")])]);
+      const host = createHost();
+
+      await host.handleCommand("c1", { type: "explain", message: "an event" });
+      await waitFor(settled);
+
+      expect(statsEnvelopes()).toEqual([]);
     });
   });
 });

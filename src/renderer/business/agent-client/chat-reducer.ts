@@ -1,7 +1,13 @@
 import { generateUuid } from "../../../common/utils/uuid";
 import { MessageType } from "../objects/message-type";
 
-import type { AgentEnvelope, AgentSnapshot, ApprovalRequest, ChatMessage } from "../../../common/agent-protocol";
+import type {
+  AgentEnvelope,
+  AgentSnapshot,
+  ApprovalRequest,
+  ChatMessage,
+  SessionStats,
+} from "../../../common/agent-protocol";
 import type { MessageObject, RetryContext } from "../objects/message-object";
 
 /** What the chat of one cluster frame shows, rebuilt from main's snapshot and envelopes. */
@@ -14,6 +20,8 @@ export interface ChatViewState {
   isRunning: boolean;
   /** "Approve all in this chat" is on in main: the chat shows a notice to turn it off. */
   autoApprove: boolean;
+  /** pi's latest totals for the chat (tokens, cost, context); undefined until main sends any. */
+  stats?: SessionStats;
   /** Set when envelopes were missed; the frame then asks main for a fresh snapshot. */
   stale?: boolean;
 }
@@ -41,6 +49,8 @@ const textMessage = (text: string, extra: Partial<MessageObject> = {}): MessageO
 });
 
 const notice = (text: string) => textMessage(text, { notice: true });
+
+const COMPACTING = "Compacting the conversation to free up context...";
 
 const errorMessage = (error: string | undefined, messages: MessageObject[]) =>
   textMessage(`Error while running Freelens Agent: ${error ?? "unknown error"}`, {
@@ -103,6 +113,21 @@ function reduceEvent(messages: MessageObject[], event: EventPayload): MessageObj
           `Provider error: ${event.errorMessage}. Retrying in ${seconds} s (attempt ${event.attempt} of ${event.maxAttempts}).`,
         ),
       ];
+    }
+
+    // pi compacts on its own when the context nears the model's limit.
+    case "compaction_start":
+      return [...messages, notice(COMPACTING)];
+
+    case "compaction_end": {
+      const outcome = event.aborted
+        ? "Compacting the conversation was stopped."
+        : event.errorMessage || !event.result
+          ? `Compacting the conversation failed: ${event.errorMessage ?? "unknown error"}`
+          : "Compacted the conversation: earlier messages were summarized to free up context.";
+      const index = messages.findLastIndex((message) => message.notice && message.text === COMPACTING);
+      if (index < 0) return [...messages, notice(outcome)];
+      return [...messages.slice(0, index), { ...messages[index]!, text: outcome }, ...messages.slice(index + 1)];
     }
 
     default:
@@ -206,6 +231,7 @@ export function reduceEnvelope(state: ChatViewState, envelope: AgentEnvelope): C
     messages,
     isRunning: isRunningAfter(state.isRunning, envelope),
     autoApprove: envelope.kind === "auto_approve" ? envelope.payload.enabled : state.autoApprove,
+    stats: envelope.kind === "stats" ? envelope.payload : state.stats,
     stale: state.stale || missed || undefined,
   };
 }
@@ -241,5 +267,12 @@ export function chatFromSnapshot(clusterId: string, snapshot: AgentSnapshot): Ch
   const streaming = snapshot.streamingMessage && assistantMessage(snapshot.streamingMessage, true);
   if (streaming) messages = [...messages, streaming];
   if (snapshot.pendingUiRequest) messages = [...messages, approvalCard(snapshot.pendingUiRequest)];
-  return { clusterId, seq: snapshot.seq, messages, isRunning: snapshot.isStreaming, autoApprove: snapshot.autoApprove };
+  return {
+    clusterId,
+    seq: snapshot.seq,
+    messages,
+    isRunning: snapshot.isStreaming,
+    autoApprove: snapshot.autoApprove,
+    stats: snapshot.stats,
+  };
 }

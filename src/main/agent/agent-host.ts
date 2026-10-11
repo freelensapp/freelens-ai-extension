@@ -150,6 +150,8 @@ export class AgentHost {
         return this.abort(clusterId);
       case "get_snapshot":
         return this.snapshot(clusterId);
+      case "get_session_stats":
+        return this.sessionStats(clusterId);
       case "new_session":
       case "delete_sessions":
         return this.resetChat(clusterId, command.type);
@@ -570,10 +572,24 @@ export class AgentHost {
         pendingUiRequest: [...this.pendingApprovals.values()].find((pending) => pending.clusterId === clusterId)
           ?.request,
         autoApprove,
+        stats: session.getSessionStats(),
       };
       return ok("get_snapshot", snapshot);
     } catch (error) {
       return fail("get_snapshot", errorText(error));
+    }
+  }
+
+  private async sessionStats(clusterId: string): Promise<AgentResponse> {
+    // Opening a session for a cluster that never chatted would create files.
+    if (!this.clusters.has(clusterId) && !this.hasSessionFile(clusterId)) {
+      return ok("get_session_stats");
+    }
+    try {
+      const { session } = await this.getClusterAgent(clusterId);
+      return ok("get_session_stats", session.getSessionStats());
+    } catch (error) {
+      return fail("get_session_stats", errorText(error));
     }
   }
 
@@ -746,17 +762,25 @@ export class AgentHost {
     });
 
     const agent: ClusterAgent = { session, autoApprove: false };
+    const sendStats = () =>
+      this.send(clusterId, agent.session.sessionId, { kind: "stats", payload: agent.session.getSessionStats() });
     session.subscribe((event) => {
       // Repeats message_end and can carry large tool results.
       if (event.type === "entry_appended") return;
-      // pi writes the file with the first saved message, so the marker is done.
-      // pi saves a message right after telling its listeners, hence the microtask.
+      // pi saves a message right after telling its listeners, hence the
+      // microtask: by then the message is in the file and in the stats, which
+      // pi computes from the saved entries.
       if (event.type === "message_end") {
+        const isAnswer = event.message.role === "assistant";
         queueMicrotask(() => {
+          // pi writes the file with the first saved message, so the marker is done.
           if (session.sessionFile && existsSync(session.sessionFile)) rmSync(markerPath, { force: true });
+          if (isAnswer) sendStats();
         });
       }
       this.send(clusterId, agent.session.sessionId, { kind: "event", payload: toJsonEvent(event) });
+      // Also after a run that saved no answer, and after a compaction shrank the context.
+      if (event.type === "agent_settled" || event.type === "compaction_end") sendStats();
     });
     return agent;
   }

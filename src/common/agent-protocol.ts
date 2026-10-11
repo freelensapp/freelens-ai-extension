@@ -5,7 +5,9 @@
 // `JsonAgentSessionEvent`) so events from pi reach the renderer unchanged.
 
 import type { AssistantMessage, UserMessage } from "@earendil-works/pi-ai";
-import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { JsonAgentSessionEvent, SessionStats } from "@earendil-works/pi-coding-agent";
+
+export type { SessionStats };
 
 export const AGENT_COMMAND_CHANNEL = "agent:command";
 export const AGENT_ENVELOPE_CHANNEL = "agent:envelope";
@@ -61,7 +63,12 @@ export type AgentEnvelope =
   | (EnvelopeBase & { kind: "ui_request"; payload: ApprovalRequest })
   | (EnvelopeBase & { kind: "ui_resolved"; payload: ApprovalResolution })
   /** "Approve all in this chat" was turned on or off. */
-  | (EnvelopeBase & { kind: "auto_approve"; payload: { enabled: boolean } });
+  | (EnvelopeBase & { kind: "auto_approve"; payload: { enabled: boolean } })
+  /**
+   * pi's totals for the chat: tokens, cost and how full the context is. Sent
+   * after each saved assistant message and when a run settles.
+   */
+  | (EnvelopeBase & { kind: "stats"; payload: SessionStats });
 
 /** A message of the chat transcript as main sends it in a snapshot. */
 export type ChatMessage = UserMessage | AssistantMessage;
@@ -83,6 +90,8 @@ export interface AgentSnapshot {
   pendingUiRequest?: ApprovalRequest;
   /** "Approve all in this chat" is on: gated calls run without asking. */
   autoApprove: boolean;
+  /** The chat's totals; undefined for a cluster that never chatted. */
+  stats?: SessionStats;
   /** The last envelope main sent for this cluster. */
   seq: number;
 }
@@ -96,6 +105,8 @@ export type AgentCommand =
   | { type: "explain"; message: string }
   | { type: "abort" }
   | { type: "get_snapshot" }
+  /** Answers with the chat's `SessionStats`, or no data for a cluster that never chatted. */
+  | { type: "get_session_stats" }
   /** Stops a run, then starts a new chat; answers with the new chat's snapshot. */
   | { type: "new_session" }
   /** Stops a run, deletes every chat of the cluster and starts a new one; answers with its snapshot. */

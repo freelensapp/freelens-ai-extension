@@ -141,6 +141,7 @@ async function loadSnapshot(clusterId: string): Promise<void> {
           seq: snapshot.seq,
           isRunning: snapshot.isStreaming,
           autoApprove: snapshot.autoApprove,
+          stats: snapshot.stats,
           stale: undefined,
         },
     current.messages,

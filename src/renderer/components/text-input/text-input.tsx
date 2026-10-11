@@ -2,7 +2,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { MessageSquarePlus, SendHorizonal, Square, Trash2 } from "lucide-react";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
-import { computeSessionCost, formatCost } from "../../business/provider/model-pricing";
+import { formatCost } from "../../business/provider/model-pricing";
 import { formatTokenUsage } from "../../business/service/token-usage";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { AvailableTools } from "../available-tools/available-tools";
@@ -23,15 +23,19 @@ type TextInputProps = {
 export const TextInput = observer(({ onSend }: TextInputProps) => {
   const applicationStatusStore = useApplicationStatusStore();
   const textInputHook = useTextInput({ onSend });
-  // Priced from the picked model's catalog entry (USD per million tokens), so a
-  // model of any provider shows its own cost.
-  const picked = textInputHook.pickedModelSummary;
-  const sessionCost = picked
-    ? computeSessionCost(applicationStatusStore.tokenUsage, {
-        inputCostPerToken: picked.inputCost / 1_000_000,
-        outputCostPerToken: picked.outputCost / 1_000_000,
-      })
-    : 0;
+  // Everything below comes from pi's stats for the chat, computed in main: the
+  // cost from each answer's model price, the context from the session's model.
+  const stats = applicationStatusStore.sessionStats;
+  const tokens = stats?.tokens;
+  // pi counts cache reads and writes apart from the rest of the input; the
+  // counter shows all input with the cached part in brackets.
+  const tokenUsage = {
+    input: tokens ? tokens.input + tokens.cacheRead + tokens.cacheWrite : 0,
+    cached: tokens?.cacheRead ?? 0,
+    output: tokens?.output ?? 0,
+  };
+  const sessionCost = stats?.cost ?? 0;
+  const contextUsage = stats?.contextUsage;
 
   // State for showing/hiding the vertical list
   const [showList, setShowList] = React.useState(false);
@@ -101,24 +105,12 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               </button>
             </div>
             <div style={{ display: "flex", alignItems: "center" }}>
-              {applicationStatusStore.compactionStatus && (
-                <span
-                  className={`text-input-compaction-status${
-                    applicationStatusStore.compactionStatus === "compacting" ? " compacting" : ""
-                  }`}
-                  title="The conversation was getting close to the model's input token limit, so it was summarized to free up context."
-                >
-                  {applicationStatusStore.compactionStatus === "compacting"
-                    ? "Compacting conversation..."
-                    : "Compacted conversation."}
-                </span>
-              )}
               {textInputHook.agentConfigured && (
                 <span
                   className="text-input-token-counter text-input-tooltip"
-                  data-tooltip="Tokens used this session (input, cached input, output), with estimated cost when known. Resets when the chat is cleared."
+                  data-tooltip="Tokens used in this chat (input, cached input, output), with the cost when the model's price is known. Starts again with a new chat."
                 >
-                  {formatTokenUsage(applicationStatusStore.tokenUsage)}
+                  {formatTokenUsage(tokenUsage)}
                   {sessionCost > 0 ? ` = ${formatCost(sessionCost)}` : ""}
                 </span>
               )}
@@ -146,9 +138,8 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               )}
               {textInputHook.agentConfigured && (
                 <TokenCapacityIndicator
-                  usedTokens={applicationStatusStore.lastInputTokens}
-                  maxTokens={picked?.contextWindow || applicationStatusStore.getMaxInputTokens()}
-                  peakTokens={applicationStatusStore.lastPeakInputTokens}
+                  usedTokens={contextUsage ? contextUsage.tokens : 0}
+                  maxTokens={contextUsage?.contextWindow || textInputHook.pickedModelSummary?.contextWindow || 0}
                 />
               )}
               {/* While a run is going, Stop is the only action */}

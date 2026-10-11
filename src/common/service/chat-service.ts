@@ -241,23 +241,9 @@ const useChatService = () => {
           continue;
         }
 
-        // Token usage deltas are summed into the per-session counter (and the
-        // cost derived from it) shown next to the model list. Emitted live per
-        // completed LLM call, so the counter and cost move during a turn; a
-        // negative delta on a transient-error retry rolls back the failed
-        // attempt's contribution.
-        if (isTokenUsageChunk(chunk)) {
-          applicationStatusStore.addTokenUsage(chunk.tokenUsage);
-          continue;
-        }
-
-        // Persisted-context size: record what the next prompt re-sends so the
-        // next send can decide whether to compact before reaching the model's
-        // input token limit, and update the capacity indicator live. The peak is
-        // kept only for the indicator tooltip.
-        if (isContextSizeChunk(chunk)) {
-          applicationStatusStore.setLastInputTokens(chunk.contextTokens);
-          applicationStatusStore.setLastPeakInputTokens(chunk.peakInputTokens);
+        // The counter, cost and context gauge come from the pi agent's stats in
+        // main now; this old path's usage is not shown.
+        if (isTokenUsageChunk(chunk) || isContextSizeChunk(chunk)) {
           continue;
         }
 

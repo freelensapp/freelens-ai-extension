@@ -9,7 +9,13 @@ import {
   withApprovalBackup,
 } from "./chat-reducer";
 
-import type { AgentEnvelope, AgentSnapshot, ApprovalRequest, ChatMessage } from "../../../common/agent-protocol";
+import type {
+  AgentEnvelope,
+  AgentSnapshot,
+  ApprovalRequest,
+  ChatMessage,
+  SessionStats,
+} from "../../../common/agent-protocol";
 import type { MessageObject } from "../objects/message-object";
 
 const userMessage: MessageObject = {
@@ -453,5 +459,104 @@ describe("approve all in this chat", () => {
     };
     expect(chatFromSnapshot("c1", snapshot).autoApprove).toBe(true);
     expect(chatFromSnapshot("c1", { ...snapshot, autoApprove: false }).autoApprove).toBe(false);
+  });
+});
+
+describe("session stats", () => {
+  const stats = (output: number): SessionStats => ({
+    sessionFile: undefined,
+    sessionId: "s1",
+    userMessages: 1,
+    assistantMessages: 1,
+    toolCalls: 0,
+    toolResults: 0,
+    totalMessages: 2,
+    tokens: { input: 1200, output, cacheRead: 300, cacheWrite: 0, total: 1500 + output },
+    cost: 0.0042,
+    contextUsage: { tokens: 1500, contextWindow: 272_000, percent: 0.55 },
+  });
+  const statsEnvelope = (clusterId: string, seq: number, payload: SessionStats) =>
+    ({ clusterId, sessionId: "s1", seq, kind: "stats", payload }) as AgentEnvelope;
+
+  it("keeps the latest stats from main without touching the transcript", () => {
+    const state = reduceAll(initial(), [statsEnvelope("c1", 1, stats(10)), statsEnvelope("c1", 2, stats(25))]);
+
+    expect(state.stats).toEqual(stats(25));
+    expect(state.messages).toEqual([userMessage]);
+    expect(state.seq).toBe(2);
+  });
+
+  it("ignores another cluster's stats", () => {
+    const state = reduceEnvelope(initial(), statsEnvelope("c2", 1, stats(10)));
+    expect(state.stats).toBeUndefined();
+  });
+
+  it("takes the stats from a snapshot", () => {
+    const snapshot: AgentSnapshot = {
+      messages: [],
+      isStreaming: false,
+      pendingToolRequests: [],
+      autoApprove: false,
+      stats: stats(40),
+      seq: 3,
+    };
+    expect(chatFromSnapshot("c1", snapshot).stats).toEqual(stats(40));
+  });
+});
+
+describe("compaction", () => {
+  const compactionEnd = (extra: Record<string, unknown> = {}) => ({
+    type: "compaction_end",
+    reason: "threshold",
+    result: { summary: "..." },
+    aborted: false,
+    willRetry: false,
+    ...extra,
+  });
+  const notices = (state: ChatViewState) => state.messages.filter((m) => m.notice).map((m) => m.text);
+  const compacted = "Compacted the conversation: earlier messages were summarized to free up context.";
+
+  it("shows a line while pi compacts and replaces it with the outcome", () => {
+    const compacting = reduceAll(initial(), stream("c1", [{ type: "compaction_start", reason: "threshold" }]));
+    expect(notices(compacting)).toEqual(["Compacting the conversation to free up context..."]);
+
+    const done = reduceEnvelope(compacting, stream("c1", [compactionEnd()], 2)[0]!);
+    expect(notices(done)).toEqual([compacted]);
+    expect(done.messages).toHaveLength(2);
+  });
+
+  it("keeps the compaction line in place while the answer streams after it", () => {
+    const state = reduceAll(
+      initial(),
+      stream("c1", [
+        { type: "compaction_start", reason: "overflow" },
+        compactionEnd({ reason: "overflow", willRetry: true }),
+        assistantStart,
+        textDelta("Retried."),
+        assistantEnd(),
+      ]),
+    );
+
+    expect(state.messages.map((m) => m.text)).toEqual(["hi", compacted, "Retried."]);
+  });
+
+  it("says when a compaction failed or was stopped", () => {
+    const failed = reduceAll(
+      initial(),
+      stream("c1", [
+        { type: "compaction_start", reason: "threshold" },
+        compactionEnd({ result: undefined, errorMessage: "context too small" }),
+      ]),
+    );
+    expect(notices(failed)).toEqual(["Compacting the conversation failed: context too small"]);
+
+    const stopped = reduceAll(
+      initial(),
+      stream("c1", [
+        { type: "compaction_start", reason: "manual" },
+        compactionEnd({ result: undefined, aborted: true }),
+      ]),
+    );
+    expect(notices(stopped)).toEqual(["Compacting the conversation was stopped."]);
   });
 });
