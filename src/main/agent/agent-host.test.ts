@@ -1,7 +1,13 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import {
+  type FauxResponseFactory as FauxFactory,
+  fauxAssistantMessage,
+  fauxProvider,
+  fauxText,
+  fauxToolCall,
+} from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -1056,6 +1062,221 @@ describe("AgentHost", () => {
 
         const restarted = createHost({ tools: gatedTools });
         expect((await snapshotOf(restarted)).autoApprove).toBe(false);
+      });
+    });
+  });
+
+  describe("AI Explain", () => {
+    interface SeenRequest {
+      prompt: string;
+      tools: string[];
+      user: string;
+    }
+
+    // Records the system prompt, the tools and the last user message the model saw.
+    const recordingResponse = (seen: SeenRequest[], text: string) => (context: Parameters<FauxFactory>[0]) => {
+      const request: SeenRequest = { prompt: "", tools: [], user: "" };
+      for (const message of context.messages) {
+        if (message.role === "system") {
+          const content =
+            typeof message.content === "string" ? message.content : message.content.map((c) => c.text).join("");
+          request.prompt += content + Object.values(message.sections ?? {}).join("");
+          request.tools.push(...(message.toolsAdded ?? []).map((tool) => tool.name));
+        }
+        if (message.role === "user") {
+          request.user =
+            typeof message.content === "string"
+              ? message.content
+              : message.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+        }
+      }
+      seen.push(request);
+      return fauxAssistantMessage([fauxText(text)]);
+    };
+
+    const explainSettled = (sessionId: string) =>
+      envelopes.some((e) => e.sessionId === sessionId && e.kind === "event" && e.payload.type === "agent_settled");
+
+    const sessionFiles = (clusterId: string) => {
+      const dir = join(dataDir, "sessions", clusterId);
+      return existsSync(dir) ? readdirSync(dir).filter((file) => file.endsWith(".jsonl")) : [];
+    };
+
+    it("streams the answer under its own session id and leaves the chat's session file unchanged", async () => {
+      const seen: SeenRequest[] = [];
+      faux.setResponses([fauxAssistantMessage([fauxText("Chat answer")]), recordingResponse(seen, "Explained.")]);
+      const host = createHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "hi" });
+      await waitFor(settled);
+      const chatSessionId = envelopes[0]!.sessionId;
+      const [file] = sessionFiles("c1");
+      const before = readFileSync(join(dataDir, "sessions", "c1", file!), "utf8");
+      const chatCount = envelopes.length;
+
+      const response = await host.handleCommand("c1", { type: "explain", message: "Pod web-1 is CrashLoopBackOff" });
+      expect(response).toMatchObject({ command: "explain", success: true });
+      const explainEnvelopes = () => envelopes.slice(chatCount);
+      await waitFor(() => explainEnvelopes().length > 0);
+      const explainSessionId = explainEnvelopes()[0]!.sessionId;
+      expect(explainSessionId).not.toBe(chatSessionId);
+      await waitFor(() => explainSettled(explainSessionId));
+
+      expect(explainEnvelopes().every((e) => e.clusterId === "c1" && e.sessionId === explainSessionId)).toBe(true);
+      // One seq per cluster, so the frame keeps chat and explain envelopes in order.
+      expect(envelopes.map((e) => e.seq)).toEqual(envelopes.map((_, index) => index + 1));
+      const text = explainEnvelopes()
+        .flatMap((e) => (e.kind === "event" && e.payload.type === "message_update" ? [e.payload] : []))
+        .map((p) => (p.assistantMessageEvent.type === "text_delta" ? p.assistantMessageEvent.delta : ""))
+        .join("");
+      expect(text).toBe("Explained.");
+      expect(seen[0]?.user).toContain("Pod web-1 is CrashLoopBackOff");
+
+      expect(sessionFiles("c1")).toEqual([file]);
+      expect(readFileSync(join(dataDir, "sessions", "c1", file!), "utf8")).toBe(before);
+      const snapshot = await snapshotOf(host);
+      expect(snapshot.sessionId).toBe(chatSessionId);
+      expect(snapshot.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    });
+
+    it("writes no session file for a cluster that never chatted", async () => {
+      faux.setResponses([fauxAssistantMessage([fauxText("Explained.")])]);
+      const host = createHost();
+
+      await host.handleCommand("c1", { type: "explain", message: "an event" });
+      await waitFor(settled);
+
+      expect(sessionFiles("c1")).toEqual([]);
+      expect((await snapshotOf(host)).messages).toEqual([]);
+    });
+
+    it("uses the explain prompt with its five sections, no emoji and no tools", async () => {
+      const seen: SeenRequest[] = [];
+      faux.setResponses([recordingResponse(seen, "ok")]);
+      const host = createHost({ tools: [getClusterVersionTool, patchKubernetesResourceTool] });
+
+      await host.handleCommand("c1", { type: "explain", message: "an event" });
+      await waitFor(settled);
+
+      const prompt = seen[0]!.prompt;
+      for (const heading of ["Summary", "Diagnosis", "Impact", "Recommended Actions", "Reference"]) {
+        expect(prompt).toContain(`### ${heading}`);
+      }
+      expect(prompt).not.toMatch(/\p{Extended_Pictographic}/u);
+      expect(prompt).not.toContain("<user_rules>");
+      expect(seen[0]!.tools).toEqual([]);
+    });
+
+    it("adds the user's custom agent rules to the explain prompt", async () => {
+      const seen: SeenRequest[] = [];
+      faux.setResponses([recordingResponse(seen, "ok")]);
+      const host = createHost({ getUserRules: () => "Always answer in Italian." });
+
+      await host.handleCommand("c1", { type: "explain", message: "an event" });
+      await waitFor(settled);
+
+      expect(seen[0]!.prompt).toContain("Always answer in Italian.");
+    });
+
+    it("is refused while a chat run is going", async () => {
+      faux.setResponses(toolCallThenText());
+      const host = createHost({ toolTimeoutMs: 60_000 });
+
+      await host.handleCommand("c1", { type: "prompt", message: "which version?" });
+      await waitFor(() => envelopes.some((e) => e.kind === "tool_request"));
+
+      const response = await host.handleCommand("c1", { type: "explain", message: "an event" });
+      expect(response).toMatchObject({ command: "explain", success: false });
+    });
+
+    it("refuses a second explanation sent at the same time", async () => {
+      faux.setResponses([fauxAssistantMessage([fauxText("one")]), fauxAssistantMessage([fauxText("two")])]);
+      const host = createHost();
+
+      const responses = await Promise.all([
+        host.handleCommand("c1", { type: "explain", message: "first" }),
+        host.handleCommand("c1", { type: "explain", message: "second" }),
+      ]);
+      await waitFor(settled);
+
+      expect(responses.filter((response) => response.success)).toHaveLength(1);
+      expect(eventTypes().filter((type) => type === "agent_start")).toHaveLength(1);
+    });
+
+    it("is stopped by a Stop sent before pi starts it", async () => {
+      faux.setResponses([fauxAssistantMessage([fauxText("Should not appear")])]);
+      const host = createHost();
+
+      const explained = host.handleCommand("c1", { type: "explain", message: "an event" });
+      expect(await host.handleCommand("c1", { type: "abort" })).toMatchObject({ success: true });
+      await explained;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const text = envelopes
+        .flatMap((e) => (e.kind === "event" && e.payload.type === "message_update" ? [e.payload] : []))
+        .map((p) => (p.assistantMessageEvent.type === "text_delta" ? p.assistantMessageEvent.delta : ""))
+        .join("");
+      expect(text).toBe("");
+      expect((await snapshotOf(host)).isStreaming).toBe(false);
+      expect(await host.handleCommand("c1", { type: "explain", message: "again" })).toMatchObject({ success: true });
+    });
+
+    it("is refused when no model is selected", async () => {
+      const host = createHost({ getModelRef: () => undefined });
+      const response = await host.handleCommand("c1", { type: "explain", message: "an event" });
+      expect(response).toMatchObject({ command: "explain", success: false });
+      expect(envelopes).toEqual([]);
+    });
+
+    describe("while an explanation is streaming", () => {
+      let release: (() => void) | undefined;
+
+      // An answer that waits until the test releases it or the run is aborted.
+      const heldResponse: FauxFactory = (_context, options) =>
+        new Promise((resolve) => {
+          release = () => resolve(fauxAssistantMessage([fauxText("late")]));
+          options?.signal?.addEventListener("abort", () =>
+            resolve(fauxAssistantMessage([fauxText("")], { stopReason: "aborted" })),
+          );
+        });
+
+      beforeEach(() => {
+        release = undefined;
+      });
+
+      it("refuses a chat prompt and a second explanation, and reports the run in the snapshot", async () => {
+        faux.setResponses([heldResponse]);
+        const host = createHost();
+
+        await host.handleCommand("c1", { type: "explain", message: "an event" });
+        await waitFor(() => release !== undefined);
+
+        expect(await host.handleCommand("c1", { type: "prompt", message: "hi" })).toMatchObject({ success: false });
+        expect(await host.handleCommand("c1", { type: "explain", message: "again" })).toMatchObject({
+          success: false,
+        });
+        const snapshot = await snapshotOf(host);
+        expect(snapshot.isStreaming).toBe(true);
+        expect(snapshot.streamingMessage).toBeUndefined();
+
+        release!();
+        await waitFor(settled);
+        expect((await snapshotOf(host)).isStreaming).toBe(false);
+      });
+
+      it("is stopped by Stop", async () => {
+        faux.setResponses([heldResponse]);
+        const host = createHost();
+
+        await host.handleCommand("c1", { type: "explain", message: "an event" });
+        await waitFor(() => release !== undefined);
+
+        expect(await host.handleCommand("c1", { type: "abort" })).toMatchObject({ success: true });
+        await waitFor(settled);
+        const end = envelopes.find(
+          (e) => e.kind === "event" && e.payload.type === "message_end" && e.payload.message.role === "assistant",
+        );
+        expect(end).toMatchObject({ payload: { message: { stopReason: "aborted" } } });
       });
     });
   });

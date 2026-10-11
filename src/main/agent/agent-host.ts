@@ -17,7 +17,7 @@ import { prepareApproval } from "../../common/agent-tools/approval";
 import { requiresApproval, type ToolApprovalOverrides } from "../../common/agent-tools/approval-settings";
 import { DEFAULT_THINKING_LEVEL, type ThinkingLevel } from "../../common/thinking-level";
 import { toJsonEvent } from "./json-event";
-import { SYSTEM_PROMPT } from "./system-prompt";
+import { EXPLAIN_PROMPT, SYSTEM_PROMPT, withUserRules } from "./system-prompt";
 
 import type { Model } from "@earendil-works/pi-ai";
 
@@ -56,6 +56,8 @@ export interface AgentHostOptions {
   getThinkingLevel?: () => ThinkingLevel;
   /** The user's "Requires approval" choices by tool name; read before every call. */
   getApprovalOverrides?: () => ToolApprovalOverrides;
+  /** The user's custom agent rules; read before every explanation. */
+  getUserRules?: () => string;
   systemPrompt?: string;
   toolTimeoutMs?: number;
   /** pi retries temporary provider errors; tests turn that off. */
@@ -76,6 +78,18 @@ interface ClusterAgent {
   // "Approve all in this chat": in memory only, so New chat, Delete all chats
   // and a restart, which all drop this object, turn it off.
   autoApprove: boolean;
+}
+
+// An AI Explain run: a throwaway pi session that is never saved. Registered
+// before its session exists, so a second explanation or a prompt sent while it
+// starts is refused, and Stop can cancel it before it runs.
+interface ExplainRun {
+  session?: AgentSession;
+  cancelled: boolean;
+  /** The frames got agent_start and not yet agent_settled. */
+  running: boolean;
+  /** Settles once pi started the run or the explanation ended without one. */
+  started: Promise<void>;
 }
 
 interface PendingToolRequest {
@@ -121,6 +135,8 @@ export class AgentHost {
   private readonly resets = new Map<string, Promise<AgentResponse>>();
   // Prompts that pi has not started running yet, per cluster.
   private readonly preparing = new Map<string, Set<Promise<void>>>();
+  // The running AI Explain, per cluster.
+  private readonly explains = new Map<string, ExplainRun>();
 
   constructor(private readonly options: AgentHostOptions) {}
 
@@ -128,6 +144,8 @@ export class AgentHost {
     switch (command.type) {
       case "prompt":
         return this.prompt(clusterId, command.message);
+      case "explain":
+        return this.explain(clusterId, command.message);
       case "abort":
         return this.abort(clusterId);
       case "get_snapshot":
@@ -158,22 +176,37 @@ export class AgentHost {
       cluster.then((agent) => agent.session.dispose()).catch(() => undefined);
     }
     this.clusters.clear();
+    for (const run of this.explains.values()) {
+      run.cancelled = true;
+      run.session?.dispose();
+    }
+    this.explains.clear();
   }
 
-  private async prompt(clusterId: string, message: string): Promise<AgentResponse> {
+  // The selected model, or the reason a prompt or an explanation can't run.
+  private async selectedModel(command: string): Promise<Model<any> | AgentResponse> {
     const ref = this.options.getModelRef();
     if (!ref) {
-      return fail("prompt", "No model is selected. Choose a model for the chat first.");
+      return fail(command, "No model is selected. Choose a model for the chat first.");
     }
     const model = this.options.modelRuntime.getModel(ref.provider, ref.id);
     if (!model) {
-      return fail("prompt", `The model ${ref.provider}/${ref.id} is not available.`);
+      return fail(command, `The model ${ref.provider}/${ref.id} is not available.`);
     }
     if (!(await this.options.modelRuntime.checkAuth(model.provider))) {
       return fail(
-        "prompt",
+        command,
         `No credentials for ${model.provider}. Add an API key or sign in to ${model.provider} in the Freelens AI settings.`,
       );
+    }
+    return model;
+  }
+
+  private async prompt(clusterId: string, message: string): Promise<AgentResponse> {
+    const model = await this.selectedModel("prompt");
+    if ("success" in model) return model;
+    if (this.explains.has(clusterId)) {
+      return fail("prompt", "Wait for the explanation to finish, or stop it, before sending a message.");
     }
 
     // A prompt sent during New chat goes to the new chat.
@@ -233,9 +266,140 @@ export class AgentHost {
     });
   }
 
+  // AI Explain runs in a throwaway in-memory session with the explain prompt
+  // and no tools, so the answer never grows the chat's context or its file.
+  // Its events go out like the chat's, under the explain session's id.
+  private async explain(clusterId: string, message: string): Promise<AgentResponse> {
+    if (!message.trim()) return fail("explain", "Nothing to explain.");
+    if (this.explains.has(clusterId)) {
+      return fail("explain", "An explanation is already running. Wait for it to finish, or stop it.");
+    }
+
+    // Registered before any await, so a second explanation is refused and Stop
+    // finds it.
+    let markStarted!: () => void;
+    const run: ExplainRun = {
+      cancelled: false,
+      running: false,
+      started: new Promise<void>((resolve) => {
+        markStarted = resolve;
+      }),
+    };
+    this.explains.set(clusterId, run);
+    const release = () => {
+      markStarted();
+      if (this.explains.get(clusterId) === run) this.explains.delete(clusterId);
+    };
+    const finish = () => {
+      release();
+      run.session?.dispose();
+    };
+
+    const model = await this.selectedModel("explain");
+    if ("success" in model) {
+      finish();
+      return model;
+    }
+    const chat = await this.clusters.get(clusterId)?.catch(() => undefined);
+    if (chat?.session.isStreaming || this.preparing.has(clusterId) || this.resets.has(clusterId)) {
+      finish();
+      return fail("explain", "Wait for the current answer to finish, or stop it, before asking for an explanation.");
+    }
+
+    let session: AgentSession;
+    try {
+      const { dataDir, modelRuntime } = this.options;
+      const cwd = this.sessionDir(clusterId);
+      const agentDir = join(dataDir, "pi");
+      const resourceLoader = new DefaultResourceLoader({
+        cwd,
+        agentDir,
+        noExtensions: true,
+        noSkills: true,
+        noPromptTemplates: true,
+        noThemes: true,
+        noContextFiles: true,
+        systemPrompt: withUserRules(EXPLAIN_PROMPT, this.options.getUserRules?.()),
+      });
+      await resourceLoader.reload();
+      ({ session } = await createAgentSession({
+        cwd,
+        agentDir,
+        model,
+        thinkingLevel: this.thinkingLevel(),
+        modelRuntime,
+        resourceLoader,
+        noTools: "builtin",
+        sessionManager: SessionManager.inMemory(cwd),
+        settingsManager: SettingsManager.inMemory(this.options.retry === false ? { retry: { enabled: false } } : {}),
+      }));
+    } catch (error) {
+      finish();
+      return fail("explain", errorText(error));
+    }
+    run.session = session;
+    // Stop or New chat while the session was being created: nothing ran.
+    if (run.cancelled) {
+      finish();
+      return ok("explain", { disposition: "cancelled" });
+    }
+
+    session.subscribe((event) => {
+      if (event.type === "entry_appended") return;
+      // Snapshots report the explanation as running only between the frames'
+      // agent_start and agent_settled, so a run that never starts can't leave
+      // a remounted frame stuck.
+      if (event.type === "agent_start") {
+        run.running = true;
+        // A Stop that came while pi was still starting the run.
+        if (run.cancelled) void session.abort();
+      }
+      this.send(clusterId, session.sessionId, { kind: "event", payload: toJsonEvent(event) });
+      // Settled before the prompt's promise resolves: a prompt sent right after
+      // the answer ends is not refused.
+      if (event.type === "agent_settled") release();
+    });
+
+    return new Promise<AgentResponse>((resolve) => {
+      let answered = false;
+      const answer = (response: AgentResponse) => {
+        markStarted();
+        if (!answered) {
+          answered = true;
+          resolve(response);
+        }
+      };
+      session
+        .prompt(message, { preflightResult: (disposition) => answer(ok("explain", { disposition })) })
+        .then(() => answer(ok("explain")))
+        .catch((error) => {
+          if (answered) {
+            console.error(`[freelens-ai] The explanation for cluster ${clusterId} failed:`, error);
+          }
+          answer(fail("explain", errorText(error)));
+        })
+        .finally(finish);
+    });
+  }
+
+  // Until pi starts the run, its abort does nothing, so this waits for the
+  // explanation to get that far, as New chat does for a chat prompt.
+  private async stopExplain(clusterId: string): Promise<void> {
+    const run = this.explains.get(clusterId);
+    if (!run) return;
+    run.cancelled = true;
+    await run.started;
+    await run.session?.abort();
+  }
+
   // Stop first denies a pending approval and fails the tool calls still waiting
   // on the frame: pi's abort waits for them, and they may never be answered.
   private async abort(clusterId: string): Promise<AgentResponse> {
+    try {
+      await this.stopExplain(clusterId);
+    } catch (error) {
+      return fail("abort", errorText(error));
+    }
     const agent = this.clusters.get(clusterId);
     if (!agent) return ok("abort");
     for (const pending of [...this.pendingApprovals.values()]) {
@@ -361,6 +525,7 @@ export class AgentHost {
   }
 
   private async closeClusterAgent(clusterId: string): Promise<void> {
+    await this.stopExplain(clusterId);
     await Promise.all(this.preparing.get(clusterId) ?? []);
     const agent = await this.clusters.get(clusterId)?.catch(() => undefined);
     if (!agent) return;
@@ -373,9 +538,13 @@ export class AgentHost {
   }
 
   private async snapshot(clusterId: string): Promise<AgentResponse> {
+    // A running explanation keeps Stop on a remounted frame. Its partial answer
+    // is left out: it is not part of the chat, and rebuilding the chat around
+    // it would drop the frame's earlier explanations.
+    const explaining = () => this.explains.get(clusterId)?.running === true;
     const empty: AgentSnapshot = {
       messages: [],
-      isStreaming: false,
+      isStreaming: explaining(),
       pendingToolRequests: [],
       autoApprove: false,
       seq: this.seqs.get(clusterId) ?? 0,
@@ -394,7 +563,7 @@ export class AgentHost {
         sessionId: session.sessionId,
         messages: session.messages.filter(isChatMessage),
         streamingMessage: streaming?.role === "assistant" ? streaming : undefined,
-        isStreaming: session.isStreaming,
+        isStreaming: session.isStreaming || explaining(),
         pendingToolRequests: [...this.pendingTools.values()]
           .filter((pending) => pending.clusterId === clusterId)
           .map((pending) => pending.request),
@@ -461,7 +630,7 @@ export class AgentHost {
   private setAutoApprove(clusterId: string, agent: ClusterAgent, enabled: boolean): void {
     if (agent.autoApprove === enabled) return;
     agent.autoApprove = enabled;
-    this.send(clusterId, agent, { kind: "auto_approve", payload: { enabled } });
+    this.send(clusterId, agent.session.sessionId, { kind: "auto_approve", payload: { enabled } });
   }
 
   // pi's `tool_call` hook: a call that needs approval is validated and
@@ -502,12 +671,15 @@ export class AgentHost {
       const settle = (answer: boolean) => {
         if (!this.pendingApprovals.delete(request.id)) return;
         signal?.removeEventListener("abort", onAbort);
-        this.send(clusterId, agent, { kind: "ui_resolved", payload: { id: request.id, confirmed: answer } });
+        this.send(clusterId, agent.session.sessionId, {
+          kind: "ui_resolved",
+          payload: { id: request.id, confirmed: answer },
+        });
         resolve(answer);
       };
       this.pendingApprovals.set(request.id, { clusterId, request, settle });
       signal?.addEventListener("abort", onAbort, { once: true });
-      this.send(clusterId, agent, { kind: "ui_request", payload: request });
+      this.send(clusterId, agent.session.sessionId, { kind: "ui_request", payload: request });
     });
     return confirmed ? undefined : { block: true, reason: DENIED_REASON };
   }
@@ -584,18 +756,18 @@ export class AgentHost {
           if (session.sessionFile && existsSync(session.sessionFile)) rmSync(markerPath, { force: true });
         });
       }
-      this.send(clusterId, agent, { kind: "event", payload: toJsonEvent(event) });
+      this.send(clusterId, agent.session.sessionId, { kind: "event", payload: toJsonEvent(event) });
     });
     return agent;
   }
 
   // Fire and forget: the session listener never waits on the frames, and a
   // failing broadcast must not break the run.
-  private send(clusterId: string, agent: ClusterAgent, body: Pick<AgentEnvelope, "kind" | "payload">): void {
+  private send(clusterId: string, sessionId: string, body: Pick<AgentEnvelope, "kind" | "payload">): void {
     const seq = (this.seqs.get(clusterId) ?? 0) + 1;
     this.seqs.set(clusterId, seq);
     try {
-      this.options.broadcast({ clusterId, sessionId: agent.session.sessionId, seq, ...body } as AgentEnvelope);
+      this.options.broadcast({ clusterId, sessionId, seq, ...body } as AgentEnvelope);
     } catch (error) {
       console.error(`[freelens-ai] Broadcasting to the frames of cluster ${clusterId} failed:`, error);
     }
@@ -664,7 +836,7 @@ export class AgentHost {
         },
       });
 
-      this.send(clusterId, agent, { kind: "tool_request", payload: request });
+      this.send(clusterId, agent.session.sessionId, { kind: "tool_request", payload: request });
     });
   }
 }

@@ -25,9 +25,6 @@ const parseModelRef = (value: string): ModelRef | undefined => {
 export default class LensExtensionAiMain extends Main.LensExtension {
   private agentHost?: AgentHost;
   private providerService?: ProviderService;
-  // The OpenAI API key saved in pi, for AI Explain until it moves to pi. It
-  // stays in main: the proxy below adds it to the upstream request.
-  private piOpenAIKey?: string;
 
   async onActivate() {
     // @ts-ignore
@@ -50,7 +47,7 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     try {
       await this.startAgentHost(preferencesStore);
     } catch (error) {
-      // Keep activating: AI Explain still runs on the proxy below.
+      // Keep activating: the old LangChain code still reads the proxy below.
       console.error("[freelens-ai] Starting the pi agent failed:", error);
     }
 
@@ -66,11 +63,7 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     // requires the per-launch shared secret on every request.
     preferencesStore.aiProxyPort = await startAiProxyServer(
       aiProxyToken,
-      // pi's OpenAI key is for api.openai.com; a custom endpoint keeps its own key.
-      () =>
-        process.env.OPENAI_API_KEY ||
-        (isDefaultOpenAIBaseUrl(preferencesStore.openAIBaseUrl) ? this.piOpenAIKey : preferencesStore.openAIKey) ||
-        undefined,
+      () => process.env.OPENAI_API_KEY || preferencesStore.openAIKey || undefined,
     );
   }
 
@@ -124,23 +117,9 @@ export default class LensExtensionAiMain extends Main.LensExtension {
 
     // Provider status, models and logins for the settings page. Global, not per
     // cluster; credentials never leave main.
-    let keyRefreshes = 0;
-    const refreshPiOpenAIKey = async () => {
-      const refresh = ++keyRefreshes;
-      // A ChatGPT sign-in token does not work against the OpenAI API AI Explain calls.
-      const auth = modelRuntime.isUsingOAuth("openai") ? undefined : await modelRuntime.getAuth("openai");
-      // A slower, older read must not bring back a key a later logout removed.
-      if (refresh === keyRefreshes) {
-        this.piOpenAIKey = auth?.auth.apiKey;
-      }
-    };
-    const logKeyError = (error: unknown) =>
-      console.error("[freelens-ai] Reading the OpenAI key from pi failed:", error);
-    refreshPiOpenAIKey().catch(logKeyError);
     const providerService = new ProviderService({
       modelRuntime,
       broadcast: (envelope) => ipc.broadcast(PROVIDER_ENVELOPE_CHANNEL, envelope),
-      onCredentialsChanged: () => void refreshPiOpenAIKey().catch(logKeyError),
       getDeviceId: () => loadDeviceId(join(piDir, "device-id")),
     });
     this.providerService = providerService;
@@ -155,6 +134,8 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       // The chat's model picker remembers the last model used here.
       getModelRef: () => parseModelRef(preferencesStore.agentModel),
       getThinkingLevel: () => preferencesStore.thinkingLevel,
+      // AI Explain gets the user's custom agent rules too.
+      getUserRules: () => preferencesStore.customAgentRules,
       getRetentionDays: () => preferencesStore.chatRetentionDays,
       // Hosts before the main cluster API (Freelens 1.10) keep every cluster's latest chat.
       knownClusterIds: () => Main.Catalog?.getAllClusters?.()?.map((cluster) => cluster.id),

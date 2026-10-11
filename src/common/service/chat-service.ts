@@ -4,11 +4,7 @@ import {
   getAgentChat,
   sendAgentCommand,
 } from "../../renderer/business/agent-client/agent-client";
-import {
-  getErrorMessage,
-  getExplainMessage,
-  getInterruptMessage,
-} from "../../renderer/business/objects/message-object-provider";
+import { getErrorMessage, getInterruptMessage } from "../../renderer/business/objects/message-object-provider";
 import { MessageType } from "../../renderer/business/objects/message-type";
 import { DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
 import {
@@ -18,7 +14,6 @@ import {
   isTokenUsageChunk,
   useAgentService,
 } from "../../renderer/business/service/agent-service";
-import { AiAnalysisService, useAiAnalysisService } from "../../renderer/business/service/ai-analysis-service";
 import { ActionToApprove } from "../../renderer/components/chat";
 import { useApplicationStatusStore } from "../../renderer/context/application-context";
 import { PreferencesStore } from "../store";
@@ -36,7 +31,6 @@ export interface ApprovalInterrupt {
 const useChatService = () => {
   const { log } = useLog("useChatService");
   const applicationStatusStore = useApplicationStatusStore();
-  const aiAnalysisService: AiAnalysisService = useAiAnalysisService();
 
   const getReadableErrorMessage = (error: unknown) => {
     if (!(error instanceof Error)) {
@@ -109,7 +103,7 @@ const useChatService = () => {
       if (message.sent) {
         if (MessageType.EXPLAIN === message.type) {
           _sendMessage(message);
-          analyzeEvent(message).finally(() => applicationStatusStore.setLoading(false));
+          void explainEvent(message.text);
         } else {
           _sendMessage(message);
           void promptAgent(message.text);
@@ -134,7 +128,7 @@ const useChatService = () => {
 
     applicationStatusStore.setLoading(true);
     if (retryContext.kind === "explain") {
-      analyzeEvent(getExplainMessage(retryContext.text)).finally(() => applicationStatusStore.setLoading(false));
+      void explainEvent(retryContext.text);
     } else if (retryContext.kind === "resume") {
       runAgent(new Command({ resume: retryContext.text }), retryContext).finally(() =>
         applicationStatusStore.setLoading(false),
@@ -199,21 +193,20 @@ const useChatService = () => {
     applicationStatusStore.changeInterruptStatus(id, status);
   };
 
-  const analyzeEvent = async (lastMessage: MessageObject) => {
-    try {
-      const analysisResultStream = aiAnalysisService.analyze(lastMessage.text);
-      for await (const chunk of analysisResultStream) {
-        // log.debug("Streaming to UI chunk: ", chunk);
-        applicationStatusStore.updateLastMessage(chunk);
-      }
-    } catch (error) {
-      log.error("Error in AI analysis: ", error);
-      _sendMessage(
-        getErrorMessage(`Error in AI analysis: ${getReadableErrorMessage(error)}`, {
-          kind: "explain",
-          text: lastMessage.text,
-        }),
-      );
+  // AI Explain runs in main as a one-shot pi call with no tools. Its answer
+  // streams back as envelopes like a chat answer, but is not saved into the
+  // cluster's chat session. An explanation main refuses (no model, a run going)
+  // shows its reason right away.
+  const explainEvent = async (text: string) => {
+    const response = await sendAgentCommand(applicationStatusStore.clusterId, { type: "explain", message: text });
+    if (!response.success) {
+      _sendMessage(getErrorMessage(`Error in AI analysis: ${response.error}`, { kind: "explain", text }));
+      applicationStatusStore.setLoading(false);
+      return;
+    }
+    const disposition = (response.data as { disposition?: string } | undefined)?.disposition;
+    if (disposition && disposition !== "started" && !getAgentChat()?.isRunning) {
+      applicationStatusStore.setLoading(false);
     }
   };
 

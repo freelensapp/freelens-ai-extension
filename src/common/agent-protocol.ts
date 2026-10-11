@@ -89,6 +89,11 @@ export interface AgentSnapshot {
 
 export type AgentCommand =
   | { type: "prompt"; message: string }
+  /**
+   * AI Explain: a one-shot answer with no tools. It streams as `event`
+   * envelopes under its own `sessionId` and is not saved into the chat.
+   */
+  | { type: "explain"; message: string }
   | { type: "abort" }
   | { type: "get_snapshot" }
   /** Stops a run, then starts a new chat; answers with the new chat's snapshot. */

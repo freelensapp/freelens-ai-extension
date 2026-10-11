@@ -24,7 +24,6 @@ import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
 import { MessageType } from "../business/objects/message-type";
 import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../business/provider/ai-models";
-import { addModel } from "../business/provider/model-list";
 import { computeSessionCost, type ModelPricingMap } from "../business/provider/model-pricing";
 import { fetchModelPricing } from "../business/provider/model-pricing-provider";
 import { approximateTokenCount } from "../business/provider/token-estimate";
@@ -422,8 +421,8 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   };
 
   // New chat or Delete all chats: main stops a run and starts the cluster's new
-  // pi session, and the agent client empties the transcript. The LangChain
-  // state that AI Explain still uses is cleared as before.
+  // pi session, and the agent client empties the transcript. The old LangChain
+  // state is cleared as before until it is removed.
   const resetChat = async (type: "new_session" | "delete_sessions") => {
     const response = await resetAgentChat(clusterId, type);
     if (!response.success) {
@@ -532,13 +531,6 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   // Takes the picker's "provider/id"; main runs the next prompt on it.
   const setSelectedModel = (modelRef: string) => {
     preferencesStore.agentModel = modelRef;
-    // AI Explain still runs on the old OpenAI client until it moves to pi, so
-    // an OpenAI model chosen in the chat becomes its model too.
-    const openAIModel = modelRef.startsWith("openai/") ? modelRef.slice("openai/".length) : "";
-    if (openAIModel) {
-      preferencesStore.models = addModel(preferencesStore.models, AIProviders.OPEN_AI, openAIModel);
-      preferencesStore.selectedModel = openAIModel;
-    }
   };
 
   // The API key to use depends on the selected model's provider. Only OpenAI is
