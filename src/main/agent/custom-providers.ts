@@ -123,6 +123,11 @@ export async function addCustomProvider(
       await modelRuntime.login(provider.id, "api_key", { prompt: async () => key, notify: () => undefined });
     }
   } catch (error) {
+    // pi saves the key before it syncs, so a failed sync can leave it behind.
+    const stored = await modelRuntime.listCredentials().catch(() => []);
+    if (stored.some((credential) => credential.providerId === provider.id)) {
+      await modelRuntime.logout(provider.id).catch(() => undefined);
+    }
     writeModelsJson(modelsPath, previous);
     await reloadProvider(modelRuntime, provider.id).catch(() => undefined);
     throw error;
