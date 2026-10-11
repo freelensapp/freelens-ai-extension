@@ -509,19 +509,18 @@ export const ProviderSettings = () => {
     });
   }, [reload]);
 
+  // The error is set after the reload, which clears the error line.
   const logout = async (provider: ProviderSummary) => {
     const response = await sendProviderCommand({ type: "logout", providerId: provider.id });
-    if (!mounted.current) return;
-    if (!response.success) setError(response.error);
     await reload();
+    if (mounted.current && !response.success) setError(response.error);
   };
 
   const remove = async (provider: ProviderSummary) => {
     if (!window.confirm(`Remove ${provider.name}? Its saved API key is deleted too.`)) return;
     const response = await sendProviderCommand({ type: "remove_custom_provider", providerId: provider.id });
-    if (!mounted.current) return;
-    if (!response.success) setError(response.error);
     await reload();
+    if (mounted.current && !response.success) setError(response.error);
   };
 
   // The cards reload when a login ends (onLoginEnded), so closing only hides the dialog.
