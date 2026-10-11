@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -9,7 +10,7 @@ import { isDefaultOpenAIBaseUrl } from "../common/openai-base-url";
 import { PROVIDER_COMMAND_CHANNEL, PROVIDER_ENVELOPE_CHANNEL, type ProviderCommand } from "../common/provider-protocol";
 import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
 import { AgentHost, type ModelRef } from "./agent/agent-host";
-import { importLegacyCredentials } from "./agent/credentials-import";
+import { importLegacyCredentials, importLegacyCustomProvider } from "./agent/credentials-import";
 import { loadDeviceId } from "./agent/device-id";
 import { ProviderService } from "./agent/provider-service";
 import { startAiProxyServer } from "./ai-proxy-server";
@@ -83,9 +84,10 @@ export default class LensExtensionAiMain extends Main.LensExtension {
 
     const dataDir = await this.getExtensionFileFolder();
     const piDir = join(dataDir, "pi");
+    const modelsPath = join(piDir, "models.json");
     const modelRuntime = await ModelRuntime.create({
       authPath: join(piDir, "auth.json"),
-      modelsPath: join(piDir, "models.json"),
+      modelsPath,
     });
 
     try {
@@ -113,12 +115,42 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       console.error("[freelens-ai] Importing the old OpenAI key into pi failed:", error);
     }
 
+    try {
+      const customMarkerPath = join(piDir, "legacy-custom-import-done");
+      const { seededModel } = await importLegacyCustomProvider(
+        modelRuntime,
+        modelsPath,
+        {
+          openAIKey: preferencesStore.openAIKey,
+          openAIBaseUrl: preferencesStore.openAIBaseUrl,
+          selectedModel: preferencesStore.selectedModel,
+          modelNames: preferencesStore.models.map((model) => model.name),
+        },
+        customMarkerPath,
+      );
+      if (seededModel && !preferencesStore.agentModel) {
+        preferencesStore.agentModel = seededModel;
+      }
+      // With a custom base URL the import is done only once the key is in pi's
+      // auth.json, so the plain-text copy can go.
+      if (
+        preferencesStore.openAIKey &&
+        !isDefaultOpenAIBaseUrl(preferencesStore.openAIBaseUrl) &&
+        existsSync(customMarkerPath)
+      ) {
+        preferencesStore.openAIKey = "";
+      }
+    } catch (error) {
+      console.error("[freelens-ai] Importing the old custom base URL into pi failed:", error);
+    }
+
     const ipc = AgentMainIpc.createInstance(this) as AgentMainIpc;
 
     // Provider status, models and logins for the settings page. Global, not per
     // cluster; credentials never leave main.
     const providerService = new ProviderService({
       modelRuntime,
+      modelsPath,
       broadcast: (envelope) => ipc.broadcast(PROVIDER_ENVELOPE_CHANNEL, envelope),
       getDeviceId: () => loadDeviceId(join(piDir, "device-id")),
     });

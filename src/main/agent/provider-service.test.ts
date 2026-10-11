@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fauxProvider } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -40,6 +40,7 @@ const apiKeyAuth = (
 describe("ProviderService", () => {
   let dataDir: string;
   let authPath: string;
+  let modelsPath: string;
   let modelRuntime: ModelRuntime;
   let envelopes: ProviderEnvelope[];
   let service: ProviderService | undefined;
@@ -48,7 +49,8 @@ describe("ProviderService", () => {
   beforeEach(async () => {
     dataDir = mkdtempSync(join(tmpdir(), "provider-service-"));
     authPath = join(dataDir, "pi", "auth.json");
-    modelRuntime = await ModelRuntime.create({ authPath, modelsPath: join(dataDir, "pi", "models.json") });
+    modelsPath = join(dataDir, "pi", "models.json");
+    modelRuntime = await ModelRuntime.create({ authPath, modelsPath });
     modelRuntime.registerNativeProvider(
       fakeProvider(
         "fake-key",
@@ -101,7 +103,12 @@ describe("ProviderService", () => {
   });
 
   const createService = (overrides: Partial<ProviderServiceOptions> = {}) => {
-    service = new ProviderService({ modelRuntime, broadcast: (envelope) => envelopes.push(envelope), ...overrides });
+    service = new ProviderService({
+      modelRuntime,
+      modelsPath,
+      broadcast: (envelope) => envelopes.push(envelope),
+      ...overrides,
+    });
     return service;
   };
 
@@ -366,5 +373,132 @@ describe("ProviderService", () => {
     await svc.handleCommand({ type: "login", loginId: "l1", providerId: "fake-device", method: "oauth" });
 
     expect(seen).toEqual(["6f1c1a52-4f7e-4d55-9d43-8f3a2c1b9e10"]);
+  });
+
+  describe("custom OpenAI-compatible endpoints", () => {
+    const litellm = {
+      name: "My LiteLLM",
+      baseUrl: "http://localhost:4000/v1/",
+      apiKey: "sk-litellm-secret",
+      modelIds: ["qwen3", "llama3"],
+      reasoning: true,
+    };
+    const readModelsJson = () => JSON.parse(readFileSync(modelsPath, "utf8"));
+    const listModels = async (svc: ProviderService, providerId: string) => {
+      const response = await svc.handleCommand({ type: "list_models", providerId });
+      return (response.success ? response.data : []) as ProviderModelSummary[];
+    };
+
+    it("adds an endpoint to models.json with its key only in auth.json, and lists it with its models", async () => {
+      const svc = createService();
+
+      const response = await svc.handleCommand({ type: "add_custom_provider", provider: litellm });
+      expect(response).toMatchObject({ success: true, data: { providerId: "my-litellm" } });
+
+      expect(readModelsJson()).toEqual({
+        providers: {
+          "my-litellm": {
+            name: "My LiteLLM",
+            baseUrl: "http://localhost:4000/v1",
+            api: "openai-completions",
+            models: [
+              { id: "qwen3", reasoning: true },
+              { id: "llama3", reasoning: true },
+            ],
+          },
+        },
+      });
+      expect(readFileSync(modelsPath, "utf8")).not.toContain("sk-litellm-secret");
+      expect(readFileSync(authPath, "utf8")).toContain("sk-litellm-secret");
+
+      expect(await provider(svc, "my-litellm")).toMatchObject({
+        name: "My LiteLLM",
+        status: { connected: true, type: "api_key", stored: true },
+        custom: { baseUrl: "http://localhost:4000/v1" },
+      });
+      expect(await listModels(svc, "my-litellm")).toEqual([
+        expect.objectContaining({ provider: "my-litellm", providerName: "My LiteLLM", id: "qwen3", reasoning: true }),
+        expect.objectContaining({ provider: "my-litellm", id: "llama3", reasoning: true }),
+      ]);
+      expect(envelopes.filter((e) => e.kind === "credentials_changed")).toHaveLength(1);
+      expect(JSON.stringify(envelopes)).not.toContain("sk-litellm-secret");
+    });
+
+    it("connects an endpoint without a key, such as a local Ollama", async () => {
+      const svc = createService();
+
+      await svc.handleCommand({
+        type: "add_custom_provider",
+        provider: { ...litellm, name: "Ollama", apiKey: "", reasoning: false },
+      });
+
+      expect(await provider(svc, "ollama")).toMatchObject({ status: { connected: true }, custom: {} });
+      expect(await listModels(svc, "ollama")).toEqual([
+        expect.objectContaining({ id: "qwen3", reasoning: false }),
+        expect.objectContaining({ id: "llama3", reasoning: false }),
+      ]);
+    });
+
+    it("refuses invalid input and names taken by another provider, writing nothing", async () => {
+      const svc = createService();
+
+      expect(
+        await svc.handleCommand({ type: "add_custom_provider", provider: { ...litellm, modelIds: [] } }),
+      ).toMatchObject({ success: false, error: "Enter at least one model id." });
+      expect(
+        await svc.handleCommand({ type: "add_custom_provider", provider: { ...litellm, baseUrl: "localhost" } }),
+      ).toMatchObject({ success: false });
+      expect(
+        await svc.handleCommand({ type: "add_custom_provider", provider: { ...litellm, name: "OpenAI" } }),
+      ).toMatchObject({ success: false, error: expect.stringContaining("already exists") });
+
+      expect(existsSync(modelsPath)).toBe(false);
+      expect(envelopes).toEqual([]);
+    });
+
+    it("removes an endpoint from models.json together with its key, keeping hand-edited entries", async () => {
+      mkdirSync(dirname(modelsPath), { recursive: true });
+      const handEdited = {
+        baseUrl: "http://localhost:8000/v1",
+        api: "openai-completions",
+        apiKey: "none",
+        models: [{ id: "vllm-model" }],
+      };
+      writeFileSync(modelsPath, JSON.stringify({ providers: { vllm: handEdited } }));
+      await modelRuntime.refresh({ providers: ["vllm"], allowNetwork: false });
+      const svc = createService();
+      await svc.handleCommand({ type: "add_custom_provider", provider: litellm });
+      envelopes.length = 0;
+
+      const response = await svc.handleCommand({ type: "remove_custom_provider", providerId: "my-litellm" });
+
+      expect(response).toMatchObject({ success: true });
+      expect(readModelsJson()).toEqual({ providers: { vllm: handEdited } });
+      expect(readFileSync(authPath, "utf8")).not.toContain("sk-litellm-secret");
+      expect((await listProviders(svc)).some((p) => p.id === "my-litellm")).toBe(false);
+      expect(await listModels(svc, "my-litellm")).toEqual([]);
+      expect(envelopes.filter((e) => e.kind === "credentials_changed")).toHaveLength(1);
+      // A hand-written entry is a custom endpoint too.
+      expect(await provider(svc, "vllm")).toMatchObject({ custom: { baseUrl: "http://localhost:8000/v1" } });
+    });
+
+    it("does not remove a built-in provider", async () => {
+      const svc = createService();
+
+      expect(await svc.handleCommand({ type: "remove_custom_provider", providerId: "openai" })).toMatchObject({
+        success: false,
+        error: "OpenAI is not a custom endpoint.",
+      });
+      expect((await provider(svc, "openai")).custom).toBeUndefined();
+    });
+
+    it("tells the page where models.json lives", async () => {
+      const svc = createService();
+
+      expect(await svc.handleCommand({ type: "get_models_path" })).toMatchObject({
+        success: true,
+        data: { path: modelsPath },
+      });
+    });
   });
 });

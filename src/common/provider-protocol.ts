@@ -6,6 +6,7 @@
 // `ui_response` like the chat's approvals.
 
 import type { AgentResponse } from "./agent-protocol";
+import type { CustomProviderInput } from "./custom-provider";
 
 export const PROVIDER_COMMAND_CHANNEL = "provider:command";
 export const PROVIDER_ENVELOPE_CHANNEL = "provider:envelope";
@@ -42,6 +43,8 @@ export interface ProviderSummary {
   methods: AuthMethod[];
   status: ProviderStatus;
   modelCount: number;
+  /** Set for a custom OpenAI-compatible endpoint from `models.json`; Remove deletes it. */
+  custom?: { baseUrl: string };
 }
 
 /** A model of pi's catalog, with what the cards show. */
@@ -109,6 +112,12 @@ export type ProviderCommand =
   | { type: "cancel_login"; loginId: string }
   /** Answers a login prompt; `cancelled` ends the login without saving anything. */
   | { type: "ui_response"; id: string; value?: string; cancelled?: boolean }
-  | { type: "logout"; providerId: string };
+  | { type: "logout"; providerId: string }
+  /** Writes an OpenAI-compatible endpoint into `models.json` and its key into `auth.json`; answers with `{ providerId }`. */
+  | { type: "add_custom_provider"; provider: CustomProviderInput }
+  /** Deletes a custom endpoint from `models.json` together with its saved key. */
+  | { type: "remove_custom_provider"; providerId: string }
+  /** Where `models.json` lives, for hand edits (headers, costs, `compat`); answers with `{ path }`. */
+  | { type: "get_models_path" };
 
 export type ProviderResponse = AgentResponse;

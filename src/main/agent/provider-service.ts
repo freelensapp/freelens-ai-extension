@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { addCustomProvider, readCustomProviders, removeCustomProvider } from "./custom-providers";
 
 import type { AuthEvent, AuthPrompt, Provider } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -20,6 +21,8 @@ export const LOGIN_CANCELLED = "Login cancelled.";
 
 export interface ProviderServiceOptions {
   modelRuntime: ModelRuntime;
+  /** pi's models.json, where custom endpoints live. */
+  modelsPath: string;
   broadcast: (envelope: ProviderEnvelope) => void;
   /** Called after a login or logout changed the stored credentials. */
   onCredentialsChanged?: () => void;
@@ -143,6 +146,18 @@ export class ProviderService {
           return this.answerPrompt(command.id, command.value, command.cancelled === true);
         case "logout":
           return await this.logout(command.providerId);
+        case "add_custom_provider": {
+          const { modelRuntime, modelsPath } = this.options;
+          const provider = await addCustomProvider(modelRuntime, modelsPath, command.provider);
+          this.credentialsChanged();
+          return ok(command.type, { providerId: provider.id });
+        }
+        case "remove_custom_provider":
+          await removeCustomProvider(this.options.modelRuntime, this.options.modelsPath, command.providerId);
+          this.credentialsChanged();
+          return ok(command.type);
+        case "get_models_path":
+          return ok(command.type, { path: this.options.modelsPath });
         default:
           return fail((command as { type?: string }).type ?? "unknown", "Unknown command");
       }
@@ -172,14 +187,19 @@ export class ProviderService {
   private async listProviders(): Promise<ProviderSummary[]> {
     const { modelRuntime } = this.options;
     const storedIds = await this.storedIds();
+    const custom = readCustomProviders(this.options.modelsPath);
     return Promise.all(
-      modelRuntime.getProviders().map(async (provider) => ({
-        id: provider.id,
-        name: provider.name,
-        methods: authMethods(provider),
-        status: await this.status(provider, storedIds),
-        modelCount: modelRuntime.getModels(provider.id).length,
-      })),
+      modelRuntime.getProviders().map(async (provider) => {
+        const endpoint = custom.get(provider.id);
+        return {
+          id: provider.id,
+          name: provider.name,
+          methods: authMethods(provider),
+          status: await this.status(provider, storedIds),
+          modelCount: modelRuntime.getModels(provider.id).length,
+          ...(endpoint ? { custom: endpoint } : {}),
+        };
+      }),
     );
   }
 

@@ -1,5 +1,6 @@
 import { Common, Renderer } from "@freelensapp/extensions";
 import * as React from "react";
+import { type CustomProviderInput, parseModelIds, validateCustomProvider } from "../../../common/custom-provider";
 import { onProviderEnvelope, sendProviderCommand } from "../../business/provider-client/provider-client";
 
 import type { SingleValue } from "react-select";
@@ -16,7 +17,7 @@ import type {
 const { useCallback, useEffect, useRef, useState } = React;
 
 const {
-  Component: { Button, Icon, Input, Select, Spinner },
+  Component: { Button, Icon, Input, Select, Spinner, Switch },
 } = Renderer;
 
 type SelectOption<T> = Renderer.Component.SelectOption<T>;
@@ -314,14 +315,119 @@ const LoginDialog = ({ provider, onClose, onEnded }: LoginDialogProps) => {
   );
 };
 
+interface CustomEndpointFormProps {
+  modelsPath?: string;
+  onClose: () => void;
+  /** Called once main saved the endpoint. */
+  onAdded: () => void;
+}
+
+/**
+ * Adds an OpenAI-compatible endpoint (LiteLLM, Ollama, vLLM, ...). Main writes
+ * it into pi's models.json and the key into auth.json; the key is not kept here
+ * once sent.
+ */
+const CustomEndpointForm = ({ modelsPath, onClose, onAdded }: CustomEndpointFormProps) => {
+  const [name, setName] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [modelIds, setModelIds] = useState("");
+  const [reasoning, setReasoning] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const [saving, setSaving] = useState(false);
+  const mounted = useRef(true);
+
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
+
+  const input: CustomProviderInput = { name, baseUrl, apiKey, modelIds: parseModelIds(modelIds), reasoning };
+
+  const save = async () => {
+    // The same checks as main, so most mistakes show without a round trip.
+    const validation = validateCustomProvider(input);
+    if (!validation.ok) {
+      setError(validation.error);
+      return;
+    }
+    setSaving(true);
+    setError(undefined);
+    const response = await sendProviderCommand({ type: "add_custom_provider", provider: input });
+    if (!mounted.current) return;
+    setSaving(false);
+    if (!response.success) {
+      setError(response.error);
+      return;
+    }
+    onAdded();
+    onClose();
+  };
+
+  const field = (label: string, control: React.ReactNode) => (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ marginBottom: 4 }}>{label}</div>
+      {control}
+    </div>
+  );
+
+  return (
+    <div
+      style={{
+        border: "1px solid var(--borderColor, #444)",
+        borderRadius: 6,
+        padding: 16,
+        margin: "8px 0 12px",
+        maxWidth: 520,
+      }}
+    >
+      <div style={{ fontWeight: "bold", fontSize: 15, marginBottom: 12 }}>Add custom endpoint</div>
+      {hint("Any server that speaks the OpenAI Chat Completions API, such as LiteLLM, Ollama, vLLM or LM Studio.")}
+      {field("Name", <Input autoFocus placeholder="My LiteLLM" value={name} onChange={(v: string) => setName(v)} />)}
+      {field(
+        "Base URL",
+        <Input placeholder="http://localhost:4000/v1" value={baseUrl} onChange={(v: string) => setBaseUrl(v)} />,
+      )}
+      {field(
+        "API key (leave empty if the server needs none)",
+        <Input type="password" value={apiKey} onChange={(v: string) => setApiKey(v)} />,
+      )}
+      {field(
+        "Model ids, separated by commas or new lines",
+        <Input multiLine placeholder="qwen3, llama3.3" value={modelIds} onChange={(v: string) => setModelIds(v)} />,
+      )}
+      <Switch
+        label="The models support reasoning (sends the thinking level as reasoning effort)"
+        checked={reasoning}
+        onChange={(checked: boolean) => setReasoning(checked)}
+      />
+      {modelsPath &&
+        hint(
+          <>
+            For headers, prices, context sizes or compatibility settings, edit <code>{modelsPath}</code> by hand.
+          </>,
+        )}
+      {error && <div style={{ marginTop: 8, color: "var(--colorError, #ce3933)" }}>{error}</div>}
+      <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <Button plain label="Cancel" onClick={onClose} />
+        <Button primary label="Add endpoint" waiting={saving} disabled={saving} onClick={() => void save()} />
+      </div>
+    </div>
+  );
+};
+
 const ProviderCard = ({
   provider,
   models,
   onLogout,
+  onRemove,
 }: {
   provider: ProviderSummary;
   models: ProviderModelSummary[];
   onLogout: () => void;
+  onRemove: () => void;
 }) => {
   const [showAll, setShowAll] = useState(false);
   const shown = showAll ? models : models.slice(0, MODELS_SHOWN);
@@ -329,9 +435,15 @@ const ProviderCard = ({
     <div style={{ border: "1px solid var(--borderColor, #444)", borderRadius: 6, padding: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
         <span style={{ fontWeight: "bold" }}>{provider.name}</span>
-        {provider.status.stored && <Icon material="logout" small interactive tooltip="Log out" onClick={onLogout} />}
+        {provider.custom ? (
+          <Icon material="delete" small interactive tooltip="Remove endpoint" onClick={onRemove} />
+        ) : (
+          provider.status.stored && <Icon material="logout" small interactive tooltip="Log out" onClick={onLogout} />
+        )}
       </div>
-      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>{statusLabel(provider)}</div>
+      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8, overflowWrap: "anywhere" }}>
+        {provider.custom ? `Custom endpoint - ${provider.custom.baseUrl}` : statusLabel(provider)}
+      </div>
       {models.length === 0 && hint("No models listed.")}
       {shown.map((model) => (
         <div
@@ -366,6 +478,8 @@ export const ProviderSettings = () => {
   const [error, setError] = useState<string | undefined>();
   const [picking, setPicking] = useState(false);
   const [connecting, setConnecting] = useState<ProviderSummary | undefined>();
+  const [addingCustom, setAddingCustom] = useState(false);
+  const [modelsPath, setModelsPath] = useState<string | undefined>();
   const mounted = useRef(true);
 
   useEffect(
@@ -392,10 +506,21 @@ export const ProviderSettings = () => {
 
   useEffect(() => {
     void reload();
+    void sendProviderCommand({ type: "get_models_path" }).then((response) => {
+      if (mounted.current && response.success) setModelsPath((response.data as { path: string }).path);
+    });
   }, [reload]);
 
   const logout = async (provider: ProviderSummary) => {
     const response = await sendProviderCommand({ type: "logout", providerId: provider.id });
+    if (!mounted.current) return;
+    if (!response.success) setError(response.error);
+    await reload();
+  };
+
+  const remove = async (provider: ProviderSummary) => {
+    if (!window.confirm(`Remove ${provider.name}? Its saved API key is deleted too.`)) return;
+    const response = await sendProviderCommand({ type: "remove_custom_provider", providerId: provider.id });
     if (!mounted.current) return;
     if (!response.success) setError(response.error);
     await reload();
@@ -418,7 +543,15 @@ export const ProviderSettings = () => {
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ fontWeight: "bold", fontSize: 16 }}>Providers</div>
-        <Button primary label="Add provider" disabled={!providers} onClick={() => setPicking(!picking)} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button
+            plain
+            label="Add custom endpoint"
+            disabled={!providers}
+            onClick={() => setAddingCustom(!addingCustom)}
+          />
+          <Button primary label="Add provider" disabled={!providers} onClick={() => setPicking(!picking)} />
+        </div>
       </div>
       {hint(
         "The chat runs on the models of these providers. Keys and sign-ins are stored by the extension, never in the preferences. Providers whose key is set in an environment variable show up here by themselves.",
@@ -441,6 +574,13 @@ export const ProviderSettings = () => {
       {connecting && (
         <LoginDialog key={connecting.id} provider={connecting} onClose={onLoginClosed} onEnded={onLoginEnded} />
       )}
+      {addingCustom && (
+        <CustomEndpointForm
+          modelsPath={modelsPath}
+          onClose={() => setAddingCustom(false)}
+          onAdded={() => void reload()}
+        />
+      )}
       {error && <div style={{ marginBottom: 8, color: "var(--colorError, #ce3933)" }}>{error}</div>}
       {!providers && !error && <Spinner />}
       {providers && connected.length === 0 && hint("No provider is connected yet. Use Add provider to connect one.")}
@@ -451,9 +591,11 @@ export const ProviderSettings = () => {
             provider={provider}
             models={models.filter((model) => model.provider === provider.id)}
             onLogout={() => void logout(provider)}
+            onRemove={() => void remove(provider)}
           />
         ))}
       </div>
+      {modelsPath && hint(<>Custom endpoints are stored in {modelsPath}, which can also be edited by hand.</>)}
     </>
   );
 };
