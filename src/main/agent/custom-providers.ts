@@ -28,7 +28,15 @@ const readModelsJson = (modelsPath: string): ModelsJson => {
   if (!existsSync(modelsPath)) {
     return { providers: {} };
   }
-  const parsed = JSON.parse(readFileSync(modelsPath, "utf8")) as Partial<ModelsJson>;
+  let parsed: Partial<ModelsJson>;
+  try {
+    parsed = JSON.parse(readFileSync(modelsPath, "utf8").replace(/^\uFEFF/, "")) as Partial<ModelsJson>;
+  } catch {
+    // pi also accepts comments, which writing the file back would drop.
+    throw new Error(
+      `${modelsPath} has comments or is not valid JSON, so it can't be changed from here. Edit it by hand.`,
+    );
+  }
   return { ...parsed, providers: parsed.providers ?? {} };
 };
 
@@ -107,7 +115,8 @@ export async function addCustomProvider(
   try {
     await reloadProvider(modelRuntime, provider.id);
     if (!modelRuntime.getProvider(provider.id)) {
-      throw new Error(`pi could not load ${provider.name}.`);
+      const reason = modelRuntime.getError();
+      throw new Error(`pi could not load ${provider.name}.${reason ? ` ${reason}` : ""}`);
     }
     if (provider.apiKey) {
       const key = provider.apiKey;

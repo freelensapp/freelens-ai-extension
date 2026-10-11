@@ -497,6 +497,19 @@ describe("ProviderService", () => {
       expect(readModelsJson()).toEqual(broken);
     });
 
+    it("leaves a models.json with comments alone and says to edit it by hand", async () => {
+      mkdirSync(dirname(modelsPath), { recursive: true });
+      const commented = '{\n  // my endpoints\n  "providers": {}\n}\n';
+      writeFileSync(modelsPath, commented);
+      const svc = createService();
+
+      expect(await svc.handleCommand({ type: "add_custom_provider", provider: litellm })).toMatchObject({
+        success: false,
+        error: expect.stringContaining("Edit it by hand"),
+      });
+      expect(readFileSync(modelsPath, "utf8")).toBe(commented);
+    });
+
     it("does not remove a built-in provider", async () => {
       const svc = createService();
 
