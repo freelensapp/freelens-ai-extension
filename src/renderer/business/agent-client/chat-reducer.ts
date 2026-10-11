@@ -2,7 +2,7 @@ import { generateUuid } from "../../../common/utils/uuid";
 import { MessageType } from "../objects/message-type";
 
 import type { AgentEnvelope, AgentSnapshot, ApprovalRequest, ChatMessage } from "../../../common/agent-protocol";
-import type { MessageObject } from "../objects/message-object";
+import type { MessageObject, RetryContext } from "../objects/message-object";
 
 /** What the chat of one cluster frame shows, rebuilt from main's snapshot and envelopes. */
 export interface ChatViewState {
@@ -21,11 +21,15 @@ export interface ChatViewState {
 type EventPayload = Extract<AgentEnvelope, { kind: "event" }>["payload"];
 type AssistantChatMessage = Extract<ChatMessage, { role: "assistant" }>;
 
-const lastUserText = (messages: MessageObject[]) => {
+// What Retry sends again: the user's last prompt, or the last AI Explain.
+const lastUserRequest = (messages: MessageObject[]): RetryContext => {
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.sent) return messages[i]!.text;
+    const message = messages[i]!;
+    if (message.sent) {
+      return { kind: message.type === MessageType.EXPLAIN ? "explain" : "message", text: message.text };
+    }
   }
-  return "";
+  return { kind: "message", text: "" };
 };
 
 const textMessage = (text: string, extra: Partial<MessageObject> = {}): MessageObject => ({
@@ -41,7 +45,7 @@ const notice = (text: string) => textMessage(text, { notice: true });
 const errorMessage = (error: string | undefined, messages: MessageObject[]) =>
   textMessage(`Error while running Freelens Agent: ${error ?? "unknown error"}`, {
     error: true,
-    retryContext: { kind: "message", text: lastUserText(messages) },
+    retryContext: lastUserRequest(messages),
   });
 
 // The lines that follow an assistant message that did not end normally.

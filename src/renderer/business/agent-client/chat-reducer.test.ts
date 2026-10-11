@@ -147,6 +147,16 @@ describe("reduceEnvelope", () => {
     expect(state.messages[1]?.text).toContain("401 invalid_api_key");
   });
 
+  it("retries a failed AI Explain as an explanation, not as a chat prompt", () => {
+    const explain: MessageObject = { messageId: "e1", type: MessageType.EXPLAIN, text: "explain this", sent: true };
+    const state = reduceAll(
+      initial([userMessage, explain]),
+      stream("c1", [assistantStart, assistantEnd({ stopReason: "error", errorMessage: "503" })]),
+    );
+
+    expect(state.messages[2]).toMatchObject({ error: true, retryContext: { kind: "explain", text: "explain this" } });
+  });
+
   it("drops tool requests: the tool runner handles those", () => {
     const before = initial();
     const after = reduceEnvelope(before, {
