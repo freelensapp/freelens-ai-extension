@@ -72,6 +72,16 @@ export const readCustomProviders = (modelsPath: string): Map<string, { baseUrl: 
   return custom;
 };
 
+/**
+ * The provider ids a new custom endpoint can't use: pi's providers, and every
+ * entry in models.json, since one pi failed to load is still the user's.
+ */
+export const takenProviderIds = (modelRuntime: ModelRuntime, modelsPath: string): Set<string> =>
+  new Set([
+    ...modelRuntime.getProviders().map((provider) => provider.id),
+    ...Object.keys(readModelsJson(modelsPath).providers),
+  ]);
+
 const reloadProvider = async (modelRuntime: ModelRuntime, providerId: string) => {
   await modelRuntime.refresh({ providers: [providerId], allowNetwork: false });
 };
@@ -87,11 +97,7 @@ export async function addCustomProvider(
   input: CustomProviderInput,
 ): Promise<CustomProvider> {
   const previous = readModelsJson(modelsPath);
-  // An entry pi failed to load is not among its providers, but is still the user's.
-  const taken = new Set([
-    ...modelRuntime.getProviders().map((provider) => provider.id),
-    ...Object.keys(previous.providers),
-  ]);
+  const taken = takenProviderIds(modelRuntime, modelsPath);
   const validation = validateCustomProvider(input, taken);
   if (!validation.ok) {
     throw new Error(validation.error);

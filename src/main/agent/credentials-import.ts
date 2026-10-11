@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { customProviderId, validateCustomProvider } from "../../common/custom-provider";
 import { isDefaultOpenAIBaseUrl } from "../../common/openai-base-url";
-import { addCustomProvider } from "./custom-providers";
+import { addCustomProvider, takenProviderIds } from "./custom-providers";
 
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
@@ -76,7 +76,7 @@ export async function importLegacyCustomProvider(
     const baseUrl = legacy.openAIBaseUrl.trim();
     const selected = legacy.selectedModel.trim();
     const host = URL.canParse(baseUrl) ? new URL(baseUrl).host : baseUrl;
-    const taken = new Set(modelRuntime.getProviders().map((provider) => provider.id));
+    const taken = takenProviderIds(modelRuntime, modelsPath);
     const input = {
       name: taken.has(customProviderId(host)) ? `${host} (imported)` : host,
       baseUrl,

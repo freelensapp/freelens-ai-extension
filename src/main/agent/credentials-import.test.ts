@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -109,6 +109,19 @@ describe("importLegacyCustomProvider", () => {
 
     const models = JSON.parse(readFileSync(modelsPath, "utf8")).providers["llm-example-com"].models;
     expect(models.map((model: { id: string }) => model.id)).toEqual(["gpt-5.5", "qwen3", "llama3", "mistral"]);
+  });
+
+  it("picks another id when models.json already has an entry pi did not load under the host's id", async () => {
+    const handWritten = { baseUrl: "https://elsewhere.example.com/v1", models: [] };
+    mkdirSync(join(dir, "pi"), { recursive: true });
+    writeFileSync(modelsPath, JSON.stringify({ providers: { "llm-example-com": handWritten } }));
+
+    const result = await importLegacyCustomProvider(modelRuntime, modelsPath, legacy, markerPath);
+
+    expect(result.importedProviderId).toBeDefined();
+    expect(result.importedProviderId).not.toBe("llm-example-com");
+    expect(JSON.parse(readFileSync(modelsPath, "utf8")).providers["llm-example-com"]).toEqual(handWritten);
+    expect(existsSync(markerPath)).toBe(true);
   });
 
   it("runs only once", async () => {
