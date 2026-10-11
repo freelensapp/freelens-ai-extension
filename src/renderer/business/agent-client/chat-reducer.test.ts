@@ -540,6 +540,25 @@ describe("compaction", () => {
     expect(state.messages.map((m) => m.text)).toEqual(["hi", compacted, "Retried."]);
   });
 
+  it("rebuilds the compaction line from a snapshot, in place", () => {
+    const snapshot: AgentSnapshot = {
+      messages: [
+        { role: "user", content: "hi", timestamp: 1 },
+        { role: "assistant", content: [{ type: "text", text: "first" }], stopReason: "stop" } as ChatMessage,
+        { role: "compaction", timestamp: 3 },
+        { role: "user", content: "again", timestamp: 4 },
+      ],
+      isStreaming: false,
+      pendingToolRequests: [],
+      autoApprove: false,
+      seq: 9,
+    };
+
+    const state = chatFromSnapshot("c1", snapshot);
+    expect(state.messages.map((m) => m.text)).toEqual(["hi", "first", compacted, "again"]);
+    expect(state.messages[2]).toMatchObject({ notice: true, sent: false });
+  });
+
   it("says when a compaction failed or was stopped", () => {
     const failed = reduceAll(
       initial(),

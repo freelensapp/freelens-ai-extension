@@ -29,6 +29,7 @@ import type {
   ApprovalRequest,
   ChatMessage,
   ToolRequest,
+  TranscriptEntry,
 } from "../../common/agent-protocol";
 import type { AgentToolDefinition } from "../../common/agent-tools";
 
@@ -62,6 +63,8 @@ export interface AgentHostOptions {
   toolTimeoutMs?: number;
   /** pi retries temporary provider errors; tests turn that off. */
   retry?: boolean;
+  /** pi's compaction thresholds for the chats; tests lower them to make pi compact. */
+  compaction?: { reserveTokens: number; keepRecentTokens: number };
   /** Chats not changed for longer than this are deleted; 0 keeps them forever. Read before every prune. */
   getRetentionDays?: () => number;
   /**
@@ -113,6 +116,16 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 // entries stay in main.
 const isChatMessage = (message: { role: string }): message is ChatMessage =>
   message.role === "user" || message.role === "assistant";
+
+// The chat as the user saw it, from the saved entries rather than
+// `session.messages`: after a compaction those hold only what the model still
+// sees, which would drop the earlier part of the chat on a rebuild.
+const transcript = (session: AgentSession): TranscriptEntry[] =>
+  session.sessionManager.getBranch().flatMap((entry): TranscriptEntry[] => {
+    if (entry.type === "message") return isChatMessage(entry.message) ? [entry.message] : [];
+    if (entry.type === "compaction") return [{ role: "compaction", timestamp: Date.parse(entry.timestamp) }];
+    return [];
+  });
 
 // Cluster ids name a folder on disk, so keep them to safe characters.
 const safeFolderName = (clusterId: string) => clusterId.replace(/[^A-Za-z0-9._-]/g, "_");
@@ -563,7 +576,7 @@ export class AgentHost {
         ...empty,
         seq: this.seqs.get(clusterId) ?? 0,
         sessionId: session.sessionId,
-        messages: session.messages.filter(isChatMessage),
+        messages: transcript(session),
         streamingMessage: streaming?.role === "assistant" ? streaming : undefined,
         isStreaming: session.isStreaming || explaining(),
         pendingToolRequests: [...this.pendingTools.values()]
@@ -758,7 +771,10 @@ export class AgentHost {
       sessionManager: existsSync(markerPath)
         ? SessionManager.create(sessionDir, sessionDir)
         : SessionManager.continueRecent(sessionDir, sessionDir),
-      settingsManager: SettingsManager.inMemory(this.options.retry === false ? { retry: { enabled: false } } : {}),
+      settingsManager: SettingsManager.inMemory({
+        ...(this.options.retry === false ? { retry: { enabled: false } } : {}),
+        ...(this.options.compaction ? { compaction: this.options.compaction } : {}),
+      }),
     });
 
     const agent: ClusterAgent = { session, autoApprove: false };

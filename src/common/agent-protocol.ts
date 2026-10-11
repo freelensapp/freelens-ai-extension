@@ -73,14 +73,26 @@ export type AgentEnvelope =
 /** A message of the chat transcript as main sends it in a snapshot. */
 export type ChatMessage = UserMessage | AssistantMessage;
 
+/** Where pi compacted the chat: the messages before it were summarized for the model. */
+export interface CompactionMarker {
+  role: "compaction";
+  timestamp: number;
+}
+
+export type TranscriptEntry = ChatMessage | CompactionMarker;
+
 /**
  * Everything a frame needs to show a cluster's chat when it opens or remounts,
  * even mid-run. The frame then applies only envelopes with a higher `seq`.
  */
 export interface AgentSnapshot {
   sessionId?: string;
-  /** The saved user and assistant messages of the active session. */
-  messages: ChatMessage[];
+  /**
+   * The saved user and assistant messages of the active session, also those
+   * pi has since compacted away from the model's context, with a marker where
+   * each compaction happened.
+   */
+  messages: TranscriptEntry[];
   /** The assistant answer being streamed right now, if any. */
   streamingMessage?: AssistantMessage;
   isStreaming: boolean;

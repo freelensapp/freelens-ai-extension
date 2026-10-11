@@ -1359,6 +1359,59 @@ describe("AgentHost", () => {
       expect(existsSync(join(dataDir, "sessions", "fresh"))).toBe(false);
     });
 
+    describe("after pi compacts the chat", () => {
+      // A small context window and compaction settings that make pi compact
+      // after the second, large prompt.
+      const compactingHost = () => {
+        faux = fauxProvider({
+          tokensPerSecond: 100_000,
+          models: [{ id: "tiny", contextWindow: 4000 }],
+        });
+        modelRuntime.registerNativeProvider(faux.provider);
+        faux.setResponses([
+          fauxAssistantMessage([fauxText("first answer")]),
+          fauxAssistantMessage([fauxText("second answer")]),
+          ...Array.from({ length: 4 }, () => fauxAssistantMessage([fauxText("Summary of the chat.")])),
+        ]);
+        return createHost({ compaction: { reserveTokens: 1000, keepRecentTokens: 100 } });
+      };
+      const compactionEnded = () => eventTypes().includes("compaction_end");
+
+      it("keeps the whole transcript in the snapshot, with a compaction marker", async () => {
+        const host = compactingHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "hi" });
+        await waitFor(settled);
+        envelopes = [];
+        await host.handleCommand("c1", { type: "prompt", message: "x".repeat(14_000) });
+        await waitFor(compactionEnded);
+        await waitFor(settled);
+
+        expect(envelopes.find((e) => e.kind === "event" && e.payload.type === "compaction_end")).toMatchObject({
+          payload: { aborted: false },
+        });
+        const snapshot = await snapshotOf(host);
+        expect(snapshot.messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant", "compaction"]);
+      });
+
+      it("sends stats after the compaction, with the context size unknown until the next answer", async () => {
+        const host = compactingHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "hi" });
+        await waitFor(settled);
+        await host.handleCommand("c1", { type: "prompt", message: "x".repeat(14_000) });
+        await waitFor(compactionEnded);
+        await waitFor(() => {
+          const end = envelopes.findIndex((e) => e.kind === "event" && e.payload.type === "compaction_end");
+          return envelopes.slice(end).some((e) => e.kind === "stats");
+        });
+
+        const last = statsEnvelopes().at(-1)!.payload;
+        // pi does not know the context size until the next answer after a compaction.
+        expect(last.contextUsage).toMatchObject({ tokens: null, contextWindow: 4000 });
+      });
+    });
+
     it("sends no stats for an explanation, which is not part of the chat", async () => {
       faux.setResponses([fauxAssistantMessage([fauxText("Explained.")])]);
       const host = createHost();

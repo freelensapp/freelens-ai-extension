@@ -51,6 +51,7 @@ const textMessage = (text: string, extra: Partial<MessageObject> = {}): MessageO
 const notice = (text: string) => textMessage(text, { notice: true });
 
 const COMPACTING = "Compacting the conversation to free up context...";
+const COMPACTED = "Compacted the conversation: earlier messages were summarized to free up context.";
 
 const errorMessage = (error: string | undefined, messages: MessageObject[]) =>
   textMessage(`Error while running Freelens Agent: ${error ?? "unknown error"}`, {
@@ -124,7 +125,7 @@ function reduceEvent(messages: MessageObject[], event: EventPayload): MessageObj
         ? "Compacting the conversation was stopped."
         : event.errorMessage || !event.result
           ? `Compacting the conversation failed: ${event.errorMessage ?? "unknown error"}`
-          : "Compacted the conversation: earlier messages were summarized to free up context.";
+          : COMPACTED;
       const index = messages.findLastIndex((message) => message.notice && message.text === COMPACTING);
       if (index < 0) return [...messages, notice(outcome)];
       return [...messages.slice(0, index), { ...messages[index]!, text: outcome }, ...messages.slice(index + 1)];
@@ -259,6 +260,10 @@ export function chatFromSnapshot(clusterId: string, snapshot: AgentSnapshot): Ch
   for (const message of snapshot.messages) {
     if (message.role === "user") {
       messages = [...messages, textMessage(userText(message), { sent: true })];
+      continue;
+    }
+    if (message.role === "compaction") {
+      messages = [...messages, notice(COMPACTED)];
       continue;
     }
     const answer = assistantMessage(message, false);
