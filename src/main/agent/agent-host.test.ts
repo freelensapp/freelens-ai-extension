@@ -344,6 +344,103 @@ describe("AgentHost", () => {
     expect(seenPrompt).not.toMatch(/\bbash\b/i);
   });
 
+  describe("per-prompt sections", () => {
+    // The sections the model holds when it answers: pi sends the full set in
+    // the first system message and later system messages patch it, with null
+    // removing a section.
+    const sectionsSeen: Record<string, string>[] = [];
+    const recordSections: FauxFactory = (context) => {
+      const sections: Record<string, string> = {};
+      for (const message of context.messages) {
+        if (message.role !== "system") continue;
+        for (const [name, text] of Object.entries(message.sections ?? {})) {
+          if (text === null) delete sections[name];
+          else sections[name] = text;
+        }
+      }
+      sectionsSeen.push(sections);
+      return fauxAssistantMessage([fauxText("ok")]);
+    };
+
+    beforeEach(() => {
+      sectionsSeen.length = 0;
+    });
+
+    const ask = async (host: AgentHost, clusterId = "c1") => {
+      const before = envelopes.length;
+      await host.handleCommand(clusterId, { type: "prompt", message: "hi" });
+      await waitFor(() =>
+        envelopes.slice(before).some((e) => e.kind === "event" && e.payload.type === "agent_settled"),
+      );
+    };
+
+    it("tells the model the cluster's name and the user's rules", async () => {
+      faux.setResponses([recordSections]);
+      const host = createHost({
+        getClusterName: (clusterId) => (clusterId === "c1" ? "prod-eu-1" : undefined),
+        getUserRules: () => "  Answer in Italian.  ",
+      });
+
+      await ask(host);
+
+      expect(sectionsSeen[0].cluster).toBe("<cluster>\nprod-eu-1\n</cluster>");
+      expect(sectionsSeen[0].user_rules).toBe("<user_rules>\nAnswer in Italian.\n</user_rules>");
+    });
+
+    it("applies an edit to the rules from the next prompt and drops the section once they are empty", async () => {
+      faux.setResponses([recordSections, recordSections, recordSections]);
+      let rules = "Answer in Italian.";
+      const host = createHost({ getUserRules: () => rules });
+
+      await ask(host);
+      rules = "Answer in French.";
+      await ask(host);
+      rules = "   ";
+      await ask(host);
+
+      expect(sectionsSeen.map((sections) => sections.user_rules)).toEqual([
+        "<user_rules>\nAnswer in Italian.\n</user_rules>",
+        "<user_rules>\nAnswer in French.\n</user_rules>",
+        undefined,
+      ]);
+    });
+
+    it("reads the cluster name on every prompt", async () => {
+      faux.setResponses([recordSections, recordSections]);
+      let name = "staging";
+      const host = createHost({ getClusterName: () => name });
+
+      await ask(host);
+      name = "staging-renamed";
+      await ask(host);
+
+      expect(sectionsSeen.map((sections) => sections.cluster)).toEqual([
+        "<cluster>\nstaging\n</cluster>",
+        "<cluster>\nstaging-renamed\n</cluster>",
+      ]);
+    });
+
+    it("sets neither section when the name is unknown and there are no rules", async () => {
+      faux.setResponses([recordSections]);
+      const host = createHost({ getClusterName: () => undefined, getUserRules: () => "" });
+
+      await ask(host);
+
+      expect(sectionsSeen[0]).not.toHaveProperty("cluster");
+      expect(sectionsSeen[0]).not.toHaveProperty("user_rules");
+    });
+
+    it("sends the merged prompt by default", async () => {
+      faux.setResponses([recordSections]);
+      const host = createHost();
+
+      await ask(host);
+
+      expect(sectionsSeen[0].preamble).toContain("Freelens AI");
+      expect(sectionsSeen[0].preamble).toContain("<log_reading>");
+    });
+  });
+
   describe("model and thinking level", () => {
     let models: Faux;
 

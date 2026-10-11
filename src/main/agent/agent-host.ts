@@ -57,8 +57,10 @@ export interface AgentHostOptions {
   getThinkingLevel?: () => ThinkingLevel;
   /** The user's "Requires approval" choices by tool name; read before every call. */
   getApprovalOverrides?: () => ToolApprovalOverrides;
-  /** The user's custom agent rules; read before every explanation. */
+  /** The user's custom agent rules; read before every prompt and explanation. Empty sets no section. */
   getUserRules?: () => string;
+  /** The cluster's name as Freelens shows it; read before every prompt. Undefined sets no section. */
+  getClusterName?: (clusterId: string) => string | undefined;
   systemPrompt?: string;
   toolTimeoutMs?: number;
   /** pi retries temporary provider errors; tests turn that off. */
@@ -753,6 +755,16 @@ export class AgentHost {
             pi.registerTool(this.toPiTool(clusterId, tool));
           }
           pi.on("tool_call", (event, ctx) => this.gate(clusterId, event, ctx.signal));
+          // pi hands each prompt a fresh copy of the sections and sends the
+          // model only the ones that changed, so an edit applies from the next
+          // message and an empty value removes its section.
+          pi.on("before_agent_start", (event) => {
+            const { sections } = event.systemPromptOptions;
+            const clusterName = this.options.getClusterName?.(clusterId)?.trim();
+            const userRules = this.options.getUserRules?.()?.trim();
+            if (clusterName) sections.cluster = clusterName;
+            if (userRules) sections.user_rules = userRules;
+          });
         },
       ],
     });

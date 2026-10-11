@@ -160,8 +160,11 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       // The chat's model picker remembers the last model used here.
       getModelRef: () => parseModelRef(preferencesStore.agentModel),
       getThinkingLevel: () => preferencesStore.thinkingLevel,
-      // AI Explain gets the user's custom agent rules too.
+      // Read before every prompt, so an edit applies from the next message. AI
+      // Explain gets the user's custom agent rules too.
       getUserRules: () => preferencesStore.customAgentRules,
+      // Hosts before the main cluster API (Freelens 1.10) send no cluster section.
+      getClusterName: (clusterId) => Main.Catalog?.getClusterById?.(clusterId)?.name,
       getRetentionDays: () => preferencesStore.chatRetentionDays,
       // Hosts before the main cluster API (Freelens 1.10) keep every cluster's latest chat.
       knownClusterIds: () => Main.Catalog?.getAllClusters?.()?.map((cluster) => cluster.id),
