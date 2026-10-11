@@ -32,6 +32,18 @@ export function pickLegacyPreferences(saved: object): LegacyPreferences {
 }
 
 /**
+ * The old fields of a store update. A field already cleared stays cleared: a
+ * window that read the file before main cleared it must not sync it back.
+ */
+export function mergeLegacyPreferences(current: LegacyPreferences, saved: object): LegacyPreferences {
+  const incoming = pickLegacyPreferences(saved);
+  for (const key of LEGACY_PREFERENCE_KEYS) {
+    if (current[key] === null) incoming[key] = null;
+  }
+  return incoming;
+}
+
+/**
  * The same fields set to `null`. Freelens saves a store key by key, so a field
  * left out of the saved model would stay in the file; `null` overwrites it.
  */

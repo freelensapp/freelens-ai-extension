@@ -7,7 +7,7 @@ import {
   clearedLegacyPreferences,
   hasLegacyValues,
   type LegacyPreferences,
-  pickLegacyPreferences,
+  mergeLegacyPreferences,
 } from "./legacy-preferences";
 
 import type { MessageObject } from "../../renderer/business/objects/message-object";
@@ -95,7 +95,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   }
 
   fromStore(preferencesModel: PreferencesModel): void {
-    this.legacy = pickLegacyPreferences(preferencesModel);
+    this.legacy = mergeLegacyPreferences(this.legacy, preferencesModel);
     this.toolApprovalOverrides = loadApprovalOverrides(preferencesModel);
     this.podLogsTailLines =
       typeof preferencesModel.podLogsTailLines === "number" && preferencesModel.podLogsTailLines > 0

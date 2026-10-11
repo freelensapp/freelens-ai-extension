@@ -3,6 +3,7 @@ import {
   clearedLegacyPreferences,
   hasLegacyValues,
   legacyOpenAISettings,
+  mergeLegacyPreferences,
   pickLegacyPreferences,
 } from "./legacy-preferences";
 
@@ -54,6 +55,19 @@ describe("clearedLegacyPreferences", () => {
   it("round-trips: a cleared store is still cleared when read back", () => {
     const cleared = clearedLegacyPreferences(pickLegacyPreferences(oldStore));
     expect(pickLegacyPreferences(cleared)).toEqual(cleared);
+  });
+});
+
+describe("mergeLegacyPreferences", () => {
+  it("takes the old fields of the first load", () => {
+    expect(mergeLegacyPreferences({}, oldStore)).toEqual(pickLegacyPreferences(oldStore));
+  });
+
+  it("keeps a cleared field cleared when a stale window syncs the old value back", () => {
+    const cleared = clearedLegacyPreferences(pickLegacyPreferences(oldStore));
+    const merged = mergeLegacyPreferences(cleared, oldStore);
+    expect(merged).toEqual(cleared);
+    expect(hasLegacyValues(merged)).toBe(false);
   });
 });
 
