@@ -23,8 +23,7 @@ automate complex tasks and enhance productivity.
 **Quick Links:**
 
 - [Install](#install)
-- [How to obtain a Google API Key](./docs/GOOGLE_API_KEY.md) (provider
-  temporarily disabled)
+- [How to obtain a Google API Key](./docs/GOOGLE_API_KEY.md)
 - [Build & Run Guide](./docs/BUILD.md)
 
 ---
@@ -36,16 +35,12 @@ automate complex tasks and enhance productivity.
   - [Index](#index)
   - [Install](#install)
   - [How it works](#how-it-works)
-    - [What the extension cannot use](#what-the-extension-cannot-use)
-  - [Available Models](#available-models)
-    - [Using other providers through an OpenAI-compatible gateway](#using-other-providers-through-an-openai-compatible-gateway)
-    - [DeepSeek and other "thinking" models](#deepseek-and-other-thinking-models)
+  - [Connecting a provider](#connecting-a-provider)
+    - [Custom OpenAI-compatible endpoints](#custom-openai-compatible-endpoints)
     - [Ollama](#ollama)
-    - [Connecting a model](#connecting-a-model)
-    - [Key Features](#key-features)
-    - [Base Agent](#base-agent)
-    - [MCP Agent](#mcp-agent)
-      - [Additional Resources](#additional-resources)
+    - [Upgrading from an earlier version](#upgrading-from-an-earlier-version)
+  - [Key Features](#key-features)
+    - [Additional Resources](#additional-resources)
 
 ---
 ## Install
@@ -59,138 +54,67 @@ Use a following URL in the browser:
 ## How it works
 
 Freelens AI is a **client of a large language model API**. It does not run a
-model itself; instead it sends your prompts and the cluster context to a model
-provider and renders the response. The agent logic (the LangGraph supervisor,
-the cluster tools, structured output, and human-in-the-loop approvals) runs
-inside the extension, and only the model inference is delegated to the provider.
+model itself; it sends your prompts and the cluster context to a model provider
+and renders the response.
 
-- **Talks the OpenAI Chat Completions API.** The extension is built on the
-  OpenAI client and the OpenAI-compatible wire format. It works with OpenAI
-  directly, and with any endpoint that implements the same API — either natively
-  or through an OpenAI-compatible gateway such as
-  [LiteLLM](https://github.com/BerriAI/litellm) (see [Using other providers
-  through an OpenAI-compatible
-  gateway](#using-other-providers-through-an-openai-compatible-gateway)).
-- **Pay-as-you-go billing.** You bring your own API key, and the provider bills
-  you per token for the requests the extension makes. There is no bundled
-  subscription or hosted backend; usage cost depends entirely on the model and
-  provider you configure.
-- **Requires standard API access.** Because the extension drives the model
-  through the OpenAI-compatible API and its own tool/structured-output protocol,
-  it can only use providers that expose such an API with a standard API key.
+The agent is built on the [pi](https://github.com/badlogic/pi-mono) agent SDK
+and runs in the Freelens main process: one agent per cluster, with the cluster
+tools, the approval gate and the saved chats. Your API keys and sign-ins stay in
+the main process and are never sent to the Freelens windows. The cluster tools
+run in the cluster's window, through the same Kubernetes access Freelens itself
+uses.
 
-### What the extension cannot use
+Usage is billed by the provider you connect: per token with an API key, or
+under your plan when you sign in with a subscription that allows it. Check that
+your provider's terms allow using its subscription in a third-party app.
 
-Some providers do **not** offer a general-purpose, pay-as-you-go API key.
-Instead they grant access **only** through their own native tooling and a
-custom, proprietary SDK — for example **Claude Code**, which authenticates with
-a subscription token obtained via `claude login` / `claude setup-token` and is
-designed to be driven exclusively by Anthropic's own runtime and Agent SDK.
+## Connecting a provider
 
-These providers are **not compatible** with this extension:
+Open **Preferences**, then **Freelens AI Settings**, and click **Add provider**.
+Pick one of the providers pi supports (OpenAI, Anthropic, Google, DeepSeek,
+Mistral, OpenRouter, Amazon Bedrock, GitHub Copilot and many more), then enter
+an API key or sign in. Each connected provider gets a card listing its models
+with their context size and price.
 
-- The access is tied to a **subscription/native client**, not a standard
-  pay-as-you-go API key, and reusing those tokens in a third-party app is
-  outside the provider's terms.
-- They expose their own **agent loop, tools, and SDK** rather than the
-  OpenAI-compatible Chat Completions API and tool protocol the extension relies
-  on, so they cannot be plugged in behind the existing provider/proxy.
+A provider whose key is set in an environment variable, such as
+`OPENAI_API_KEY`, shows up as connected on its own. On macOS, Freelens started
+from the Dock does not see the variables of your shell.
 
-If you want to use such a provider, run it through its own dedicated client. To
-use it with Freelens AI you would need an OpenAI-compatible endpoint and a
-standard API key (directly or through a gateway).
+Choose the model in the chat's model picker; the chat remembers the last one
+used. The **Thinking level** in the settings applies to every chat and to AI
+Explain, and models that support fewer levels use the closest one.
 
-## Available Models
-The list of models is fully editable in the extension preferences. You can add
-or remove any model offered by the configured provider; the model name you enter
-is sent directly to the provider API.
+Keys and sign-ins are saved in pi's own files in the extension's data folder:
+`pi/auth.json`, and `pi/models.json` for custom endpoints.
 
-The list comes seeded with these OpenAI models, which you can change at any time:
+### Custom OpenAI-compatible endpoints
 
-- ***gpt-5.5***
-- ***gpt-5.4***
-- ***gpt-5.4-mini***
-
-Model-specific behavior (for example, sending a reasoning effort instead of a
-temperature) is decided by heuristics on the model name, so adding a new model
-needs no code changes.
-
-> Currently the **OpenAI** provider is the only one enabled. Google/Gemini
-> support is temporarily disabled and will return after further refactoring.
-
-### Using other providers through an OpenAI-compatible gateway
-Although OpenAI is the only built-in provider, the extension talks to any
-endpoint that implements the OpenAI Chat Completions API. That means you can put
-a gateway such as [LiteLLM](https://github.com/BerriAI/litellm) in front of the
-extension and reach providers like Anthropic, Google/Gemini, DeepSeek, Qwen, and
-many others through a single OpenAI-compatible API.
-
-To do this, set the **Base URL** in the OpenAI section of the preferences to your
-gateway (for example `http://localhost:4000/v1`) and use the model names exposed
-by that gateway. Requests are routed through the extension's local proxy, so the
-custom base URL works without any code changes.
-
-### DeepSeek and other "thinking" models
-Some models reached through a gateway need extra handling, which the extension
-applies automatically based on the model name:
-
-- **DSML tool-call markup**: DeepSeek models emit native tool calls in their
-  "DSML" markup. OpenAI-compatible endpoints without a server-side tool-call
-  parser leak this markup into the assistant text instead of returning
-  structured tool calls. For these models the extension uses a client that
-  recovers the tool calls from the markup so tools still run.
-- **Forced tool choice**: DeepSeek and Qwen reasoning models reject a *forced*
-  `tool_choice` while thinking mode is on; the extension requests
-  `tool_choice: "auto"` for them instead.
-- **Disable thinking mode**: some providers (for example DeepSeek via LiteLLM)
-  expose a thinking mode that conflicts with the forced tool selection used for
-  structured output. If you hit a `Thinking mode does not support this
-  tool_choice` error, enable **Disable thinking mode** in the OpenAI preferences.
+Any server that speaks the OpenAI Chat Completions API, such as
+[LiteLLM](https://github.com/BerriAI/litellm), vLLM or LM Studio, can be added
+with **Add custom endpoint**: a name, the base URL, an optional API key, the
+model ids, and whether the models support reasoning. The settings page shows the
+path of `models.json` for anything the form does not cover (headers, prices).
 
 ### Ollama
-[Ollama](https://ollama.com) exposes a natively OpenAI-compatible endpoint, so
-no gateway is needed to reach a model running on your own machine.
 
-To connect it:
-
-- Set the **Base URL** in the OpenAI section of the preferences to
-  `http://localhost:11434/v1`.
-- Set any non-empty **API key**. Ollama ignores its value, but a key must be set
-  for the models to appear in the chat.
-- Add the exact model name, **including its tag** (for example `llama3.2:3b`, as
-  shown by `ollama list`), to the editable model list.
+[Ollama](https://ollama.com) exposes an OpenAI-compatible endpoint. Add it as a
+custom endpoint with the base URL `http://localhost:11434/v1`, no API key, and
+the exact model names including their tag (for example `llama3.2:3b`, as shown
+by `ollama list`).
 
 The model must support **tool calling**: the agent drives every cluster
-operation through tools, so a model without tool support cannot be used. Models
-with a "thinking" mode may need the handling described in [DeepSeek and other
-"thinking" models](#deepseek-and-other-thinking-models).
+operation through tools, so a model without tool support cannot be used.
 
-No pricing data is available for local models, so the cost estimate stays hidden
-and only the token counter is shown.
+### Upgrading from an earlier version
 
-On networks with TLS inspection, the first `ollama pull` may need the corporate
-root certificate to be trusted by Ollama's environment.
-
-### Connecting a model
-Open the preferences page and, in the OpenAI section, set your API key and
-(optionally) a custom base URL. You can also provide the key through an
-environment variable instead:
-
-- OPENAI_API_KEY = ...
-
-A model is only offered in the chat dropdown once its provider has a key set; if
-no model is available, the chat shows a button that takes you to the preferences
-page.
-
-The **Base URL** is a single global setting: every configured model is requested
-from that endpoint, so switching between a cloud provider and a local one means
-changing the Base URL. If you alternate between them regularly, put a gateway
-such as [LiteLLM](https://github.com/BerriAI/litellm) in front of the extension
-and keep one fixed URL, with the models routed by name.
+On the first start after the upgrade, the OpenAI key from the old settings is
+moved into pi, and an old custom Base URL becomes a custom endpoint with its key
+and model names. The old settings are then cleared. Chats from earlier versions
+are not carried over.
 
 ---
 
-### Key Features
+## Key Features
 
 Talk to your cluster in natural language. The agent reads, explains, and (with
 your approval) changes Kubernetes resources, while the chat keeps the full
@@ -199,8 +123,7 @@ context of the conversation.
 **Cluster operations through tools**
 
 - **Any resource kind**: list, get, create, update, patch, and delete any
-  Kubernetes resource — built-in kinds and CRDs alike — instead of a fixed set
-  of Pod/Deployment/Service operations.
+  Kubernetes resource — built-in kinds and CRDs alike.
 - **Pod logs**: read a snapshot of container logs, including the previous
   (terminated) instance for `CrashLoopBackOff`, with a regular-expression filter
   to narrow chatty logs to only the matching lines.
@@ -214,63 +137,43 @@ context of the conversation.
   PodDisruptionBudgets, force delete with a zero grace period, finalizer
   clearing for objects stuck in `Terminating`, and `rollout restart` for
   workloads.
-- **Cluster insight**: query the Kubernetes server version and analyze warning
-  events in a namespace with explanations and remedies.
+- **Cluster insight**: query the Kubernetes server version and the warning
+  events of a namespace.
+- **AI Explain**: explain a Kubernetes event from its menu, with a diagnosis
+  and recommended actions.
 
 **Safe, human-in-the-loop changes**
 
 - **Approval gate**: every change is shown for review — rendered as YAML — and
-  applied only after you approve it.
+  applied only after you approve it. Which tools ask can be set per tool in the
+  settings; reading pod logs asks too by default.
+- **Approve all in this chat**: skip the approvals for the rest of one chat,
+  until you turn it off or start a new chat.
 - **Backups**: the current state of a resource is presented before it is
   changed, so a modification can be reverted.
 
 **Chat experience**
 
-- **Persistent sessions**: the chat transcript and agent state are stored by the
-  host and survive application restarts; an unsent prompt draft is kept across
-  view switches.
-- **Per-cluster context**: each cluster keeps its own separate conversation.
-- **Token counter and cost estimate**: a live per-session token count and cost
-  estimate sit next to the model list.
-- **Automatic compaction**: long sessions are compacted before they reach the
-  model's input-token limit so the conversation can continue.
+- **Saved chats**: each cluster has its own chat, saved by the agent and
+  restored after a restart. **New chat** starts an empty one, and chats unused
+  for 30 days are deleted (configurable).
+- **Stop**: a running answer can be stopped at any time.
+- **Token counter, cost and context gauge**: live totals for the chat, with the
+  cost from the model's price.
+- **Automatic compaction**: long chats are summarized before they reach the
+  model's context limit so the conversation can continue.
 - **Rich rendering**: code blocks use the host Monaco editor, GitHub-flavored
   Markdown tables are supported, and model reasoning is shown in a collapsible
   block.
-- **Retry on errors**: failed messages can be retried with one click.
-
-**Models and providers**
-
-- **Editable model list** seeded with OpenAI models, with model-specific
-  behavior chosen by name heuristics (see [Available
-  Models](#available-models)).
-- **OpenAI-compatible gateways** for reaching other providers, with built-in
-  handling for DeepSeek and other "thinking" models.
 - **Custom agent rules** can be added from the preferences to steer the agent.
-
-**Security**
-
-- The API key is injected in the main process rather than the renderer, the
-  local AI proxy requires a per-launch bearer token, and CORS is restricted.
-
-### Base Agent
-
-We have a base multi agent system that processes user prompts with a set of
-basic tools to get started. Go deeper by reading our [Base Agent
-documentation](docs/BASE_AGENT.md).
-
-### MCP Agent
-
-We support MCP Agent through a dedicated configuration. Go deeper by reading
-our [MCP Agent documentation](docs/MCP_AGENT.md).
 
 ---
 
-#### Additional Resources
+### Additional Resources
 
 - [***Contribute***](CONTRIBUTING.md)
 - [***Build freelens-ai-extension extension***](./docs/BUILD.md)
 - [***Set up extension on freelens***](./docs/SET_UP_EXTENSION.md)
 
-If you find this project useful, please consider giving it a ⭐️ on
+If you find this project useful, please consider giving it a star on
 [***GitHub***](https://github.com/freelensapp/freelens-ai)!

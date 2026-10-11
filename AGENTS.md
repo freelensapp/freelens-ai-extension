@@ -117,30 +117,45 @@ These are NOT bundled, they come from the Freelens host as globals:
 
 Other dependencies ARE bundled into the extension output.
 
-## AI Model & Provider System
+## AI Agent & Provider System
 
-The list of chat models is user-editable and persisted in the preferences
-store; there is no hardcoded model enum. Key files live in
-`src/renderer/business/provider/`:
+The agent is one pi agent (`@earendil-works/pi-coding-agent`) running in the
+**main process**. It has no supervisor, sub-agents or MCP. Cluster frames talk
+to it over Freelens IPC; the API keys and the model calls never leave main.
 
-- `ai-models.tsx` — `AIProviders` enum (only `OPEN_AI` active), the
-  `CustomModel` type (`{ provider, name }`), the seed list `DEFAULT_MODELS`
-  (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`), and `DEFAULT_OPENAI_BASE_URL`.
-- `model-capabilities.ts` — name heuristics (regex) deciding model behavior.
-  Add new model families here rather than hardcoding ids. Reasoning models
-  (`o<n>`, `gpt-5.x`) take a reasoning effort and reject `temperature`.
-- `model-list.ts` — pure helpers for the editable list (trim, dedupe, remove,
-  `resolveSelectedModel` selection fallback). No host/MobX deps so they are
-  unit-tested directly.
-- `openai-fields.ts` — pure `buildOpenAIChatFields` builder (proxy routing
-  header + reasoning-effort/temperature heuristic), unit-tested in isolation.
-- `model-provider.ts` — `getModel()` resolves the selected model's provider and
-  builds the LangChain client; throws when no model is selected.
+- `src/main/agent/agent-host.ts` — the agent host: one pi session per
+  cluster, saved as JSONL in `<extension folder>/sessions/<clusterId>/`. It
+  takes commands (`handleCommand(clusterId, command)`), broadcasts envelopes,
+  runs the approval gate in pi's `tool_call` hook, prunes old chats and runs
+  AI Explain in a throwaway in-memory session. It imports nothing from
+  Freelens, so its tests drive it with pi's faux provider.
+- `src/main/agent/system-prompt.ts` — the system prompt and the AI Explain
+  prompt. The `cluster` and `user_rules` sections are set before every prompt.
+- `src/main/agent/provider-service.ts` and `custom-providers.ts` — provider
+  status, models, logins (API keys and OAuth) and custom OpenAI-compatible
+  endpoints, on pi's `ModelRuntime`. Credentials live in pi's own files,
+  `<extension folder>/pi/auth.json` and `models.json`.
+- `src/main/agent/credentials-import.ts` — the one-time import of the old
+  OpenAI key and custom base URL into pi. The old preference fields are then
+  written back as `null` (`src/common/store/legacy-preferences.ts`): Freelens
+  saves a store key by key, so a field only left out of `toJSON` stays in the
+  file.
+- `src/common/agent-protocol.ts` and `provider-protocol.ts` — the IPC
+  protocol. Commands go from a frame to main with `invoke`; main answers with
+  pi's response shape and broadcasts envelopes (`{ clusterId, sessionId, seq,
+  kind, payload }`) that each frame filters by its own cluster.
+- `src/common/agent-tools/` — every tool is defined once: name, description,
+  typebox `parameters`, and the `mutating` and `requiresApprovalByDefault`
+  flags. Main wraps each as a pi tool that sends a `tool_request` to the frame.
+- `src/renderer/business/agent-client/` — the frame side: it runs the tool
+  calls on `Renderer.K8sApi` (main cannot reach CRDs, logs or subresources),
+  and folds the snapshot and envelopes into the chat with the pure
+  `chat-reducer.ts`.
 
-A custom base URL is routed to the local proxy (`src/main/ai-proxy-server.ts`)
-via the `x-upstream-base-url` header rather than being passed straight to the
-client. When changing the heuristics or list logic, prefer extending the pure
-helpers and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`).
+Model ids, prices, context windows and the thinking level come from pi's
+catalog; there is no model list or capability heuristic of our own. When
+changing the protocol, the reducer or the host, add or adjust the matching
+`*.test.ts` (run with `pnpm test:unit`).
 
 ## Code Style
 
