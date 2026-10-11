@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -116,8 +115,7 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     }
 
     try {
-      const customMarkerPath = join(piDir, "legacy-custom-import-done");
-      const { seededModel } = await importLegacyCustomProvider(
+      const { seededModel, importedProviderId } = await importLegacyCustomProvider(
         modelRuntime,
         modelsPath,
         {
@@ -126,18 +124,14 @@ export default class LensExtensionAiMain extends Main.LensExtension {
           selectedModel: preferencesStore.selectedModel,
           modelNames: preferencesStore.models.map((model) => model.name),
         },
-        customMarkerPath,
+        join(piDir, "legacy-custom-import-done"),
       );
       if (seededModel && !preferencesStore.agentModel) {
         preferencesStore.agentModel = seededModel;
       }
-      // With a custom base URL the import is done only once the key is in pi's
-      // auth.json, so the plain-text copy can go.
-      if (
-        preferencesStore.openAIKey &&
-        !isDefaultOpenAIBaseUrl(preferencesStore.openAIBaseUrl) &&
-        existsSync(customMarkerPath)
-      ) {
+      // The key is now in pi's auth.json, so the plain-text copy can go. A base
+      // URL that could not be imported keeps its key for the user to re-enter.
+      if (importedProviderId) {
         preferencesStore.openAIKey = "";
       }
     } catch (error) {

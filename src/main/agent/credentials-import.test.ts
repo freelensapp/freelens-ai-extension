@@ -87,7 +87,7 @@ describe("importLegacyCustomProvider", () => {
   it("turns a custom base URL with a key into a custom provider with the old model ids", async () => {
     const result = await importLegacyCustomProvider(modelRuntime, modelsPath, legacy, markerPath);
 
-    expect(result).toEqual({ seededModel: "llm-example-com/qwen3" });
+    expect(result).toEqual({ importedProviderId: "llm-example-com", seededModel: "llm-example-com/qwen3" });
     expect(JSON.parse(readFileSync(modelsPath, "utf8")).providers["llm-example-com"]).toEqual({
       name: "llm.example.com",
       baseUrl: "https://llm.example.com/v1",
@@ -118,6 +118,17 @@ describe("importLegacyCustomProvider", () => {
     const second = await importLegacyCustomProvider(modelRuntime, modelsPath, legacy, markerPath);
 
     expect(second).toEqual({});
+    expect(existsSync(modelsPath)).toBe(false);
+  });
+
+  it("gives up for good on an old base URL that can never become a provider", async () => {
+    for (const openAIBaseUrl of ["not a url", "ftp://llm.example.com/v1"]) {
+      rmSync(markerPath, { force: true });
+      expect(
+        await importLegacyCustomProvider(modelRuntime, modelsPath, { ...legacy, openAIBaseUrl }, markerPath),
+      ).toEqual({});
+      expect(existsSync(markerPath)).toBe(true);
+    }
     expect(existsSync(modelsPath)).toBe(false);
   });
 

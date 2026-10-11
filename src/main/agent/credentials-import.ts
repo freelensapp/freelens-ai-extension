@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { customProviderId } from "../../common/custom-provider";
+import { customProviderId, validateCustomProvider } from "../../common/custom-provider";
 import { isDefaultOpenAIBaseUrl } from "../../common/openai-base-url";
 import { addCustomProvider } from "./custom-providers";
 
@@ -15,6 +15,8 @@ export interface LegacyCredentials {
 export interface LegacyImportResult {
   /** "provider/id" of the model the chat should start on, when one was imported. */
   seededModel?: string;
+  /** The custom provider an old base URL became; its key is then in auth.json. */
+  importedProviderId?: string;
 }
 
 /**
@@ -73,19 +75,27 @@ export async function importLegacyCustomProvider(
   if (key && !isDefaultOpenAIBaseUrl(legacy.openAIBaseUrl)) {
     const baseUrl = legacy.openAIBaseUrl.trim();
     const selected = legacy.selectedModel.trim();
-    const host = new URL(baseUrl).host;
+    const host = URL.canParse(baseUrl) ? new URL(baseUrl).host : baseUrl;
     const taken = new Set(modelRuntime.getProviders().map((provider) => provider.id));
-    const name = taken.has(customProviderId(host)) ? `${host} (imported)` : host;
-    const provider = await addCustomProvider(modelRuntime, modelsPath, {
-      name,
+    const input = {
+      name: taken.has(customProviderId(host)) ? `${host} (imported)` : host,
       baseUrl,
       apiKey: key,
       modelIds: [...legacy.modelNames, selected],
       // The old endpoint got no reasoning effort unless it served OpenAI's own ids;
       // reasoning can be switched on in models.json.
       reasoning: false,
-    });
-    result = selected ? { seededModel: `${provider.id}/${selected}` } : {};
+    };
+    // Input that can never become a provider would fail on every start; the
+    // user can still add the endpoint on the settings page.
+    const validation = validateCustomProvider(input, taken);
+    if (!validation.ok) {
+      console.warn(`[freelens-ai] The old base URL ${baseUrl} was not imported: ${validation.error}`);
+      markDone(markerPath);
+      return {};
+    }
+    const provider = await addCustomProvider(modelRuntime, modelsPath, input);
+    result = { importedProviderId: provider.id, ...(selected ? { seededModel: `${provider.id}/${selected}` } : {}) };
   }
 
   markDone(markerPath);
