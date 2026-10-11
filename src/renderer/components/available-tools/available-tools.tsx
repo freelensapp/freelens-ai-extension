@@ -1,47 +1,10 @@
 import * as React from "react";
-import { useApplicationStatusStore } from "../../context/application-context";
+import { AGENT_TOOLS } from "../../../common/agent-tools";
+
+// The first sentence of each description; the rest is guidance for the model.
+const tools = AGENT_TOOLS.map((tool) => ({ name: tool.name, description: tool.description.split(/(?<=\.)\s/)[0] }));
 
 export const AvailableTools: React.FC = () => {
-  const applicationStatusStore = useApplicationStatusStore();
-  const [tools, setTools] = React.useState<any[]>([]);
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    let mounted = true;
-    const fetchTools = async () => {
-      setLoading(true);
-      const result = await applicationStatusStore.getAvailableTools();
-      if (mounted) {
-        setTools(result);
-        setLoading(false);
-      }
-    };
-    fetchTools();
-    return () => {
-      mounted = false;
-    };
-  }, [applicationStatusStore]);
-
-  if (loading) {
-    return (
-      <div
-        className="text-input-vertical-list"
-        style={{
-          maxHeight: "200px",
-          overflowY: "auto",
-          marginTop: "12px",
-          borderRadius: "6px",
-          background: "#36393E",
-          padding: "8px",
-          color: "#fff",
-          textAlign: "center",
-        }}
-      >
-        Loading tools...
-      </div>
-    );
-  }
-
   return (
     <div
       className="text-input-vertical-list"

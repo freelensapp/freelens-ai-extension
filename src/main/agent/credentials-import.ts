@@ -21,9 +21,9 @@ export interface LegacyImportResult {
 
 /**
  * One-time move of the old OpenAI settings into pi's `auth.json`, so an
- * upgrading user keeps a working chat. A marker file makes it run once. The old
- * preference fields are left alone; ticket 14 clears them. A custom base URL
- * is left to importLegacyCustomProvider.
+ * upgrading user keeps a working chat. A marker file makes it run once. The
+ * caller clears the old preference fields afterwards. A custom base URL is left
+ * to importLegacyCustomProvider.
  */
 export async function importLegacyCredentials(
   modelRuntime: ModelRuntime,

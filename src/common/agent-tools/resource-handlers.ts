@@ -1,4 +1,5 @@
-import { z } from "zod";
+import { type TSchema, Type } from "typebox";
+import { Value } from "typebox/value";
 
 /**
  * A Kubernetes manifest as a free-form object. The generic tools intentionally
@@ -28,7 +29,7 @@ export interface ResourceHandler {
    * Stricter manifest validation for kinds understood internally. Unknown kinds
    * skip validation entirely.
    */
-  schema?: z.ZodTypeAny;
+  schema?: TSchema;
   /**
    * Special-case manifest preparation (for example forcing `apiVersion`/`kind`).
    * Defaults to identity for kinds without one. This is where resource-specific
@@ -37,95 +38,78 @@ export interface ResourceHandler {
   buildManifest?: (data: Manifest) => Manifest;
 }
 
-export const podManifestSchema = z
-  .object({
-    apiVersion: z.string(),
-    kind: z.string(),
-    metadata: z.object({
-      name: z.string(),
-      namespace: z.string(),
-    }),
-    spec: z.object({
-      containers: z.array(
-        z.object({
-          name: z.string(),
-          image: z.string(),
-          ports: z.array(
-            z.object({
-              containerPort: z.number(),
-            }),
-          ),
-        }),
-      ),
-    }),
-  })
-  .describe("Pod K8S manifest");
+const stringMap = Type.Record(Type.String(), Type.String());
 
-export const deploymentManifestSchema = z
-  .object({
-    apiVersion: z.string(),
-    kind: z.string(),
-    metadata: z.object({
-      name: z.string(),
-      namespace: z.string(),
-    }),
-    spec: z.object({
-      replicas: z.number(),
-      selector: z.object({
-        matchLabels: z.record(z.string()),
-      }),
-      template: z.object({
-        metadata: z.object({
-          labels: z.record(z.string()),
-        }),
-        spec: z.object({
-          containers: z.array(
-            z.object({
-              name: z.string(),
-              image: z.string(),
-              ports: z.array(
-                z.object({
-                  containerPort: z.number(),
-                }),
-              ),
-            }),
-          ),
-        }),
+const containersSchema = Type.Array(
+  Type.Object({
+    name: Type.String(),
+    image: Type.String(),
+    ports: Type.Array(Type.Object({ containerPort: Type.Number() })),
+  }),
+);
+
+const portNumber = Type.Integer({ minimum: 1, maximum: 65535 });
+
+const oneOf = (values: string[]) => Type.Union(values.map((value) => Type.Literal(value)));
+
+export const podManifestSchema = Type.Object(
+  {
+    apiVersion: Type.String(),
+    kind: Type.String(),
+    metadata: Type.Object({ name: Type.String(), namespace: Type.String() }),
+    spec: Type.Object({ containers: containersSchema }),
+  },
+  { description: "Pod K8S manifest" },
+);
+
+export const deploymentManifestSchema = Type.Object(
+  {
+    apiVersion: Type.String(),
+    kind: Type.String(),
+    metadata: Type.Object({ name: Type.String(), namespace: Type.String() }),
+    spec: Type.Object({
+      replicas: Type.Number(),
+      selector: Type.Object({ matchLabels: stringMap }),
+      template: Type.Object({
+        metadata: Type.Object({ labels: stringMap }),
+        spec: Type.Object({ containers: containersSchema }),
       }),
     }),
-  })
-  .describe("Deployment K8S manifest");
+  },
+  { description: "Deployment K8S manifest" },
+);
 
-export const serviceManifestSchema = z
-  .object({
-    apiVersion: z.string(),
-    kind: z.string(),
-    metadata: z.object({
-      name: z.string(),
-      namespace: z.string().optional(),
-      labels: z.record(z.string()).optional(),
-      annotations: z.record(z.string()).optional(),
+export const serviceManifestSchema = Type.Object(
+  {
+    apiVersion: Type.String(),
+    kind: Type.String(),
+    metadata: Type.Object({
+      name: Type.String(),
+      namespace: Type.Optional(Type.String()),
+      labels: Type.Optional(stringMap),
+      annotations: Type.Optional(stringMap),
     }),
-    spec: z.object({
-      type: z.enum(["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"]).optional(),
-      selector: z.record(z.string()).optional(),
-      ports: z.array(
-        z.object({
-          name: z.string().optional(),
-          protocol: z.enum(["TCP", "UDP", "SCTP"]).optional().default("TCP"),
-          port: z.number().int().min(1).max(65535),
-          targetPort: z.union([z.number().int().min(1).max(65535), z.string()]),
-          nodePort: z.number().int().min(30000).max(32767).optional(),
+    spec: Type.Object({
+      type: Type.Optional(oneOf(["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"])),
+      selector: Type.Optional(stringMap),
+      ports: Type.Array(
+        Type.Object({
+          name: Type.Optional(Type.String()),
+          protocol: Type.Optional(oneOf(["TCP", "UDP", "SCTP"])),
+          port: portNumber,
+          targetPort: Type.Union([portNumber, Type.String()]),
+          nodePort: Type.Optional(Type.Integer({ minimum: 30000, maximum: 32767 })),
         }),
       ),
-      clusterIP: z.string().optional(),
-      externalName: z.string().optional(),
-      sessionAffinity: z.enum(["None", "ClientIP"]).optional(),
-      ipFamilyPolicy: z.enum(["SingleStack", "PreferDualStack", "RequireDualStack"]).optional(),
-      ipFamilies: z.array(z.string()).optional(),
+      clusterIP: Type.Optional(Type.String()),
+      externalName: Type.Optional(Type.String()),
+      sessionAffinity: Type.Optional(oneOf(["None", "ClientIP"])),
+      ipFamilyPolicy: Type.Optional(oneOf(["SingleStack", "PreferDualStack", "RequireDualStack"])),
+      ipFamilies: Type.Optional(Type.Array(Type.String())),
     }),
-  })
-  .describe("Service K8S manifest");
+  },
+  { description: "Service K8S manifest" },
+);
 
 /**
  * Service-specific manifest preparation: force the correct `apiVersion`/`kind`
@@ -258,9 +242,10 @@ export function validateManifest(kind: string, data: Manifest): ManifestValidati
   if (!handler?.schema) {
     return { success: true, data };
   }
-  const result = handler.schema.safeParse(data);
-  if (!result.success) {
-    return { success: false, error: result.error.message };
+  const errors = Value.Errors(handler.schema, data);
+  if (errors.length > 0) {
+    const details = errors.map((error) => `${error.instancePath ? `${error.instancePath} ` : ""}${error.message}`);
+    return { success: false, error: details.join("; ") };
   }
   return { success: true, data };
 }

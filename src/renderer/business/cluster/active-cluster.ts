@@ -15,11 +15,9 @@ export const DEFAULT_CLUSTER_ID = "default";
 /**
  * The id of the cluster whose Freelens cluster frame this renderer code runs in.
  *
- * Each connected cluster gets its own cluster frame, but the durable, host-
- * managed stores (chat transcript, conversation thread id, agent checkpoint
- * state) are backed by single JSON files shared across every frame. Keying those
- * stores by this id is what keeps the chat session, conversation thread, and
- * agent memory separate per cluster instead of every cluster sharing one chat.
+ * Each connected cluster gets its own cluster frame, while one agent host in
+ * main serves them all. Every command to main carries this id, which keeps each
+ * cluster's pi session and chat apart.
  *
  * Resolved once when the chat page mounts: the frame belongs to exactly one
  * cluster for its whole lifetime, so the active cluster at mount time is the

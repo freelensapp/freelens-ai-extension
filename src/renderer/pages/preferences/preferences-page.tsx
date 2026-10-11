@@ -99,10 +99,6 @@ export const PreferencesPage = observer(() => {
     preferencesStore.customAgentRules,
     (next) => (preferencesStore.customAgentRules = next),
   );
-  const mcpConfigurationField = useStoreValueOnBlur(
-    preferencesStore.mcpConfiguration,
-    (next) => void preferencesStore.updateMcpConfiguration(next),
-  );
 
   return (
     <>
@@ -168,38 +164,6 @@ export const PreferencesPage = observer(() => {
         onFocus={chatRetentionField.onFocus}
         onBlur={chatRetentionField.onBlur}
       />
-
-      <HorizontalLine />
-      <div>
-        <div style={{ fontWeight: "bold" }}>Enable MCP</div>
-        <Switch
-          style={{ marginBottom: 8 }}
-          label="Enable MCP"
-          checked={preferencesStore.mcpEnabled}
-          onChange={(checked: boolean) => (preferencesStore.mcpEnabled = checked)}
-        />
-        <div>
-          <div style={{ marginBottom: 8, fontWeight: "bold" }}>MCP JSON Configuration</div>
-          <textarea
-            style={{
-              width: "100%",
-              minHeight: 250,
-              fontFamily: "monospace",
-              fontSize: 14,
-              padding: 8,
-              borderRadius: 4,
-              border: "1px solid #ccc",
-              background: "#222",
-              color: "#fff",
-            }}
-            placeholder="Paste or edit your MCP JSON configuration here"
-            value={mcpConfigurationField.value}
-            onChange={(e) => mcpConfigurationField.onChange(e.target.value)}
-            onFocus={mcpConfigurationField.onFocus}
-            onBlur={mcpConfigurationField.onBlur}
-          />
-        </div>
-      </div>
 
       <HorizontalLine />
 

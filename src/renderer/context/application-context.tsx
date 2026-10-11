@@ -1,19 +1,13 @@
-import { RemoveMessage } from "@langchain/core/messages";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
 
 const { observer } = MobxReact;
-const { createContext, useContext, useEffect, useRef, useState } = React;
+const { createContext, useContext, useEffect, useState } = React;
 
 import { PreferencesStore } from "../../common/store";
-import { AgentStateStore } from "../../common/store/agent-state-store";
-import { AgentsStore } from "../../common/store/agents-store";
-import { ChatSessionStore } from "../../common/store/chat-session-store";
 import useLog from "../../common/utils/logger/logger-service";
-import { generateUuid } from "../../common/utils/uuid";
-import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
-import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
 import {
+  editAgentTranscript,
   getAgentChat,
   onAgentChat,
   resetAgentChat,
@@ -21,10 +15,7 @@ import {
   turnOffAutoApprove as turnOffAutoApproveInMain,
 } from "../business/agent-client/agent-client";
 import { getActiveClusterId } from "../business/cluster/active-cluster";
-import { getTextMessage } from "../business/objects/message-object-provider";
-import { MessageType } from "../business/objects/message-type";
-import { AIProviders } from "../business/provider/ai-models";
-import { IS_CONVERSATION_INTERRUPTED_KEY, IS_LOADING_KEY } from "./chat-session-storage";
+import { IS_LOADING_KEY } from "./chat-session-storage";
 
 import type { SessionStats } from "../../common/agent-protocol";
 import type { ChatViewState } from "../business/agent-client/chat-reducer";
@@ -33,83 +24,44 @@ import type { MessageObject } from "../business/objects/message-object";
 export interface AppContextType {
   // The cluster of this frame; the chat and its pi agent session are bound to it.
   clusterId: string;
-  apiKey: string;
-  selectedModel: string;
-  mcpEnabled: boolean;
-  mcpConfiguration: string;
   // "Approve all in this chat" is on in main: gated calls run without a card.
   autoApproveAll: boolean;
   explainEvent: MessageObject;
-  conversationId: string;
   isLoading: boolean;
   // True while this cluster's pi agent run is going: the Stop button shows.
   isAgentRunning: boolean;
-  isConversationInterrupted: boolean;
   chatMessages: MessageObject[] | null;
   // pi's totals for this cluster's chat, computed in main: tokens, cost and how
   // full the context is. Undefined until main has sent any.
   sessionStats: SessionStats | undefined;
-  freeLensAgent: FreeLensAgent | null;
-  mcpAgent: MPCAgent | null;
   // The chat model as "provider/id", remembered as the last one used.
   setSelectedModel: (modelRef: string) => void;
   setExplainEvent: (messageObject: MessageObject) => void;
   turnOffAutoApprove: () => Promise<void>;
   setLoading: (isLoading: boolean) => void;
   stopAgent: () => Promise<void>;
-  setConversationInterrupted: (isConversationInterrupted: boolean) => void;
   addMessage: (message: MessageObject) => void;
   removeMessage: (messageId: string) => void;
   removeErrorMessages: () => void;
-  updateLastMessage: (newText: string) => void;
-  updateLastMessageReasoning: (newText: string) => void;
   // New chat: the cluster's current chat stays on disk until retention deletes it.
   clearChat: () => Promise<void>;
   // Deletes every saved chat of this cluster and starts an empty one.
   deleteAllChats: () => Promise<void>;
-  getActiveAgent: () => Promise<any>;
-  changeInterruptStatus: (id: string, status: boolean) => void;
-  getAvailableTools: () => Promise<any[]>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const ApplicationContextProvider = observer(({ children }: { children: React.ReactNode }) => {
   const { log } = useLog("useChatService");
-  const [preferencesStore, _setPreferencesStore] = useState<PreferencesStore>(
-    PreferencesStore.getInstanceOrCreate<PreferencesStore>(),
-  );
-  const [agentsStore, _setAgentsStore] = useState<AgentsStore>(AgentsStore.getInstanceOrCreate<AgentsStore>());
-  const [chatSessionStore, _setChatSessionStore] = useState<ChatSessionStore>(
-    ChatSessionStore.getInstanceOrCreate<ChatSessionStore>(),
-  );
+  const [preferencesStore] = useState<PreferencesStore>(PreferencesStore.getInstanceOrCreate<PreferencesStore>());
   // Resolved once: this cluster frame belongs to exactly one cluster for its
-  // whole lifetime. All durable session data (transcript, conversation thread,
-  // agent checkpoints) is keyed by this id so each cluster keeps its own chat.
+  // whole lifetime, and main keeps one pi session per cluster.
   const [clusterId] = useState<string>(() => getActiveClusterId());
-  const [conversationId, _setConversationId] = useState("");
-  const [isLoading, _setLoading] = useState(false);
+  const [isLoading, _setLoading] = useState(() => window.sessionStorage.getItem(IS_LOADING_KEY) === "true");
   const [isAgentRunning, _setAgentRunning] = useState(false);
   const [autoApproveAll, _setAutoApproveAll] = useState(false);
-  const [isConversationInterrupted, _setConversationInterrupted] = useState(false);
   const [chatMessages, _setChatMessages] = useState<MessageObject[] | null>(null);
   const [sessionStats, _setSessionStats] = useState<SessionStats | undefined>(undefined);
-  const [freeLensAgent, _setFreeLensAgent] = useState<FreeLensAgent | null>(agentsStore.freeLensAgent);
-  const [mcpAgent, _setMcpAgent] = useState<MPCAgent | null>(agentsStore.mcpAgent);
-
-  const prevMcpConfiguration = useRef(preferencesStore.mcpConfiguration);
-
-  const mcpAgentSystem = useMcpAgent(preferencesStore.mcpConfiguration);
-  const freeLensAgentSystem = useFreeLensAgentSystem();
-
-  // Init variables
-  useEffect(() => {
-    _setLoading(window.sessionStorage.getItem(IS_LOADING_KEY) === "true");
-    _setConversationInterrupted(window.sessionStorage.getItem(IS_CONVERSATION_INTERRUPTED_KEY) === "true");
-    _getConversationId();
-    _loadChatMessages();
-    _initFreeLensAgent();
-  }, []);
 
   // The agent client keeps this cluster's chat in step with the pi agent in
   // main: show its transcript, and keep the spinner, the disabled input and the
@@ -134,43 +86,6 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     return onAgentChat(show);
   }, []);
 
-  // Recreate MCP server when MCP configuration change
-  useEffect(() => {
-    const forceMcpInitialization = preferencesStore.mcpConfiguration !== prevMcpConfiguration.current;
-    _initMcpAgent(forceMcpInitialization).then();
-    prevMcpConfiguration.current = preferencesStore.mcpConfiguration;
-  }, [preferencesStore.mcpConfiguration, preferencesStore.mcpEnabled, preferencesStore.selectedModel]);
-
-  useEffect(() => {
-    log.debug("MCP Agent: ", mcpAgent);
-  }, [mcpAgent]);
-
-  useEffect(() => {
-    log.debug("Freelens Agent: ", freeLensAgent);
-  }, [freeLensAgent]);
-
-  const _loadChatMessages = () => {
-    // Durable: persisted in the host-managed ChatSessionStore so the transcript
-    // survives an app restart (window.localStorage is not durable here).
-    _setChatMessages(chatSessionStore.getMessages(clusterId));
-  };
-
-  const _getConversationId = () => {
-    // Durable: persisted in the host-managed ChatSessionStore so the conversation
-    // thread stays stable across an app restart, matching the restored transcript.
-    const storedConversationId = chatSessionStore.getConversationId(clusterId);
-    if (storedConversationId) {
-      _setConversationId(storedConversationId);
-      log.debug("Using stored conversation ID: ", storedConversationId);
-    } else {
-      log.debug("Generating conversation ID");
-      const newConverstionId = generateUuid();
-      _setConversationId(newConverstionId);
-      chatSessionStore.setConversationId(clusterId, newConverstionId);
-      log.debug("No stored conversation ID found, generating a new one.");
-    }
-  };
-
   const setLoading = (isLoading: boolean) => {
     _setLoading(isLoading);
     // Transient: kept in sessionStorage so a fresh app start never restores a
@@ -178,221 +93,39 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     window.sessionStorage.setItem(IS_LOADING_KEY, String(isLoading));
   };
 
-  const setConversationInterrupted = (isConversationInterrupted: boolean) => {
-    _setConversationInterrupted(isConversationInterrupted);
-    // Transient: see setLoading above.
-    window.sessionStorage.setItem(IS_CONVERSATION_INTERRUPTED_KEY, String(isConversationInterrupted));
-  };
-
   const addMessage = (message: MessageObject) => {
-    _setChatMessages((prev) => {
-      if (!prev) {
-        prev = [];
-      }
-      const updated = [...prev, message];
-      chatSessionStore.setMessages(clusterId, updated);
-      return updated;
-    });
+    editAgentTranscript((messages) => [...messages, message]);
   };
 
   const removeMessage = (messageId: string) => {
-    _setChatMessages((prev) => {
-      if (!prev) return prev;
-      const updated = prev.filter((message) => message.messageId !== messageId);
-      chatSessionStore.setMessages(clusterId, updated);
-      return updated;
-    });
+    editAgentTranscript((messages) => messages.filter((message) => message.messageId !== messageId));
   };
 
   // Drop any error messages still in the transcript. Called when the user takes
   // a fresh action (sends a new prompt) so a stale "Retry" button does not
   // linger once the conversation has moved on.
   const removeErrorMessages = () => {
-    _setChatMessages((prev) => {
-      if (!prev) return prev;
-      const updated = prev.filter((message) => !message.error);
-      if (updated.length === prev.length) return prev;
-      chatSessionStore.setMessages(clusterId, updated);
-      return updated;
-    });
-  };
-
-  const updateLastMessage = (newText: string) => {
-    _setChatMessages((prev) => {
-      if (!prev || prev.length === 0) return prev;
-
-      const lastIndex = prev.length - 1;
-      const messagesCopy = [...prev];
-      let lastMessage = messagesCopy[lastIndex];
-
-      // Start a fresh agent message when the last entry is the user's message or
-      // a resolved tool-approval interrupt. An interrupt's text holds the YAML
-      // request, so appending the streamed answer to it would glue the response
-      // into the "Show details" box.
-      if (lastMessage.sent || lastMessage.type === MessageType.INTERRUPT) {
-        // Agent response does not exist, add a new empty one
-        messagesCopy.push(getTextMessage(newText, false));
-        chatSessionStore.setMessages(clusterId, messagesCopy);
-        return messagesCopy;
-      }
-
-      // Agent response exist, update the existing one
-      messagesCopy[lastIndex] = {
-        ...lastMessage,
-        text: lastMessage.text + newText,
-      };
-
-      chatSessionStore.setMessages(clusterId, messagesCopy);
-      return messagesCopy;
-    });
-  };
-
-  const updateLastMessageReasoning = (newText: string) => {
-    _setChatMessages((prev) => {
-      const messagesCopy = prev ? [...prev] : [];
-      const lastMessage = messagesCopy[messagesCopy.length - 1];
-
-      // Reasoning streams before the answer text, so the last message is still
-      // the user's sent message, a resolved interrupt, or there is none yet:
-      // start a fresh agent response to hold the reasoning.
-      if (!lastMessage || lastMessage.sent || lastMessage.type === MessageType.INTERRUPT) {
-        messagesCopy.push({ ...getTextMessage("", false), reasoning: newText });
-      } else {
-        messagesCopy[messagesCopy.length - 1] = {
-          ...lastMessage,
-          reasoning: (lastMessage.reasoning ?? "") + newText,
-        };
-      }
-
-      chatSessionStore.setMessages(clusterId, messagesCopy);
-      return messagesCopy;
+    editAgentTranscript((messages) => {
+      const kept = messages.filter((message) => !message.error);
+      return kept.length === messages.length ? messages : kept;
     });
   };
 
   // New chat or Delete all chats: main stops a run and starts the cluster's new
-  // pi session, and the agent client empties the transcript. The old LangChain
-  // state is cleared as before until it is removed.
+  // pi session, and the agent client empties the transcript.
   const resetChat = async (type: "new_session" | "delete_sessions") => {
     const response = await resetAgentChat(clusterId, type);
     if (!response.success) {
       log.error("Starting a new chat failed: ", response.error);
-      return;
     }
-    chatSessionStore.clear(clusterId);
-    for (const agent of [freeLensAgent, mcpAgent]) {
-      if (agent) {
-        await cleanAgentMessageHistory(agent).catch((error) => log.error("Cleaning the agent history failed: ", error));
-      }
-    }
-    // Wipe this cluster's durable LangGraph checkpointer state so a restart right
-    // after a clear does not restore the model-side conversation context. Other
-    // clusters' memory is left untouched.
-    AgentStateStore.getInstanceOrCreate<AgentStateStore>().clearForCluster(clusterId);
   };
 
   const clearChat = () => resetChat("new_session");
   const deleteAllChats = () => resetChat("delete_sessions");
 
-  const cleanAgentMessageHistory = async (agent: FreeLensAgent | MPCAgent) => {
-    log.debug("Cleaning agent message history for agent: ", agent);
-    if (!agent) {
-      console.warn("No agent provided to clean message history.");
-      return;
-    }
-
-    const config = { configurable: { thread_id: conversationId } };
-
-    const messages = (await agent.getState(config)).values.messages;
-    log.debug("Messages to remove: ", messages);
-    if (!messages || messages.length === 0) {
-      log.debug("No messages to remove.");
-      return;
-    }
-
-    for (const msg of messages) {
-      await agent.updateState(config, { messages: new RemoveMessage({ id: msg.id }) });
-    }
-  };
-
-  const setFreeLensAgent = (freeLensAgent: FreeLensAgent) => {
-    agentsStore.freeLensAgent = freeLensAgent;
-    _setFreeLensAgent(freeLensAgent);
-  };
-
-  const setMcpAgent = (mcpAgent: MPCAgent) => {
-    agentsStore.mcpAgent = mcpAgent;
-    _setMcpAgent(mcpAgent);
-  };
-
-  const _initMcpAgent = async (forceInitialization: boolean = false) => {
-    if (!preferencesStore.mcpEnabled) {
-      if (mcpAgent) {
-        log.debug("The MCP Agent is disabled but it is already initialized");
-      } else {
-        log.debug("The MCP Agent is disabled and will not be initialized");
-        return;
-      }
-    }
-
-    if (mcpAgent === null || forceInitialization) {
-      log.debug("initializing MCP agent with configuration", preferencesStore.mcpConfiguration);
-      setMcpAgent(await mcpAgentSystem.buildAgentSystem(clusterId));
-      log.debug("MCP agent initialized!");
-    } else {
-      log.debug("The MCP Agent was already initialized: ", mcpAgent);
-    }
-  };
-
-  const _initFreeLensAgent = () => {
-    if (freeLensAgent === null) {
-      setFreeLensAgent(freeLensAgentSystem.buildAgentSystem(clusterId));
-    } else {
-      log.debug("Freelens Agent was already initialized: ", freeLensAgent);
-    }
-  };
-
-  const getActiveAgent = async () => {
-    if (preferencesStore.mcpEnabled) {
-      if (mcpAgent === null) {
-        const _mcpAgent = await mcpAgentSystem.buildAgentSystem(clusterId);
-        setMcpAgent(_mcpAgent);
-        return _mcpAgent;
-      }
-
-      return mcpAgent;
-    }
-
-    if (freeLensAgent === null) {
-      const _freeLensAgent = freeLensAgentSystem.buildAgentSystem(clusterId);
-      setFreeLensAgent(_freeLensAgent);
-      log.debug("Freelens Agent initialized: ", freeLensAgent);
-      return _freeLensAgent;
-    }
-    return freeLensAgent;
-  };
-
   // Takes the picker's "provider/id"; main runs the next prompt on it.
   const setSelectedModel = (modelRef: string) => {
     preferencesStore.agentModel = modelRef;
-  };
-
-  // The API key to use depends on the selected model's provider. Only OpenAI is
-  // active for now; other providers are derived here once re-added.
-  const getApiKeyForSelectedModel = (): string => {
-    const provider = preferencesStore.models.find((model) => model.name === preferencesStore.selectedModel)?.provider;
-    switch (provider) {
-      case AIProviders.OPEN_AI:
-        return preferencesStore.openAIKey;
-      default:
-        return preferencesStore.openAIKey;
-    }
-  };
-
-  const getAvailableTools = async () => {
-    if (preferencesStore.mcpEnabled) {
-      return await mcpAgentSystem.loadMcpTools();
-    }
-    return freeLensAgentSystem.availableTools;
   };
 
   // The run ends with the usual settled event, which clears the spinner.
@@ -414,48 +147,26 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     }
   };
 
-  const changeInterruptStatus = (id: string, status: boolean) => {
-    _setChatMessages((prevMessages) => {
-      const updated = prevMessages!.map((msg) => (msg.messageId === id ? { ...msg, approved: status } : msg));
-      chatSessionStore.setMessages(clusterId, updated);
-      return updated;
-    });
-  };
-
   return (
     <AppContext.Provider
       value={{
         clusterId,
-        apiKey: getApiKeyForSelectedModel(),
-        selectedModel: preferencesStore.selectedModel,
-        mcpEnabled: preferencesStore.mcpEnabled,
-        mcpConfiguration: preferencesStore.mcpConfiguration,
         autoApproveAll,
         explainEvent: preferencesStore.explainEvent,
-        conversationId,
         isLoading,
         isAgentRunning,
-        isConversationInterrupted,
         chatMessages,
         sessionStats,
-        mcpAgent,
-        freeLensAgent,
         setSelectedModel,
         setExplainEvent,
         turnOffAutoApprove,
         setLoading,
         stopAgent,
-        setConversationInterrupted,
         addMessage,
         removeMessage,
         removeErrorMessages,
-        updateLastMessage,
-        updateLastMessageReasoning,
         clearChat,
         deleteAllChats,
-        getActiveAgent,
-        changeInterruptStatus,
-        getAvailableTools,
       }}
     >
       {children}

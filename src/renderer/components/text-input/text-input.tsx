@@ -2,13 +2,12 @@ import { Renderer } from "@freelensapp/extensions";
 import { MessageSquarePlus, SendHorizonal, Square, Trash2 } from "lucide-react";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
-import { formatCost } from "../../business/provider/model-pricing";
-import { formatTokenUsage } from "../../business/service/token-usage";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { AvailableTools } from "../available-tools/available-tools";
 import styleInline from "./text-input.scss?inline";
 import { useTextInput } from "./text-input-hook";
 import { TokenCapacityIndicator } from "./token-capacity-indicator";
+import { formatCost, formatTokenCounts, tokenCounts } from "./usage-format";
 
 const { observer } = MobxReact;
 
@@ -26,14 +25,6 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
   // Everything below comes from pi's stats for the chat, computed in main: the
   // cost from each answer's model price, the context from the session's model.
   const stats = applicationStatusStore.sessionStats;
-  const tokens = stats?.tokens;
-  // pi counts cache reads and writes apart from the rest of the input; the
-  // counter shows all input with the cached part in brackets.
-  const tokenUsage = {
-    input: tokens ? tokens.input + tokens.cacheRead + tokens.cacheWrite : 0,
-    cached: tokens?.cacheRead ?? 0,
-    output: tokens?.output ?? 0,
-  };
   const sessionCost = stats?.cost ?? 0;
   const contextUsage = stats?.contextUsage;
 
@@ -110,7 +101,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                   className="text-input-token-counter text-input-tooltip"
                   data-tooltip="Tokens used in this chat (input, cached input, output), with the cost when the model's price is known. Starts again with a new chat."
                 >
-                  {formatTokenUsage(tokenUsage)}
+                  {formatTokenCounts(tokenCounts(stats?.tokens))}
                   {sessionCost > 0 ? ` = ${formatCost(sessionCost)}` : ""}
                 </span>
               )}

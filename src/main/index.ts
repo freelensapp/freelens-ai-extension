@@ -1,18 +1,16 @@
-import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Main } from "@freelensapp/extensions";
 import { AGENT_COMMAND_CHANNEL, AGENT_ENVELOPE_CHANNEL, type AgentCommand } from "../common/agent-protocol";
 import { AGENT_TOOLS } from "../common/agent-tools";
-import { isDefaultOpenAIBaseUrl } from "../common/openai-base-url";
 import { PROVIDER_COMMAND_CHANNEL, PROVIDER_ENVELOPE_CHANNEL, type ProviderCommand } from "../common/provider-protocol";
-import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
+import { PreferencesStore } from "../common/store";
+import { legacyOpenAISettings } from "../common/store/legacy-preferences";
 import { AgentHost, type ModelRef } from "./agent/agent-host";
 import { importLegacyCredentials, importLegacyCustomProvider } from "./agent/credentials-import";
 import { loadDeviceId } from "./agent/device-id";
 import { ProviderService } from "./agent/provider-service";
-import { startAiProxyServer } from "./ai-proxy-server";
 
 class AgentMainIpc extends Main.Ipc {}
 
@@ -32,39 +30,11 @@ export default class LensExtensionAiMain extends Main.LensExtension {
 
     preferencesStore.loadExtension(this);
 
-    // Owns the on-disk file for the persisted LangGraph checkpointer state. The
-    // main process must load it so the renderer receives the persisted value
-    // over IPC and the agent can restore its conversation after a restart.
-    // @ts-ignore
-    AgentStateStore.getInstanceOrCreate<AgentStateStore>().loadExtension(this);
-
-    // Owns the on-disk file for the persisted chat transcript and conversation
-    // id. The main process must load it so the renderer receives the persisted
-    // value over IPC and the chat HTML can be restored after a restart.
-    // @ts-ignore
-    ChatSessionStore.getInstanceOrCreate<ChatSessionStore>().loadExtension(this);
-
     try {
       await this.startAgentHost(preferencesStore);
     } catch (error) {
-      // Keep activating: the old LangChain code still reads the proxy below.
       console.error("[freelens-ai] Starting the pi agent failed:", error);
     }
-
-    // Generate a fresh shared secret for this launch and require it on every
-    // proxy request, so a local process that learns the port cannot reuse the
-    // user's API key.
-    const aiProxyToken = randomBytes(32).toString("hex");
-    preferencesStore.aiProxyToken = aiProxyToken;
-
-    preferencesStore.aiProxyPort = null;
-    // The proxy injects the API key into the upstream request from here in the
-    // main process, so the key never has to be sent from the renderer. It also
-    // requires the per-launch shared secret on every request.
-    preferencesStore.aiProxyPort = await startAiProxyServer(
-      aiProxyToken,
-      () => process.env.OPENAI_API_KEY || preferencesStore.openAIKey || undefined,
-    );
   }
 
   async onDeactivate() {
@@ -89,54 +59,7 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       modelsPath,
     });
 
-    try {
-      const { seededModel } = await importLegacyCredentials(
-        modelRuntime,
-        {
-          openAIKey: preferencesStore.openAIKey,
-          openAIBaseUrl: preferencesStore.openAIBaseUrl,
-          selectedModel: preferencesStore.selectedModel,
-        },
-        join(piDir, "legacy-import-done"),
-      );
-      if (seededModel && !preferencesStore.agentModel) {
-        preferencesStore.agentModel = seededModel;
-      }
-      // Once pi holds the OpenAI key, the copy in the preferences is no longer
-      // read and must not linger there in plain text.
-      const piHasOpenAIKey = (await modelRuntime.listCredentials()).some(
-        (credential) => credential.providerId === "openai",
-      );
-      if (preferencesStore.openAIKey && isDefaultOpenAIBaseUrl(preferencesStore.openAIBaseUrl) && piHasOpenAIKey) {
-        preferencesStore.openAIKey = "";
-      }
-    } catch (error) {
-      console.error("[freelens-ai] Importing the old OpenAI key into pi failed:", error);
-    }
-
-    try {
-      const { seededModel, importedProviderId } = await importLegacyCustomProvider(
-        modelRuntime,
-        modelsPath,
-        {
-          openAIKey: preferencesStore.openAIKey,
-          openAIBaseUrl: preferencesStore.openAIBaseUrl,
-          selectedModel: preferencesStore.selectedModel,
-          modelNames: preferencesStore.models.map((model) => model.name),
-        },
-        join(piDir, "legacy-custom-import-done"),
-      );
-      if (seededModel && !preferencesStore.agentModel) {
-        preferencesStore.agentModel = seededModel;
-      }
-      // The key is now in pi's auth.json, so the plain-text copy can go. A base
-      // URL that could not be imported keeps its key for the user to re-enter.
-      if (importedProviderId) {
-        preferencesStore.openAIKey = "";
-      }
-    } catch (error) {
-      console.error("[freelens-ai] Importing the old custom base URL into pi failed:", error);
-    }
+    await this.importLegacySettings(preferencesStore, modelRuntime, piDir, modelsPath);
 
     const ipc = AgentMainIpc.createInstance(this) as AgentMainIpc;
 
@@ -178,5 +101,33 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     agentHost
       .pruneSessions({ dropRemovedClusters: false })
       .catch((error) => console.error("[freelens-ai] Deleting old chats failed:", error));
+  }
+
+  // One-time moves of the old LangChain OpenAI settings into pi, each with its
+  // own marker file. Once both have run, the old fields are cleared from the
+  // preferences file; a failed import keeps them for the next start.
+  private async importLegacySettings(
+    preferencesStore: PreferencesStore,
+    modelRuntime: ModelRuntime,
+    piDir: string,
+    modelsPath: string,
+  ) {
+    const legacy = legacyOpenAISettings(preferencesStore.legacy);
+    const seed = (seededModel: string | undefined) => {
+      if (seededModel && !preferencesStore.agentModel) {
+        preferencesStore.agentModel = seededModel;
+      }
+    };
+    try {
+      seed((await importLegacyCredentials(modelRuntime, legacy, join(piDir, "legacy-import-done"))).seededModel);
+      seed(
+        (await importLegacyCustomProvider(modelRuntime, modelsPath, legacy, join(piDir, "legacy-custom-import-done")))
+          .seededModel,
+      );
+    } catch (error) {
+      console.error("[freelens-ai] Importing the old OpenAI settings into pi failed:", error);
+      return;
+    }
+    preferencesStore.clearLegacy();
   }
 }
