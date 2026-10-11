@@ -398,11 +398,9 @@ const CustomEndpointForm = ({ modelsPath, onClose, onAdded }: CustomEndpointForm
         "Model ids, separated by commas or new lines",
         <Input multiLine placeholder="qwen3, llama3.3" value={modelIds} onChange={(v: string) => setModelIds(v)} />,
       )}
-      <Switch
-        label="The models support reasoning (sends the thinking level as reasoning effort)"
-        checked={reasoning}
-        onChange={(checked: boolean) => setReasoning(checked)}
-      />
+      <Switch checked={reasoning} onChange={(checked: boolean) => setReasoning(checked)}>
+        The models support reasoning (sends the thinking level as reasoning effort)
+      </Switch>
       {modelsPath &&
         hint(
           <>
