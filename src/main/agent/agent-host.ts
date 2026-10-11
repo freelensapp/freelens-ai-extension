@@ -762,8 +762,15 @@ export class AgentHost {
     });
 
     const agent: ClusterAgent = { session, autoApprove: false };
-    const sendStats = () =>
-      this.send(clusterId, agent.session.sessionId, { kind: "stats", payload: agent.session.getSessionStats() });
+    // Called from pi's listener loop and from a microtask, where a throw would
+    // break the run or go uncaught in main, so a failure is only logged.
+    const sendStats = () => {
+      try {
+        this.send(clusterId, agent.session.sessionId, { kind: "stats", payload: agent.session.getSessionStats() });
+      } catch (error) {
+        console.error(`[freelens-ai] Reading the session stats for cluster ${clusterId} failed:`, error);
+      }
+    };
     session.subscribe((event) => {
       // Repeats message_end and can carry large tool results.
       if (event.type === "entry_appended") return;
