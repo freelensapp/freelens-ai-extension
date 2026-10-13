@@ -387,8 +387,9 @@ store; there is no hardcoded model enum. What `PreferencesStore` needs lives in
 - `model-pricing.ts`, `token-estimate.ts` — the pure cost and token math, used
   by both processes.
 
-The chat models run in main, with the agents, so the API key never leaves main.
-The rest is in `src/main/provider/`:
+The chat models run in main, with the agents (see "Agents and the Bridge"), so
+the API key never leaves main and the renderer never talks to the model
+endpoint. The rest is in `src/main/provider/`:
 
 - `model-capabilities.ts` — name heuristics (regex) deciding model behavior.
   Add new model families here rather than hardcoding ids. Reasoning models
@@ -396,18 +397,43 @@ The rest is in `src/main/provider/`:
 - `openai-fields.ts` — pure `buildOpenAIChatFields` builder (endpoint, fetch,
   reasoning-effort/temperature heuristic), unit-tested in isolation.
 - `model-provider.ts` — `getModel()` resolves the selected model's provider and
-  builds the LangChain client with the key of `OPENAI_API_KEY` or the
-  preferences; throws when no model or no key is configured.
-- `host-fetch.ts` — the client's `fetch` is `Main.Util.fetch`, so the user's
-  HTTPS proxy and certificate preferences apply. The host's structural `Fetch`
-  is not assignable to the standard `fetch` the OpenAI SDK takes, so this
-  adapter asserts the type once; it is the only place the extension asserts a
-  host type.
-- `model-pricing-provider.ts` — fetches `/model/info` of the endpoint and the
-  public LiteLLM price list, served to the renderer by the bridge.
+  builds the LangChain client for the base URL of the preferences; throws when
+  no model or no key is configured. `resolveOpenAIKey()` takes
+  `OPENAI_API_KEY` of main's environment first, then the key of the
+  preferences, read per model, so a changed key applies to the next request.
+- `offline-token-chat-model.ts`, `dsml-aware-chat-model.ts` — the `ChatOpenAI`
+  subclasses: local token counting instead of the tiktoken download, and the
+  recovery of DeepSeek's tool calls leaked into the text.
+- `host-fetch.ts` — the adapter that hands `Main.Util.fetch` to the OpenAI
+  client as its `fetch`.
+- `model-pricing-provider.ts` — fetches `/model/info` of the endpoint, with the
+  key, and the public LiteLLM price list, without it; served to the renderer
+  by the `/model/pricing` route of the bridge.
+- `agent-rules*.ts`, `prompt-template-provider.ts` — the system prompts and the
+  custom agent rules of the preferences.
+
+### HTTP from main
+
+Every HTTP request main makes, to the model endpoint and for the pricing, goes
+through `Main.Util.fetch`, never the global `fetch` or a bundled client's
+default one, so the user's HTTPS proxy, CA certificates and "allow untrusted
+CAs" preferences apply. The host's `Fetch` is structural and not assignable to
+the standard `fetch` that the OpenAI SDK takes (`Request` inputs, `Blob` and
+`FormData` bodies, `Response#clone()`, `url`, ...), so `host-fetch.ts`
+asserts the type once: it is the only place the extension asserts a host type.
+At runtime main's fetch is undici's and returns a full `Response`. The adapter
+refuses a `Request` input, whose method, headers and body would be lost. Do not
+pass a `dispatcher` in the init: the host spreads the init after its own.
+
+The host's `Fetch` fits a request that uses only a URL, `method`, `headers`,
+a string or bytes `body` and `signal`, and reads `ok`, `status`, `headers`,
+`json()`, `text()` and `body`; `model-pricing-provider.ts` takes it as it is,
+without the adapter.
 
 When changing the heuristics or list logic, prefer extending the pure helpers
-and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`).
+and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`). The tests
+of the provider replace `Main.Util.fetch` with the stub's `vi.fn()` and assert
+on the request the client sends.
 
 ## Agents and the Bridge
 
