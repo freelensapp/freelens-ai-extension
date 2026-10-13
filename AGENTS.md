@@ -68,8 +68,9 @@ src/
   renderer/index.tsx             # Extension entry point (renderer process, ESM): pages, menus, preferences
   renderer/business/bridge/      # Client of the bridge (Renderer.Util.fetch)
   renderer/business/service/     # Chat service: runs, approvals and their events, as the views use them
-  renderer/components/, pages/   # Views: chat, messages, approvals, preferences
+  renderer/components/, pages/   # Views: chat, messages, approvals, preferences, error boundary
   renderer/context/              # Application context of a cluster frame
+  renderer/navigation/           # Id of the chat page
   common/bridge/                 # Bridge protocol (routes, bodies, events) and the SSE codec
   common/store/                  # ExtensionStores shared by both processes
   common/provider/, service/     # Pure model, pricing, token and compaction helpers
@@ -118,10 +119,45 @@ Each CRD file exports three classes: the KubeObject, the KubeApi, and the KubeOb
 
 ## Renderer Components
 
-- Detail views use the `observer` wrapper from `../../observer` (re-exports MobX `observer`).
+- **Registrations.** `src/renderer/index.tsx` registers the chat page
+  (`clusterPages`), its sidebar entry (`clusterPageMenus`), the "Explain" item
+  of the Event menu (`kubeObjectMenuItems`) and the preferences
+  (`appPreferences`). The "Explain" item is built with
+  `Renderer.K8sApi.menuItemFor(Renderer.K8sApi.KubeEvent, { MenuItem })`, and
+  its props extend `Common.Types.KubeObjectMenuItemProps<KubeEvent>`. The page
+  id is `MAIN_PAGE_ID` of `src/renderer/navigation/pages.ts`, used wherever the
+  page is named.
+- **Error boundary.** `clusterPages` and `kubeObjectMenuItems` are mapped
+  through `withPageErrorBoundary` and `withMenuItemErrorBoundary` of
+  `src/renderer/components/error-boundary.tsx`, so that an entry added to them
+  is wrapped too. An error a page throws shows the error page in its place; one
+  a menu item throws leaves the item out of the menu. Either is logged with
+  `Common.logger` and the extension's name. The host has no boundary around a
+  menu item, and its boundary around the cluster frame would replace the whole
+  cluster view.
+- **Navigation.** A registration hands the extension instance to its view
+  (`<MainPage extension={this} />`, `<MenuEntry {...props} extension={this} />`),
+  never through module state. A view opens the chat page with
+  `extension.navigate(MAIN_PAGE_ID)` and the extension's preferences with
+  `extension.navigateToPreferences()`, which the chat reaches through
+  `navigateToPreferences` of the application context. The chat runs in the
+  cluster frame and the preferences live in the root frame:
+  `navigateToPreferences()` reaches the root frame, which
+  `Renderer.Navigation.navigate` does not, and no route is written by hand.
+- **Host components** come from `Renderer.Component`, destructured at module
+  level (`Button`, `Select`, `MonacoEditor`, `MenuItem`, `Icon`, ...). The
+  option of a single-value `Select` is `Renderer.Component.SelectOption<T> | null`
+  in its `onChange`, rather than `SingleValue` of `react-select`.
+- **Observers.** A view that reads a store is wrapped in `observer` of
+  `mobx-react`, the host's instance.
+- **Props passed to the DOM.** A list child has a `key`. A component that
+  renders an element with props it was handed passes only DOM attributes:
+  react-markdown 6 hands a custom renderer `inline` and the syntax tree's `node`
+  next to the element's attributes, so `markdown-viewer.tsx` takes them out.
+  React reports either mistake in DevTools, and the view tests expect no
+  `console.error` (see "Tests and tooling").
 - A component's stylesheet is a CSS module next to it, `x.module.scss`, imported as `import styles from "./x.module.scss"` and used as `className={styles.someClass}`; there is no `?inline` import and no `<style>` element. The host's own classes and theme markers are matched with `:global(...)`, for example `:global(body.theme-light) .x` and `.x :global(.Select__single-value)`, since every other class name in a module is scoped.
 - CSS modules get TypeScript declarations (`*.module.d.scss.ts`) from `build/vite-plugin-css-module-declarations.mjs`, written by the renderer build (see "CSS module declarations" under "Build").
-- Common detail view styles are in `src/renderer/details/gateway-api/common.module.scss`.
 
 ## Build
 
