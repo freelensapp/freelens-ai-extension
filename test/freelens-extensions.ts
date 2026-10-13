@@ -9,6 +9,7 @@
 // Only the surface the tests exercise is stubbed here, and only at runtime: the
 // tests are type-checked against the real declaration of the package. Extend it
 // as your tests need more of the host API.
+import React from "react";
 import { vi } from "vitest";
 
 // Minimal stand-in for the host `ExtensionStore` base class. The real one
@@ -40,6 +41,12 @@ class ExtensionStore<_T> {
 }
 
 export const Common = {
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
   Clusters: {
     ClusterConnectionStatus: {
       CONNECTING: "connecting",
@@ -73,5 +80,36 @@ export const Main = {
   },
   Util: {
     fetch: vi.fn<(url: string | URL, init?: unknown) => Promise<unknown>>(),
+  },
+};
+
+// Plain DOM stand-ins for the host components the views render, with the props
+// the views pass. The editor shows its value as text, so a test can find it.
+interface ButtonProps {
+  label?: string;
+  className?: string;
+  onClick?: () => void;
+}
+
+function Button({ label, className, onClick }: ButtonProps) {
+  return React.createElement("button", { type: "button", className, onClick }, label);
+}
+
+function MonacoEditor({ value }: { value: string }) {
+  return React.createElement("pre", { "data-testid": "monaco-editor" }, value);
+}
+
+export const Renderer = {
+  Catalog: {
+    getActiveCluster: vi.fn<() => { id: string } | undefined>(() => undefined),
+  },
+  Component: {
+    Button,
+    MonacoEditor,
+    createTerminalTab: vi.fn(),
+    terminalStore: {
+      getTerminal: vi.fn(),
+      sendCommand: vi.fn(),
+    },
   },
 };

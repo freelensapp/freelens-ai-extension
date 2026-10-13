@@ -343,16 +343,23 @@ registers its automatic cleanup only when `afterEach` is a global.
 
 `vitest.config.ts` uses the build's plugins (the standard decorators and
 React), runs tests in Node, and a test that renders a component opts into jsdom
-with a `// @vitest-environment jsdom` comment.
+with a `// @vitest-environment jsdom` comment and renders it with React Testing
+Library (`@testing-library/react`). React reports a list child without a key or
+an attribute the DOM does not take with `console.error`, so a view test spies
+on it and expects no call.
 
 The shim of `@freelensapp/extensions` reads the host's global when it is
 loaded, so it throws under Vitest. `vitest.config.ts` aliases the package to
 `test/freelens-extensions.ts`, a stub of the runtime surface the tests reach:
 an in-memory `Common.Store.ExtensionStore` (a singleton per class, with
 `resetInstance()` between tests), an empty `Main.LensExtension`, whose
-lifecycle methods a test calls itself, and `vi.fn()` stand-ins for
-`Main.Catalog.getClusterById`, `Main.K8sApi.KubeJsonApi.forCluster`,
-`Main.Shell.getEnvironment` and `Main.Util.fetch`. Extend it when a test needs
+lifecycle methods a test calls itself, `vi.fn()` stand-ins for
+`Common.logger`, `Main.Catalog.getClusterById`,
+`Main.K8sApi.KubeJsonApi.forCluster`, `Main.Shell.getEnvironment`,
+`Main.Util.fetch`, `Renderer.Catalog.getActiveCluster` and the terminal of
+`Renderer.Component`, and plain DOM stand-ins for the host components the views
+render (`Button`, and `MonacoEditor`, which shows its value as text). Extend it
+when a test needs
 more of the host; it is runtime only, the types stay the real declaration's.
 knip does not follow the alias, so the stub is an entry of `knip.jsonc`.
 
