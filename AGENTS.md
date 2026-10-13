@@ -322,6 +322,19 @@ program. Test and test-support files import what they use:
 import { describe, expect, it, vi } from "vitest";
 ```
 
+The module resolves from every program, so Biome keeps it out of the
+extension's code: `style/noRestrictedImports` rejects `vitest` everywhere
+except `src/**/*.test.*`, `test/` and `integration/`. At runtime
+`vitest.config.ts` still sets `globals: true`, because React Testing Library
+registers its automatic cleanup only when `afterEach` is a global.
+
+`vitest.config.ts` uses the build's plugins (the standard decorators and
+React), runs tests in Node, and a test that renders a component opts into jsdom
+with a `// @vitest-environment jsdom` comment. Tests cover modules kept free of
+`@freelensapp/extensions`, whose shim reads the host's global when it is loaded
+and so throws under Vitest; a test that needs such a module gets an `alias` of
+the package to a stub in `test/`.
+
 The root `tsconfig.json` checks the tooling files. It has `checkJs`, so the
 Vite config and the build plugins are type-checked too; give their function
 parameters JSDoc types.

@@ -103,6 +103,45 @@
       }
     }
   },
+  // Every path in an override starts with `**/`: Trunk runs Biome from a
+  // sandbox outside the repository, where a path anchored at the repository
+  // root matches no file and the override silently does nothing.
+  "overrides": [
+    {
+      // No tsconfig declares the Vitest globals, so test code imports them
+      // from "vitest". The module resolves from every program, so only this
+      // rule keeps it out of the extension's code; the next override lifts it
+      // for tests and test support.
+      "includes": ["**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "vitest": "Vitest is for test code only"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      // Tests and test support, which import their Vitest functions from
+      // "vitest" explicitly. The integration tests run inside a Freelens
+      // checkout, under its Vitest.
+      "includes": ["**/integration/**", "**/src/**/*.test.*", "**/test/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
+          }
+        }
+      }
+    }
+  ],
   "vcs": {
     "clientKind": "git",
     "enabled": true,
