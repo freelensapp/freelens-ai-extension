@@ -7,39 +7,28 @@ import {
 } from "./model-capabilities";
 
 describe("isReasoningModel", () => {
-  it.each([
-    "o1",
-    "o3-mini",
-    "O1-preview",
-    "gpt-5",
-    "gpt-5.4",
-    "gpt-5.5",
-    "gpt-5.4-mini",
-  ])("treats %s as a reasoning model", (name) => {
-    expect(isReasoningModel(name)).toBe(true);
-  });
+  it.each(["o1", "o3-mini", "O1-preview", "gpt-5", "gpt-5.4", "gpt-5.5", "gpt-5.4-mini"])(
+    "treats %s as a reasoning model",
+    (name) => {
+      expect(isReasoningModel(name)).toBe(true);
+    },
+  );
 
-  it.each([
-    "gpt-4.1",
-    "gpt-4o",
-    "gpt-3.5-turbo",
-    "text-embedding-3-small",
-    "",
-  ])("treats %s as a non-reasoning model", (name) => {
-    expect(isReasoningModel(name)).toBe(false);
-  });
+  it.each(["gpt-4.1", "gpt-4o", "gpt-3.5-turbo", "text-embedding-3-small", ""])(
+    "treats %s as a non-reasoning model",
+    (name) => {
+      expect(isReasoningModel(name)).toBe(false);
+    },
+  );
 });
 
 describe("requiresAutoToolChoice", () => {
-  it.each([
-    "deepseek-v4-pro",
-    "deepseek-reasoner",
-    "DeepSeek-V4",
-    "qwen3-235b",
-    "Qwen2.5-72B",
-  ])("requires tool_choice auto for thinking model %s", (name) => {
-    expect(requiresAutoToolChoice(name)).toBe(true);
-  });
+  it.each(["deepseek-v4-pro", "deepseek-reasoner", "DeepSeek-V4", "qwen3-235b", "Qwen2.5-72B"])(
+    "requires tool_choice auto for thinking model %s",
+    (name) => {
+      expect(requiresAutoToolChoice(name)).toBe(true);
+    },
+  );
 
   it.each(["gpt-5.5", "gpt-5.4", "gpt-4o", "o3-mini", ""])("keeps forced tool_choice for %s", (name) => {
     expect(requiresAutoToolChoice(name)).toBe(false);
@@ -47,13 +36,12 @@ describe("requiresAutoToolChoice", () => {
 });
 
 describe("emitsDsmlToolCalls", () => {
-  it.each([
-    "deepseek-v4-pro",
-    "deepseek-reasoner",
-    "DeepSeek-V4",
-  ])("flags DeepSeek model %s as DSML-emitting", (name) => {
-    expect(emitsDsmlToolCalls(name)).toBe(true);
-  });
+  it.each(["deepseek-v4-pro", "deepseek-reasoner", "DeepSeek-V4"])(
+    "flags DeepSeek model %s as DSML-emitting",
+    (name) => {
+      expect(emitsDsmlToolCalls(name)).toBe(true);
+    },
+  );
 
   it.each(["gpt-5.5", "gpt-4o", "qwen3-235b", "o3-mini", ""])("does not flag %s", (name) => {
     expect(emitsDsmlToolCalls(name)).toBe(false);

@@ -9,9 +9,15 @@ This file provides guidance to coding agents when working with code in this repo
 This repository serves as an example how to build and publish extensions for
 Freelens application.
 
-- **Language**: TypeScript 5.9.3
-- **Runtime**: Node.js >= 22.0.0, Freelens >= 1.8.0
-- **Package manager**: pnpm 10.x (locked)
+- **Language**: TypeScript 7.0.2
+- **Runtime**: Node.js >= 24.0.0, Freelens >= 2.0.0
+- **Package manager**: pnpm 12.x (locked), with `strictPeerDependencies: true`
+- **Shared library versions**: the libraries the extension shares with Freelens
+  (`react`, `mobx`, `mobx-react`, `monaco-editor`, `typescript`, `vite`,
+  `vitest`, `electron`, ...) are pinned to the versions of the Freelens
+  `pnpm-workspace.yaml` catalog at the commit the `@freelensapp/extensions`
+  nightly was built from. Node and the tools in `mise.toml` follow Freelens's
+  `mise.toml`.
 - **License**: MIT
 
 ## Common Commands
@@ -147,7 +153,7 @@ helpers and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`).
 - **Biome** formats **TypeScript/TSX and SCSS**: double quotes, semicolons, trailing commas, 2-space indent, 120 char line width
 - **Trunk** formats **Markdown, YAML**, and other formats not covered by biome — use `pnpm trunk:fix`
 - Import order (enforced by biome organizeImports): built-in modules → `@freelensapp/**` → packages → relative paths
-- React 17 (no `react/jsx-runtime` in tsconfig needed, but handled by build)
+- React 19, provided by the Freelens host
 - **No emoji** in Markdown files (`.md`), comments, or any source code
 
 ## Security
