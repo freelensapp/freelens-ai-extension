@@ -37,6 +37,7 @@ pnpm trunk:check          # Markdown, YAML, and other formats not covered by bio
 pnpm trunk:fix            # Auto-fix Markdown, YAML, etc.
 pnpm lint:check           # biome check (all biome formats)
 pnpm lint:fix             # biome fix (all biome formats)
+pnpm knip:check           # Unused files, dependencies and exports; run after `pnpm build`
 
 # Tests
 pnpm test:unit            # vitest
@@ -49,9 +50,9 @@ pnpm dev                  # The same two builds in watch mode, for a directory i
 pnpm pack:dev             # Bump prerelease version, build, and create .tgz for install in Freelens app
 
 # Clean
-pnpm clean                # Clean out/
-pnpm clean:dts            # Remove generated *.d.scss.ts files
-pnpm clean:all            # Clean everything (dts, node_modules, out, tgz)
+pnpm clean                # Clean dist/
+pnpm clean:dts            # Remove the *.d.scss.ts declarations; the next renderer build writes them again
+pnpm clean:all            # Clean everything (dist, dts, node_modules, tgz)
 ```
 
 ## Architecture
@@ -167,6 +168,13 @@ includes `@freelensapp/extensions`, a shim of three lines that reads `Common`,
 `Main` and `Renderer` off the same global; it must not be mapped. The host
 installs no dependencies of an extension, so whatever the code needs at
 runtime and the host does not provide has to be in the bundle.
+
+Every library is a devDependency, bundled or not. A bundled library that
+Freelens does not have in its catalog is named in two more places: in
+`ignoreDependencies` of `knip.jsonc`, since the `--production --strict` pass
+reports a devDependency imported by production code as unlisted, and as an
+exclusion (`!name`) in the "Freelens dependencies" rule of `.renovaterc.json`,
+since that rule takes every other version from the Freelens catalog.
 
 ### Process-specific settings
 

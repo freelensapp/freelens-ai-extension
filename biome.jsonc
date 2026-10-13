@@ -1,4 +1,6 @@
 {
+  // Ignore mismatch for Biome version to make Renovate updates without error
+  // trunk-ignore(biome/deserialize)
   "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
   "assist": {
     "actions": {
@@ -24,7 +26,7 @@
     }
   },
   "files": {
-    "includes": ["**", "!**/.trunk/**", "!**/build/**", "!**/dist/**", "!**/package.json"]
+    "includes": ["**", "!**/.trunk/**", "!**/build/**", "!**/dist/**", "**/build/*.{js,cjs,mjs}"]
   },
   "formatter": {
     "attributePosition": "auto",
@@ -88,6 +90,7 @@
             "strictCase": false
           }
         },
+        "useNodejsImportProtocol": "error",
         // should be error later
         "useTemplate": "off"
       },
@@ -137,6 +140,19 @@
         "rules": {
           "style": {
             "noRestrictedImports": "off"
+          }
+        }
+      }
+    },
+    {
+      // Renderer and common code, as the extension migration guide recommends:
+      // a Node builtin import belongs in the main entry point only. Tests are
+      // left out, as they are of the renderer and common programs.
+      "includes": ["**/src/common/**", "**/src/renderer/**", "!**/*.test.*"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noNodejsModules": "error"
           }
         }
       }
