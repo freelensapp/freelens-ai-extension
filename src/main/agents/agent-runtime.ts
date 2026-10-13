@@ -1,11 +1,14 @@
 // The agents of every cluster, as the bridge serves them. One runtime lives from
 // `onActivate` to `onDeactivate`; a reload builds a new one.
 
+import { Main } from "@freelensapp/extensions";
 import { RemoveMessage } from "@langchain/core/messages";
 import { Command } from "@langchain/langgraph";
+import { compareStructural, reaction } from "mobx";
 import { DEFAULT_OPENAI_BASE_URL } from "../../common/provider/ai-models";
 import { approximateTokenCount } from "../../common/provider/token-estimate";
 import { AgentStateStore, PreferencesStore } from "../../common/store";
+import { McpClients } from "../mcp/mcp-clients";
 import useLog from "../utils/logger";
 import { type AgentServiceEvent, useAgentService } from "./agent-service";
 import { useAiAnalysisService } from "./ai-analysis-service";
@@ -13,6 +16,8 @@ import { describeAgentError } from "./describe-error";
 import { type FreeLensAgent, useFreeLensAgentSystem } from "./freelens-agent-system";
 import { type MPCAgent, useMcpAgent } from "./mcp-agent";
 import { useSessionCompactionService } from "./session-compaction-service";
+
+import type { StructuredToolInterface } from "@langchain/core/tools";
 
 import type {
   AgentRunInput,
@@ -46,8 +51,42 @@ export class AgentRuntime {
   private readonly preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
   private readonly freeLensAgentSystem = useFreeLensAgentSystem();
   private readonly freeLensAgents = new Map<string, FreeLensAgent>();
-  // Rebuilt when the MCP configuration changes.
-  private readonly mcpAgents = new Map<string, { configuration: string; agent: MPCAgent }>();
+  // Rebuilt when the cluster's MCP servers are started again, since the tools
+  // of the agent call the servers that were running when it was built.
+  private readonly mcpAgents = new Map<string, { tools: StructuredToolInterface[]; agent: MPCAgent }>();
+  private readonly disposers: (() => void)[];
+
+  constructor(private readonly mcpClients: McpClients = new McpClients()) {
+    this.disposers = [
+      // Turning MCP off or changing its configuration stops every server; the
+      // next request starts the new configuration's servers once.
+      reaction(
+        () => [this.preferencesStore.mcpEnabled, this.preferencesStore.mcpConfiguration],
+        () => void this.closeMcp(),
+        { equals: compareStructural },
+      ),
+      // A disconnect removes the files of the cluster's environment, so the
+      // servers started with it stop; they start again on the next request.
+      reaction(
+        () => Main.Catalog.getAllClusters().map(({ id, status }) => `${id}=${status}`),
+        () => void this.mcpClients.closeDisconnected(),
+        { equals: compareStructural },
+      ),
+    ];
+  }
+
+  private async closeMcp() {
+    this.mcpAgents.clear();
+    await this.mcpClients.closeAll();
+  }
+
+  /** Stops the MCP servers and the reactions; called from `onDeactivate`. */
+  async dispose(): Promise<void> {
+    for (const dispose of this.disposers) {
+      dispose();
+    }
+    await this.closeMcp();
+  }
 
   private getFreeLensAgent(clusterId: string): FreeLensAgent {
     let agent = this.freeLensAgents.get(clusterId);
@@ -59,13 +98,13 @@ export class AgentRuntime {
   }
 
   private async getMcpAgent(clusterId: string): Promise<MPCAgent> {
-    const configuration = this.preferencesStore.mcpConfiguration;
+    const tools = await this.mcpClients.getTools(clusterId, this.preferencesStore.mcpConfiguration);
     const cached = this.mcpAgents.get(clusterId);
-    if (cached && cached.configuration === configuration) {
+    if (cached && cached.tools === tools) {
       return cached.agent;
     }
-    const agent = await useMcpAgent(configuration).buildAgentSystem(clusterId);
-    this.mcpAgents.set(clusterId, { configuration, agent });
+    const agent = useMcpAgent().buildAgentSystem(clusterId, tools);
+    this.mcpAgents.set(clusterId, { tools, agent });
     return agent;
   }
 
@@ -162,9 +201,9 @@ export class AgentRuntime {
     return {};
   }
 
-  async tools(): Promise<ToolDescription[]> {
+  async tools(clusterId: string): Promise<ToolDescription[]> {
     if (this.preferencesStore.mcpEnabled) {
-      const tools = await useMcpAgent(this.preferencesStore.mcpConfiguration).loadMcpTools();
+      const tools = await this.mcpClients.getTools(clusterId, this.preferencesStore.mcpConfiguration);
       return tools.map(({ name, description }) => ({ name, description }));
     }
     return this.freeLensAgentSystem.availableTools.map(({ name, description }) => ({ name, description }));

@@ -62,16 +62,14 @@
     // --production --strict pass reports as unlisted
     "@langchain/core",
     "@langchain/langgraph",
+    "@langchain/mcp-adapters",
     "@langchain/openai",
     "loglevel",
     "lucide-react",
     "react-markdown",
     "remark-gfm",
     "yaml",
-    "zod",
-    // the MCP client, which runs the MCP servers in main from M1 of #295; no
-    // code imports it until then
-    "@langchain/mcp-adapters"
+    "zod"
   ],
 
   "typescript": {

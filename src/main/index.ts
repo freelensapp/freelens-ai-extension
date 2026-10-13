@@ -10,6 +10,7 @@ import { resolveOpenAIKey } from "./provider/model-provider";
 
 export default class LensExtensionAiMain extends Main.LensExtension {
   private bridge: BridgeServer | null = null;
+  private runtime: AgentRuntime | null = null;
 
   async onActivate() {
     const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
@@ -38,6 +39,7 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     preferencesStore.aiProxyToken = token;
 
     const runtime = new AgentRuntime();
+    this.runtime = runtime;
     this.bridge = await startBridgeServer({
       token,
       routes: createBridgeRoutes({
@@ -62,5 +64,9 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     this.bridge = null;
     PreferencesStore.getInstanceOrCreate<PreferencesStore>().aiProxyPort = null;
     await bridge?.close();
+    // Stops the MCP servers, so a reload leaves no server process behind.
+    const runtime = this.runtime;
+    this.runtime = null;
+    await runtime?.dispose();
   }
 }

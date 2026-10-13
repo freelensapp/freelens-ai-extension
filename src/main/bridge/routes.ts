@@ -55,6 +55,15 @@ export const parseExplainRequest = (body: unknown): ExplainRequest => {
   return { clusterId: requireString(record, "clusterId"), text: requireString(record, "text") };
 };
 
+// The cluster whose tools are listed: the MCP servers run per cluster.
+export const parseToolsQuery = (query: URLSearchParams): string => {
+  const clusterId = query.get("clusterId");
+  if (!clusterId) {
+    throw new Error('The request has no "clusterId".');
+  }
+  return clusterId;
+};
+
 export const createBridgeRoutes = ({
   runtime,
   fetchModelPricing,
@@ -85,7 +94,7 @@ export const createBridgeRoutes = ({
   [BridgeRoute.tools]: {
     method: "GET",
     kind: "json",
-    handle: async (): Promise<ToolsResponse> => ({ tools: await runtime.tools() }),
+    handle: async ({ query }): Promise<ToolsResponse> => ({ tools: await runtime.tools(parseToolsQuery(query)) }),
   },
   [BridgeRoute.modelPricing]: {
     method: "GET",

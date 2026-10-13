@@ -63,6 +63,7 @@ src/
   main/agents/                   # LangGraph agents, approval gate, compaction, Explain, AgentRuntime
   main/agents/tools/             # Kubernetes tools, by path through KubeJsonApi.forCluster
   main/bridge/                   # Local HTTP/SSE bridge server and its routes
+  main/mcp/                      # MCP servers of the preferences, one client per cluster
   main/provider/                 # Chat models, host fetch adapter, prompts, model pricing
   renderer/index.tsx             # Extension entry point (renderer process, ESM): pages, menus, preferences
   renderer/business/bridge/      # Client of the bridge (Renderer.Util.fetch)

@@ -10,21 +10,14 @@ import { GraphState } from "./state/graph-state";
 
 import type { StructuredToolInterface } from "@langchain/core/tools";
 
-export type MPCAgent = Awaited<ReturnType<ReturnType<typeof useMcpAgent>["buildAgentSystem"]>>;
+export type MPCAgent = ReturnType<ReturnType<typeof useMcpAgent>["buildAgentSystem"]>;
 
-export const useMcpAgent = (mcpConfiguration: string) => {
+export const useMcpAgent = () => {
   const { log } = useLog("useMcpAgent");
 
-  // The MCP client spawns stdio servers as child processes, which the renderer
-  // cannot do, so it runs in main with the agents (#295). Until then the MCP
-  // agent has no tools and fails to start, as with an invalid configuration.
-  const loadMcpTools = async (): Promise<StructuredToolInterface[]> => {
-    log.debug("MCP configuration: ", mcpConfiguration);
-    throw new Error("MCP servers are not available in the renderer; they move to the main process.");
-  };
-
-  const buildAgentSystem = async (clusterId: string) => {
-    const mcpTools = await loadMcpTools();
+  // The tools of the cluster's MCP servers, which run in main (see
+  // src/main/mcp/mcp-clients.ts); a tool call never leaves main.
+  const buildAgentSystem = (clusterId: string, mcpTools: StructuredToolInterface[]) => {
     const toolNode = new ToolNode(mcpTools);
 
     const shouldContinue = (state: typeof GraphState.State) => {
@@ -85,5 +78,5 @@ export const useMcpAgent = (mcpConfiguration: string) => {
       .compile({ checkpointer: new PersistentMemorySaver(checkpointNamespace(clusterId, "mcp")) });
   };
 
-  return { buildAgentSystem, loadMcpTools };
+  return { buildAgentSystem };
 };

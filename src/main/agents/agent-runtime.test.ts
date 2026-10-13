@@ -92,6 +92,6 @@ describe("AgentRuntime", () => {
   });
 
   it("lists the Kubernetes tools when MCP is off", async () => {
-    expect(await new AgentRuntime().tools()).toEqual([{ name: "getNamespaces", description: "d" }]);
+    expect(await new AgentRuntime().tools("cluster-a")).toEqual([{ name: "getNamespaces", description: "d" }]);
   });
 });

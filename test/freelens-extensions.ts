@@ -40,6 +40,14 @@ class ExtensionStore<_T> {
 }
 
 export const Common = {
+  Clusters: {
+    ClusterConnectionStatus: {
+      CONNECTING: "connecting",
+      CONNECTED: "connected",
+      DISCONNECTED: "disconnected",
+      DISCONNECTING: "disconnecting",
+    },
+  },
   Store: {
     ExtensionStore,
   },
@@ -52,6 +60,7 @@ class LensExtension {}
 export const Main = {
   LensExtension,
   Catalog: {
+    getAllClusters: vi.fn<() => unknown[]>(() => []),
     getClusterById: vi.fn<(id: string) => unknown>(() => undefined),
   },
   K8sApi: {

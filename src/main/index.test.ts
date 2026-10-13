@@ -13,7 +13,7 @@ interface Lifecycle {
 const preferences = () => PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
 const callTools = (port: number | null, token: string | null) =>
-  fetch(`http://127.0.0.1:${port}${BridgeRoute.tools}`, {
+  fetch(`http://127.0.0.1:${port}${BridgeRoute.tools}?clusterId=cluster-a`, {
     headers: token ? { [BRIDGE_TOKEN_HEADER]: token } : {},
   });
 
