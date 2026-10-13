@@ -22,9 +22,9 @@ This guide will help you install the extension in your freelens app.
 
 1. Open Freelens
 2. Click on the `Extensions` button in the top right corner
-![](./images/extensions_section.png)
+![The Extensions button in the top right corner](./images/extensions_section.png)
 3. Click on the fonder at left of install button
-![](./images/extensions_page.png)
+![The Extensions page with the install field](./images/extensions_page.png)
 
 ---
 
@@ -33,19 +33,19 @@ This guide will help you install the extension in your freelens app.
 In order to use the extension, you need to set up an API key.
 
 1. Click on the `Preferences` button in the top right corner.
-![](./images/extensions_section.png)
+![The Preferences button in the top right corner](./images/extensions_section.png)
 2. Look in `Extenions` section and click on `@freelensapp/freelens-ai`
-![](./images/preferences.png)
+![The Extensions section of the preferences](./images/preferences.png)
 3. Now you can finaly set you api key
-![](./images/preferences_freelens_ai.png)
+![The Freelens AI preferences with the API key field](./images/preferences_freelens_ai.png)
 
 ---
 
 #### Additional Resources
 
-- [***README***](../README.md)
-- [***Contribute***](CONTRIBUTING.md)
-- [***Build freelens-ai extension***](./BUILD.md)
+- [_**README**_](../README.md)
+- [_**Contribute**_](CONTRIBUTING.md)
+- [_**Build freelens-ai extension**_](./BUILD.md)
 
 If you find this project useful, please consider giving it a ⭐️ on
-[***GitHub***](https://github.com/freelensapp/freelens-ai)!
+[_**GitHub**_](https://github.com/freelensapp/freelens-ai)!
