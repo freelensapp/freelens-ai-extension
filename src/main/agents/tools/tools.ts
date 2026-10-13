@@ -1,4 +1,3 @@
-import { Renderer } from "@freelensapp/extensions";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import {
@@ -7,12 +6,16 @@ import {
   deletePod as deletePodImpl,
   getClusterVersion as getClusterVersionImpl,
   getKubernetesResource as getKubernetesResourceImpl,
+  getNamespaces as getNamespacesImpl,
   getPodLogs as getPodLogsImpl,
+  getWarningEventsByNamespace as getWarningEventsByNamespaceImpl,
   listKubernetesResources as listKubernetesResourcesImpl,
   patchKubernetesResource as patchKubernetesResourceImpl,
   restartKubernetesResource as restartKubernetesResourceImpl,
   updateKubernetesResource as updateKubernetesResourceImpl,
 } from "./kubernetes-resource";
+// Every tool acts on the cluster named in its run config (see cluster-api.ts),
+// which LangChain hands to the tool function as its second argument.
 import { DELETE_MODES, POD_DELETE_MODES, RESTARTABLE_KINDS, SUPPORTED_KINDS } from "./resource-handlers";
 
 const supportedKindsHint = `Built-in kinds with extra validation: ${SUPPORTED_KINDS.join(", ")}. Any other kind (including CRDs) is also accepted and passed through as a free manifest; for those provide the apiVersion explicitly.`;
@@ -56,27 +59,10 @@ const subresourceSchema = z
       'Use "scale" to change replicas. Omit for a normal patch.',
   );
 
-export const getNamespaces = tool(
-  (): string[] => {
-    /**
-     * Get all namespaces of the Kubernetes cluster
-     */
-    console.log("[Tool invocation: getNamespaces]");
-    const namespaceStore = Renderer.K8sApi.apiManager.getStore(Renderer.K8sApi.namespacesApi);
-    if (!namespaceStore) {
-      console.log("Namespace store does not exist");
-      return [];
-    }
-    const allNamespaces: Renderer.K8sApi.Namespace[] = namespaceStore.items.toJSON();
-    const getNamespacesToolResult = allNamespaces.map((ns) => ns.getName());
-    console.log("[Tool invocation result: getNamespaces] - ", getNamespacesToolResult);
-    return getNamespacesToolResult;
-  },
-  {
-    name: "getNamespaces",
-    description: "Get all namespaces of the Kubernetes cluster",
-  },
-);
+export const getNamespaces = tool(getNamespacesImpl, {
+  name: "getNamespaces",
+  description: "Get all namespaces of the Kubernetes cluster",
+});
 
 export const getClusterVersion = tool(getClusterVersionImpl, {
   name: "getClusterVersion",
@@ -86,43 +72,13 @@ export const getClusterVersion = tool(getClusterVersionImpl, {
     "kubeletVersions or other heuristics. Takes no arguments.",
 });
 
-export const getWarningEventsByNamespace = tool(
-  ({ namespace }: { namespace: string }): string => {
-    /**
-     * Get all events in status WARNING for a specific Kubernetes namespace
-     */
-    console.log("[Tool invocation: getWarningEventsForNamespace] - namespace: ", namespace);
-    const eventStore = Renderer.K8sApi.apiManager.getStore(Renderer.K8sApi.eventApi);
-    if (!eventStore) {
-      return "Event store does not exist";
-    }
-    const allEventsByNs: Renderer.K8sApi.KubeEvent[] = eventStore.getAllByNs(namespace);
-    console.log("[Tool invocation debug: getWarningEventsForNamespace] - all WARNING events: ", allEventsByNs);
-    const getWarningEventsByNsToolResult = JSON.stringify(
-      allEventsByNs
-        .filter((event) => event.type === "Warning")
-        .map((event) => ({
-          event: {
-            type: event.type,
-            message: event.message,
-            reason: event.reason,
-            action: event.action,
-            involvedObject: event.involvedObject,
-            source: event.source,
-          },
-        })),
-    );
-    console.log("[Tool invocation result: getWarningEventsForNamespace] - ", getWarningEventsByNsToolResult);
-    return getWarningEventsByNsToolResult;
-  },
-  {
-    name: "getEventsForNamespace",
-    description: "Get all events in status WARNING for a specific Kubernetes namespace",
-    schema: z.object({
-      namespace: z.string(),
-    }),
-  },
-);
+export const getWarningEventsByNamespace = tool(getWarningEventsByNamespaceImpl, {
+  name: "getEventsForNamespace",
+  description: "Get all events in status WARNING for a specific Kubernetes namespace",
+  schema: z.object({
+    namespace: z.string(),
+  }),
+});
 
 export const listKubernetesResources = tool(listKubernetesResourcesImpl, {
   name: "listKubernetesResources",

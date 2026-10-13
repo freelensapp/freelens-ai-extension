@@ -1,7 +1,7 @@
-import { Renderer } from "@freelensapp/extensions";
 import { interrupt } from "@langchain/langgraph";
 import { stringify as stringifyYaml } from "yaml";
 import { PreferencesStore } from "../../../common/store";
+import { clusterApiFor, type KubeJsonApi } from "./cluster-api";
 import { type KubernetesVersionInfo, summarizeClusterVersion } from "./cluster-version";
 import { buildFieldSelector } from "./field-filter";
 import {
@@ -29,16 +29,32 @@ import {
   resolveApiVersion,
   validateManifest,
 } from "./resource-handlers";
+import {
+  type ApiResourceList,
+  findApiResource,
+  groupVersionPath,
+  type ResolvedResource,
+  resourcePath,
+} from "./resource-paths";
 
-type KubeApi = Renderer.K8sApi.KubeApi;
-type KubeObject = Renderer.K8sApi.KubeObject;
-// Use the exact store type returned by the host ApiManager rather than the
-// public alias, which differs structurally (it requires extra dependencies).
-type KubeObjectStore = NonNullable<ReturnType<typeof Renderer.K8sApi.apiManager.getStore>>;
+import type { RunnableConfig } from "@langchain/core/runnables";
+
+// A Kubernetes object as the API server returns it.
+interface RawObject {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: { name?: string; namespace?: string; [key: string]: unknown };
+  spec?: unknown;
+  status?: unknown;
+}
+
+interface RawList {
+  items?: RawObject[];
+}
 
 interface ResolvedTarget {
-  api: KubeApi;
-  store: KubeObjectStore;
+  api: KubeJsonApi;
+  resource: ResolvedResource;
 }
 
 export interface ListResourceInput {
@@ -104,48 +120,70 @@ export interface RestartResourceInput {
   namespace: string;
 }
 
-// Workload APIs that expose a rollout `restart()` endpoint. Their `restart`
-// signatures are identical, so the union accepts the shared call below.
-type RestartableApi =
-  | typeof Renderer.K8sApi.deploymentApi
-  | typeof Renderer.K8sApi.daemonSetApi
-  | typeof Renderer.K8sApi.statefulSetApi;
+// The content types of the patch strategies, as the host's KubeApi sends them.
+const MERGE_PATCH_CONTENT_TYPE = "application/merge-patch+json";
+// Subresource patches such as in-place Pod resize update entries inside arrays
+// (spec.containers) that are merged by their `name` key, so a strategic merge
+// is required; a plain JSON merge patch would replace the whole array.
+const STRATEGIC_MERGE_PATCH_CONTENT_TYPE = "application/strategic-merge-patch+json";
+
+const POD: ResolvedResource = { kind: "Pod", apiVersion: "v1", plural: "pods", namespaced: true };
+
+// The request bodies are free-form manifests, which the host types as a deep
+// partial of its own object data. Go through `unknown` to the exact parameter
+// type rather than using `as any`.
+type RequestData = NonNullable<NonNullable<Parameters<KubeJsonApi["post"]>[1]>["data"]>;
+type PatchData = NonNullable<NonNullable<Parameters<KubeJsonApi["patch"]>[1]>["data"]>;
+const asRequestData = (data: unknown) => data as RequestData;
+const asPatchData = (data: unknown) => data as PatchData;
+
+const mergePatch = (api: KubeJsonApi, path: string, data: unknown, contentType = MERGE_PATCH_CONTENT_TYPE) =>
+  api.patch(path, { data: asPatchData(data) }, { headers: { "content-type": contentType } });
+
+// A delete with the propagation policy the host's KubeApi uses, and the delete
+// options of a force delete when asked for.
+const deleteObject = (api: KubeJsonApi, path: string, force: boolean) =>
+  api.del(path, {
+    query: { propagationPolicy: "Background" },
+    data: force
+      ? asRequestData({
+          kind: "DeleteOptions",
+          apiVersion: "v1",
+          gracePeriodSeconds: 0,
+          propagationPolicy: "Background",
+        })
+      : undefined,
+  });
 
 /**
- * Resolve the host KubeApi exposing `restart()` for a restartable kind.
+ * Resolve the API path of a kind/apiVersion on the run's cluster from the API
+ * server's discovery document. Returns a human-readable error string when
+ * resolution is not possible so the model can react (for example by supplying
+ * an explicit apiVersion for a CRD).
  */
-function getRestartableApi(kind: string): RestartableApi | undefined {
-  switch (kind) {
-    case "Deployment":
-      return Renderer.K8sApi.deploymentApi;
-    case "DaemonSet":
-      return Renderer.K8sApi.daemonSetApi;
-    case "StatefulSet":
-      return Renderer.K8sApi.statefulSetApi;
-    default:
-      return undefined;
+async function resolveTarget(
+  config: RunnableConfig | undefined,
+  kind: string,
+  apiVersion?: string,
+): Promise<ResolvedTarget | string> {
+  const api = clusterApiFor(config);
+  if (typeof api === "string") {
+    return api;
   }
-}
-
-/**
- * Resolve the host KubeApi and store for a given kind/apiVersion. Returns a
- * human-readable error string when resolution is not possible so the model can
- * react (for example by supplying an explicit apiVersion for a CRD).
- */
-function resolveTarget(kind: string, apiVersion?: string): ResolvedTarget | string {
   const version = resolveApiVersion(kind, apiVersion);
   if (!version) {
     return `Could not resolve the apiVersion for kind "${kind}". Provide an explicit apiVersion (for example "apps/v1").`;
   }
-  const api = Renderer.K8sApi.apiManager.getApiByKind(kind, version);
-  if (!api) {
+  let resource: ResolvedResource | undefined;
+  try {
+    resource = findApiResource(await api.get<ApiResourceList>(groupVersionPath(version)), kind, version);
+  } catch (error) {
+    console.error("[Tool invocation error: resolveTarget] - ", error);
+  }
+  if (!resource) {
     return `Could not resolve a Kubernetes API for kind "${kind}" and apiVersion "${version}".`;
   }
-  const store = Renderer.K8sApi.apiManager.getStore(api);
-  if (!store) {
-    return `Could not resolve a store for kind "${kind}".`;
-  }
-  return { api, store };
+  return { api, resource };
 }
 
 /**
@@ -177,10 +215,10 @@ function requestApproval(action: string, payload: Record<string, unknown>, resou
 }
 
 /**
- * Build a restorable manifest from a loaded host object: the full resource as it
+ * Build a restorable manifest from a loaded object: the full resource as it
  * exists now, used as the backup presented before a destructive change.
  */
-function toBackupManifest(object: KubeObject) {
+function toBackupManifest(object: RawObject) {
   return {
     apiVersion: object.apiVersion,
     kind: object.kind,
@@ -190,27 +228,19 @@ function toBackupManifest(object: KubeObject) {
   };
 }
 
-// Minimal structural view of a store used only to load a resource for the
-// backup. The host's concrete stores (PodStore, DeploymentStore, ...) are more
-// specific than the generic `KubeObjectStore` alias and not mutually
-// assignable, so the capture helper depends on `load` alone.
-interface LoadableStore {
-  load(params: { name: string; namespace?: string }): Promise<KubeObject | null | undefined>;
-}
-
 /**
  * Best-effort capture of the current YAML of a resource before it is changed.
  * Returns `undefined` (rather than throwing) when the resource cannot be loaded,
  * so a missing backup never blocks the approval prompt.
  */
 async function captureResourceYaml(
-  store: LoadableStore,
-  namespaced: boolean,
+  api: KubeJsonApi,
+  resource: ResolvedResource,
   name: string,
   namespace?: string,
 ): Promise<string | undefined> {
   try {
-    const object = await store.load({ name, namespace: namespaced ? namespace : undefined });
+    const object = await api.get<RawObject>(resourcePath(resource, { name, namespace }));
     if (!object) {
       return undefined;
     }
@@ -221,66 +251,26 @@ async function captureResourceYaml(
   }
 }
 
-function projectObject(object: KubeObject, includeManagedFields = false) {
+function projectObject(object: RawObject, includeManagedFields = false) {
   return {
-    name: object.getName(),
-    namespace: object.getNs(),
+    name: object.metadata?.name,
+    namespace: object.metadata?.namespace,
     spec: object.spec,
     status: object.status,
     metadata: stripManagedFields(object.metadata, includeManagedFields),
   };
 }
 
-// The host store types its mutating params as a deep-partial of the KubeObject
-// (including its methods), which a free-form manifest cannot satisfy directly.
-// Cast through `unknown` to the exact expected type rather than using `as any`.
-type CreateData = Parameters<KubeObjectStore["create"]>[1];
-type UpdateData = Parameters<KubeObjectStore["update"]>[1];
-type DeleteOptions = Parameters<KubeObjectStore["removeWithOptions"]>[1];
-
-// The host KubeApi has no public method to patch a subresource: its `patch`
-// builds the URL from `formatUrlForNotListing` and never appends a subresource,
-// and the underlying KubeJsonApi `request` client is protected. Describe the
-// minimal surface we rely on and reach it through a structural cast (the
-// project forbids `as any`, so we go through `unknown` to a precise shape).
-interface SubresourcePatchApi {
-  formatUrlForNotListing(desc: { name?: string; namespace?: string }): string;
-  request: {
-    patch(path: string, params: { data: unknown }, reqInit: { headers: Record<string, string> }): Promise<unknown>;
-  };
-}
-
-// The host KubeApi exposes the shared cluster `KubeJsonApi` client through a
-// protected `request` property with no public accessor. Describe the minimal
-// surface we rely on (a typed GET) and reach it through a structural cast via
-// `unknown`, mirroring the `SubresourcePatchApi` pattern above (the project
-// forbids `as any`).
-interface VersionRequestApi {
-  request: {
-    get<T>(path: string): Promise<T>;
-  };
-}
-
-// Kubernetes content-type for a strategic merge patch. Subresource patches such
-// as in-place Pod resize update entries inside arrays (spec.containers) that are
-// merged by their `name` key, so a strategic merge is required; a plain JSON
-// merge patch would replace the whole array.
-const STRATEGIC_MERGE_PATCH_CONTENT_TYPE = "application/strategic-merge-patch+json";
-
 /**
- * List resources of a kind, loading them from the store on demand. Namespaced
- * kinds are scoped to `namespace` when provided; otherwise all loaded
- * namespaces are returned.
+ * List resources of a kind. Namespaced kinds are scoped to `namespace` when
+ * provided; otherwise all namespaces are returned.
  */
-export async function listKubernetesResources({
-  kind,
-  apiVersion,
-  namespace,
-  includeManagedFields,
-  fields,
-}: ListResourceInput): Promise<string> {
+export async function listKubernetesResources(
+  { kind, apiVersion, namespace, includeManagedFields, fields }: ListResourceInput,
+  config?: RunnableConfig,
+): Promise<string> {
   console.log("[Tool invocation: listKubernetesResources] - kind:", kind, "namespace:", namespace);
-  const target = resolveTarget(kind, apiVersion);
+  const target = await resolveTarget(config, kind, apiVersion);
   if (typeof target === "string") {
     return target;
   }
@@ -290,12 +280,10 @@ export async function listKubernetesResources({
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
-  const { api, store } = target;
+  const { api, resource } = target;
   try {
-    const scoped = api.isNamespaced && namespace ? [namespace] : undefined;
-    const loaded = await store.loadAll(scoped ? { namespaces: scoped } : {});
-    const items = loaded ?? (scoped ? store.getAllByNs(namespace as string) : store.items.toJSON());
-    const projected = items.map((item) => projectObject(item, includeManagedFields));
+    const list = await api.get<RawList>(resourcePath(resource, { namespace }));
+    const projected = (list.items ?? []).map((item) => projectObject(item, includeManagedFields));
     return JSON.stringify(select ? projected.map(select) : projected);
   } catch (error) {
     console.error("[Tool invocation error: listKubernetesResources] - ", error);
@@ -304,24 +292,19 @@ export async function listKubernetesResources({
 }
 
 /**
- * Get a single resource by name, loading it from the store on demand. For
- * namespaced kinds a namespace is required.
+ * Get a single resource by name. For namespaced kinds a namespace is required.
  */
-export async function getKubernetesResource({
-  kind,
-  apiVersion,
-  name,
-  namespace,
-  includeManagedFields,
-  fields,
-}: GetResourceInput): Promise<string> {
+export async function getKubernetesResource(
+  { kind, apiVersion, name, namespace, includeManagedFields, fields }: GetResourceInput,
+  config?: RunnableConfig,
+): Promise<string> {
   console.log("[Tool invocation: getKubernetesResource] - kind:", kind, "name:", name, "namespace:", namespace);
-  const target = resolveTarget(kind, apiVersion);
+  const target = await resolveTarget(config, kind, apiVersion);
   if (typeof target === "string") {
     return target;
   }
-  const { api, store } = target;
-  if (api.isNamespaced && !namespace) {
+  const { api, resource } = target;
+  if (resource.namespaced && !namespace) {
     return `Kind "${kind}" is namespaced; please provide a namespace to get "${name}".`;
   }
   let select: ReturnType<typeof buildFieldSelector>;
@@ -331,7 +314,7 @@ export async function getKubernetesResource({
     return error instanceof Error ? error.message : String(error);
   }
   try {
-    const object = await store.load({ name, namespace: api.isNamespaced ? namespace : undefined });
+    const object = await api.get<RawObject>(resourcePath(resource, { name, namespace }));
     if (!object) {
       return `The ${kind} "${name}" was not found.`;
     }
@@ -344,18 +327,19 @@ export async function getKubernetesResource({
 }
 
 /**
- * Read the Kubernetes version of the currently connected cluster by querying
- * the API server's `/version` endpoint directly (the same `version.Info` that
- * `kubectl version` reports). This is the authoritative source for the server
- * version and avoids heuristics such as inspecting node `kubeletVersion`s. Any
- * registered KubeApi shares the cluster `KubeJsonApi` client, so the pods API
- * is used to reach it.
+ * Read the Kubernetes version of the run's cluster by querying the API server's
+ * `/version` endpoint directly (the same `version.Info` that `kubectl version`
+ * reports). This is the authoritative source for the server version and avoids
+ * heuristics such as inspecting node `kubeletVersion`s.
  */
-export async function getClusterVersion(): Promise<string> {
+export async function getClusterVersion(_input: unknown, config?: RunnableConfig): Promise<string> {
   console.log("[Tool invocation: getClusterVersion]");
-  const api = Renderer.K8sApi.podsApi as unknown as VersionRequestApi;
+  const api = clusterApiFor(config);
+  if (typeof api === "string") {
+    return api;
+  }
   try {
-    const info = await api.request.get<KubernetesVersionInfo>("/version");
+    const info = await api.get<KubernetesVersionInfo>("/version");
     if (!info || typeof info !== "object") {
       return "Could not determine the Kubernetes cluster version.";
     }
@@ -369,22 +353,86 @@ export async function getClusterVersion(): Promise<string> {
 }
 
 /**
+ * The names of every namespace of the run's cluster.
+ */
+export async function getNamespaces(_input: unknown, config?: RunnableConfig): Promise<string[] | string> {
+  console.log("[Tool invocation: getNamespaces]");
+  const api = clusterApiFor(config);
+  if (typeof api === "string") {
+    return api;
+  }
+  try {
+    const list = await api.get<RawList>("/api/v1/namespaces");
+    const result = (list.items ?? []).map((item) => item.metadata?.name ?? "").filter((name) => name.length > 0);
+    console.log("[Tool invocation result: getNamespaces] - ", result);
+    return result;
+  } catch (error) {
+    console.error("[Tool invocation error: getNamespaces] - ", error);
+    return JSON.stringify(error);
+  }
+}
+
+interface RawEvent extends RawObject {
+  type?: string;
+  message?: string;
+  reason?: string;
+  action?: string;
+  involvedObject?: unknown;
+  source?: unknown;
+}
+
+/**
+ * The events of type Warning in a namespace of the run's cluster.
+ */
+export async function getWarningEventsByNamespace(
+  { namespace }: { namespace: string },
+  config?: RunnableConfig,
+): Promise<string> {
+  console.log("[Tool invocation: getWarningEventsForNamespace] - namespace: ", namespace);
+  const api = clusterApiFor(config);
+  if (typeof api === "string") {
+    return api;
+  }
+  try {
+    const list = await api.get<{ items?: RawEvent[] }>(`/api/v1/namespaces/${encodeURIComponent(namespace)}/events`, {
+      query: { fieldSelector: "type=Warning" },
+    });
+    const result = JSON.stringify(
+      (list.items ?? [])
+        .filter((event) => event.type === "Warning")
+        .map((event) => ({
+          event: {
+            type: event.type,
+            message: event.message,
+            reason: event.reason,
+            action: event.action,
+            involvedObject: event.involvedObject,
+            source: event.source,
+          },
+        })),
+    );
+    console.log("[Tool invocation result: getWarningEventsForNamespace] - ", result);
+    return result;
+  } catch (error) {
+    console.error("[Tool invocation error: getWarningEventsForNamespace] - ", error);
+    return JSON.stringify(error);
+  }
+}
+
+/**
  * Create a resource. Known kinds are validated and prepared via their handler;
  * unknown kinds (CRDs) are applied as free YAML/JSON.
  */
-export async function createKubernetesResource({
-  kind,
-  apiVersion,
-  name,
-  namespace,
-  data,
-}: CreateResourceInput): Promise<string> {
+export async function createKubernetesResource(
+  { kind, apiVersion, name, namespace, data }: CreateResourceInput,
+  config?: RunnableConfig,
+): Promise<string> {
   console.log("[Tool invocation: createKubernetesResource] - kind:", kind);
-  const target = resolveTarget(kind, apiVersion);
+  const target = await resolveTarget(config, kind, apiVersion);
   if (typeof target === "string") {
     return target;
   }
-  const { store } = target;
+  const { api, resource } = target;
 
   const validation = validateManifest(kind, data);
   if (!validation.success) {
@@ -409,10 +457,21 @@ export async function createKubernetesResource({
   }
 
   try {
-    const result = await store.create(
-      { name: resourceName, namespace: resourceNamespace },
-      manifest as unknown as CreateData,
-    );
+    // As the host's KubeApi creates: the kind, the apiVersion and the name
+    // (and the namespace of a namespaced kind) set on the manifest.
+    const body = {
+      ...manifest,
+      kind: resource.kind,
+      apiVersion: resource.apiVersion,
+      metadata: {
+        ...metadata,
+        name: resourceName,
+        ...(resource.namespaced && resourceNamespace ? { namespace: resourceNamespace } : {}),
+      },
+    };
+    const result = await api.post(resourcePath(resource, { namespace: resourceNamespace }), {
+      data: asRequestData(body),
+    });
     console.log("[Tool invocation result: createKubernetesResource] - ", result);
     return `${kind} manifest applied successfully`;
   } catch (error) {
@@ -425,20 +484,17 @@ export async function createKubernetesResource({
  * Update a resource (maps to a PUT). Loads the existing object first, then
  * replaces it with the provided manifest.
  */
-export async function updateKubernetesResource({
-  kind,
-  apiVersion,
-  name,
-  namespace,
-  data,
-}: WriteResourceInput): Promise<string> {
+export async function updateKubernetesResource(
+  { kind, apiVersion, name, namespace, data }: WriteResourceInput,
+  config?: RunnableConfig,
+): Promise<string> {
   console.log("[Tool invocation: updateKubernetesResource] - kind:", kind, "name:", name);
-  const target = resolveTarget(kind, apiVersion);
+  const target = await resolveTarget(config, kind, apiVersion);
   if (typeof target === "string") {
     return target;
   }
-  const { api, store } = target;
-  if (api.isNamespaced && !namespace) {
+  const { api, resource } = target;
+  if (resource.namespaced && !namespace) {
     return `Kind "${kind}" is namespaced; please provide a namespace to update "${name}".`;
   }
 
@@ -448,17 +504,27 @@ export async function updateKubernetesResource({
   }
   const manifest = prepareManifest(kind, validation.data);
 
-  const backup = await captureResourceYaml(store, api.isNamespaced, name, namespace);
+  const backup = await captureResourceYaml(api, resource, name, namespace);
   if (!requestApproval(`UPDATE ${kind.toUpperCase()}`, { name, namespace, data: manifest }, backup)) {
     return "The user denied the action";
   }
 
   try {
-    const item = await store.load({ name, namespace: api.isNamespaced ? namespace : undefined });
+    const path = resourcePath(resource, { name, namespace });
+    const item = await api.get<RawObject>(path);
     if (!item) {
       return `The ${kind} "${name}" you want to update does not exist`;
     }
-    const result = await store.update(item, manifest as unknown as UpdateData);
+    // As the host's KubeApi updates: the name and namespace set on the manifest.
+    const body = {
+      ...manifest,
+      metadata: {
+        ...((manifest.metadata ?? {}) as Record<string, unknown>),
+        name,
+        ...(resource.namespaced && namespace ? { namespace } : {}),
+      },
+    };
+    const result = await api.put(path, { data: asRequestData(body) });
     console.log("[Tool invocation result: updateKubernetesResource] - ", result);
     return `${kind} updated successfully`;
   } catch (error) {
@@ -471,14 +537,10 @@ export async function updateKubernetesResource({
  * Patch a resource (maps to a PATCH). Loads the existing object first, then
  * applies the provided partial manifest as a merge patch.
  */
-export async function patchKubernetesResource({
-  kind,
-  apiVersion,
-  name,
-  namespace,
-  data,
-  subresource,
-}: WriteResourceInput): Promise<string> {
+export async function patchKubernetesResource(
+  { kind, apiVersion, name, namespace, data, subresource }: WriteResourceInput,
+  config?: RunnableConfig,
+): Promise<string> {
   const normalizedSubresource = normalizeSubresource(subresource);
   console.log(
     "[Tool invocation: patchKubernetesResource] - kind:",
@@ -488,16 +550,16 @@ export async function patchKubernetesResource({
     "subresource:",
     normalizedSubresource,
   );
-  const target = resolveTarget(kind, apiVersion);
+  const target = await resolveTarget(config, kind, apiVersion);
   if (typeof target === "string") {
     return target;
   }
-  const { api, store } = target;
-  if (api.isNamespaced && !namespace) {
+  const { api, resource } = target;
+  if (resource.namespaced && !namespace) {
     return `Kind "${kind}" is namespaced; please provide a namespace to patch "${name}".`;
   }
 
-  const backup = await captureResourceYaml(store, api.isNamespaced, name, namespace);
+  const backup = await captureResourceYaml(api, resource, name, namespace);
   if (
     !requestApproval(
       `PATCH ${kind.toUpperCase()}`,
@@ -509,29 +571,24 @@ export async function patchKubernetesResource({
   }
 
   try {
-    const item = await store.load({ name, namespace: api.isNamespaced ? namespace : undefined });
+    const path = resourcePath(resource, { name, namespace });
+    const item = await api.get<RawObject>(path);
     if (!item) {
       return `The ${kind} "${name}" you want to patch does not exist`;
     }
     if (normalizedSubresource) {
-      // The host store/api cannot target a subresource, so build the resource
-      // URL, append the subresource and PATCH it directly through the KubeApi
-      // request client. This is how an in-place Pod resize reaches
-      // `pods/{name}/resize`.
-      const patchApi = api as unknown as SubresourcePatchApi;
-      const baseUrl = patchApi.formatUrlForNotListing({
-        name,
-        namespace: api.isNamespaced ? namespace : undefined,
-      });
-      const result = await patchApi.request.patch(
-        `${baseUrl}/${normalizedSubresource}`,
-        { data },
-        { headers: { "content-type": STRATEGIC_MERGE_PATCH_CONTENT_TYPE } },
+      // Append the subresource to the object's path and PATCH it. This is how
+      // an in-place Pod resize reaches `pods/{name}/resize`.
+      const result = await mergePatch(
+        api,
+        `${path}/${normalizedSubresource}`,
+        data,
+        STRATEGIC_MERGE_PATCH_CONTENT_TYPE,
       );
       console.log("[Tool invocation result: patchKubernetesResource] - ", result);
       return `${kind} "${name}" ${normalizedSubresource} subresource patched successfully`;
     }
-    const result = await store.patch(item, data as unknown as UpdateData, "merge");
+    const result = await mergePatch(api, path, data);
     console.log("[Tool invocation result: patchKubernetesResource] - ", result);
     return `${kind} patched successfully`;
   } catch (error) {
@@ -544,51 +601,46 @@ export async function patchKubernetesResource({
  * Delete a resource by name. For namespaced kinds a namespace is required.
  *
  * The `mode` mirrors the host `KubeObjectDeleteService` deletion modes:
- * - `delete` (default): standard delete (`store.remove`).
+ * - `delete` (default): standard delete with background propagation.
  * - `force_delete`: immediate delete with a zero grace period and background
- *   propagation (`store.removeWithOptions`).
+ *   propagation.
  * - `force_finalize`: clear the object's finalizers via a merge patch so a
- *   resource stuck in `Terminating` can be removed (`store.patch`).
+ *   resource stuck in `Terminating` can be removed.
  */
-export async function deleteKubernetesResource({
-  kind,
-  apiVersion,
-  name,
-  namespace,
-  mode = DEFAULT_DELETE_MODE,
-}: DeleteResourceInput): Promise<string> {
+export async function deleteKubernetesResource(
+  { kind, apiVersion, name, namespace, mode = DEFAULT_DELETE_MODE }: DeleteResourceInput,
+  config?: RunnableConfig,
+): Promise<string> {
   console.log("[Tool invocation: deleteKubernetesResource] - kind:", kind, "name:", name, "mode:", mode);
-  const target = resolveTarget(kind, apiVersion);
+  const target = await resolveTarget(config, kind, apiVersion);
   if (typeof target === "string") {
     return target;
   }
-  const { api, store } = target;
-  if (api.isNamespaced && !namespace) {
+  const { api, resource } = target;
+  if (resource.namespaced && !namespace) {
     return `Kind "${kind}" is namespaced; please provide a namespace to delete "${name}".`;
   }
 
-  const backup = await captureResourceYaml(store, api.isNamespaced, name, namespace);
+  const backup = await captureResourceYaml(api, resource, name, namespace);
   if (!requestApproval(`DELETE ${kind.toUpperCase()}`, { name, namespace, mode }, backup)) {
     return "The user denied the action";
   }
 
   try {
-    const item = await store.load({ name, namespace: api.isNamespaced ? namespace : undefined });
+    const path = resourcePath(resource, { name, namespace });
+    const item = await api.get<RawObject>(path);
     if (!item) {
       return `The ${kind} "${name}" you want to delete does not exist`;
     }
     switch (mode) {
       case "force_delete":
-        await store.removeWithOptions(item, {
-          gracePeriodSeconds: 0,
-          propagationPolicy: "Background",
-        } as unknown as DeleteOptions);
+        await deleteObject(api, path, true);
         break;
       case "force_finalize":
-        await store.patch(item, { metadata: { finalizers: [] } } as unknown as UpdateData, "merge");
+        await mergePatch(api, path, { metadata: { finalizers: [] } });
         break;
       default:
-        await store.remove(item);
+        await deleteObject(api, path, false);
         break;
     }
     const resultMessage =
@@ -604,39 +656,49 @@ export async function deleteKubernetesResource({
 }
 
 /**
- * Delete a pod using one of the pod-specific variants exposed by the host
- * `PodApi`:
+ * Delete a pod using one of the pod-specific variants of the host's `PodApi`,
+ * by path:
  * - `evict`: request a graceful eviction honoring any matching
- *   PodDisruptionBudget (`podsApi.evict`).
+ *   PodDisruptionBudget (POST to the pod's `eviction` subresource).
  * - `force_delete`: delete immediately with a zero grace period, useful for pods
- *   stuck on an unreachable node (`podsApi.forceDelete`).
- * - `delete_with_finalizers`: delete the pod and clear its finalizers so a pod
- *   stuck in `Terminating` is removed (`podsApi.deleteWithFinalizers`).
+ *   stuck on an unreachable node.
+ * - `delete_with_finalizers`: clear the pod's finalizers, then force delete it,
+ *   so a pod stuck in `Terminating` is removed.
  */
-export async function deletePod({ name, namespace, mode }: DeletePodInput): Promise<string> {
+export async function deletePod({ name, namespace, mode }: DeletePodInput, config?: RunnableConfig): Promise<string> {
   console.log("[Tool invocation: deletePod] - name:", name, "namespace:", namespace, "mode:", mode);
   if (!namespace) {
     return `Pods are namespaced; please provide a namespace to delete "${name}".`;
   }
+  const api = clusterApiFor(config);
+  if (typeof api === "string") {
+    return api;
+  }
 
-  const podsApi = Renderer.K8sApi.podsApi;
-  const podsStore = Renderer.K8sApi.apiManager.getStore(podsApi);
-  const backup = podsStore ? await captureResourceYaml(podsStore, podsApi.isNamespaced, name, namespace) : undefined;
-
+  const backup = await captureResourceYaml(api, POD, name, namespace);
   if (!requestApproval(`DELETE POD (${mode})`, { name, namespace, mode }, backup)) {
     return "The user denied the action";
   }
 
+  const path = resourcePath(POD, { name, namespace });
   try {
     switch (mode) {
       case "evict":
-        await podsApi.evict({ name, namespace });
+        await api.post(`${path}/eviction`, {
+          data: asRequestData({ apiVersion: "policy/v1", kind: "Eviction", metadata: { name, namespace } }),
+        });
         return `Pod "${name}" evicted successfully`;
       case "force_delete":
-        await podsApi.forceDelete({ name, namespace });
+        await deleteObject(api, path, true);
         return `Pod "${name}" force-deleted successfully`;
       case "delete_with_finalizers":
-        await podsApi.deleteWithFinalizers({ name, namespace });
+        try {
+          await mergePatch(api, path, { metadata: { finalizers: [] } }, STRATEGIC_MERGE_PATCH_CONTENT_TYPE);
+        } catch (error) {
+          // As the host does: when the patch fails, force delete anyway.
+          console.warn("Failed to remove finalizers, proceeding with force delete", error);
+        }
+        await deleteObject(api, path, true);
         return `Pod "${name}" deleted and finalizers cleared successfully`;
     }
   } catch (error) {
@@ -646,32 +708,45 @@ export async function deletePod({ name, namespace, mode }: DeletePodInput): Prom
 }
 
 /**
- * Restart a workload by triggering a rollout restart through its host KubeApi
- * (`DeploymentApi.restart()` and the equivalent DaemonSet/StatefulSet methods).
- * This rolls the pods without deleting them directly. Only restartable kinds are
- * accepted; a namespace is always required.
+ * Restart a workload by triggering a rollout restart, as the host's
+ * `DeploymentApi.restart()` and its DaemonSet/StatefulSet equivalents do: a
+ * strategic merge patch of the `kubectl.kubernetes.io/restartedAt` annotation
+ * of the pod template. This rolls the pods without deleting them directly.
+ * Only restartable kinds are accepted; a namespace is always required.
  */
-export async function restartKubernetesResource({ kind, name, namespace }: RestartResourceInput): Promise<string> {
+export async function restartKubernetesResource(
+  { kind, name, namespace }: RestartResourceInput,
+  config?: RunnableConfig,
+): Promise<string> {
   console.log("[Tool invocation: restartKubernetesResource] - kind:", kind, "name:", name, "namespace:", namespace);
   if (!isRestartableKind(kind)) {
     return `Restart is not supported for kind "${kind}". Supported kinds: ${RESTARTABLE_KINDS.join(", ")}.`;
   }
-  const api = getRestartableApi(kind);
-  if (!api) {
-    return `Could not resolve a Kubernetes API for kind "${kind}".`;
-  }
   if (!namespace) {
     return `Kind "${kind}" is namespaced; please provide a namespace to restart "${name}".`;
   }
+  const target = await resolveTarget(config, kind, "apps/v1");
+  if (typeof target === "string") {
+    return target;
+  }
+  const { api, resource } = target;
 
-  const store = Renderer.K8sApi.apiManager.getStore(api);
-  const backup = store ? await captureResourceYaml(store, api.isNamespaced, name, namespace) : undefined;
+  const backup = await captureResourceYaml(api, resource, name, namespace);
   if (!requestApproval(`RESTART ${kind.toUpperCase()}`, { name, namespace }, backup)) {
     return "The user denied the action";
   }
 
   try {
-    await api.restart({ name, namespace });
+    await mergePatch(
+      api,
+      resourcePath(resource, { name, namespace }),
+      {
+        spec: {
+          template: { metadata: { annotations: { "kubectl.kubernetes.io/restartedAt": new Date().toISOString() } } },
+        },
+      },
+      STRATEGIC_MERGE_PATCH_CONTENT_TYPE,
+    );
     console.log("[Tool invocation result: restartKubernetesResource] - ", `${kind} "${name}" restarted successfully`);
     return `${kind} "${name}" restarted successfully`;
   } catch (error) {
@@ -680,13 +755,23 @@ export async function restartKubernetesResource({ kind, name, namespace }: Resta
   }
 }
 
+// A failed log read: the API server's Status, whose `message` the pod-log
+// helpers match on.
+const readLogsError = (status: number, text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { code: status, message: text };
+  }
+};
+
 /**
  * Read a one-shot snapshot of container logs from a pod. Loads the pod to
  * enumerate its containers, runs the optional approval gate (controlled by the
  * `podLogsRequireApproval` preference), then fetches the logs and caps the
  * output so it cannot overflow the model context.
  */
-export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
+export async function getPodLogs(input: GetPodLogsInput, config?: RunnableConfig): Promise<string> {
   const { name, namespace, container, previous, timestamps } = input;
   console.log(
     "[Tool invocation: getPodLogs] - name:",
@@ -710,15 +795,15 @@ export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
     return filterResolution.message;
   }
 
-  const podsApi = Renderer.K8sApi.podsApi;
-  const store = Renderer.K8sApi.apiManager.getStore(podsApi);
-  if (!store) {
-    return "Could not resolve the Pods store.";
+  const api = clusterApiFor(config);
+  if (typeof api === "string") {
+    return api;
   }
+  const path = resourcePath(POD, { name, namespace });
 
-  let pod: KubeObject | undefined;
+  let pod: RawObject | undefined;
   try {
-    pod = await store.load({ name, namespace });
+    pod = await api.get<RawObject>(path);
   } catch (error) {
     console.error("[Tool invocation error: getPodLogs] - ", error);
     return JSON.stringify(error);
@@ -744,10 +829,14 @@ export async function getPodLogs(input: GetPodLogsInput): Promise<string> {
   }
 
   try {
-    const logs = await podsApi.getLogs(
-      { name, namespace },
-      { container: selectedContainer, tailLines, timestamps, previous },
-    );
+    // Read as text: a log is not JSON, even when a line of it happens to be.
+    const response = await api.getResponse(`${path}/log`, {
+      query: { container: selectedContainer, tailLines, timestamps, previous },
+    });
+    const logs = await response.text();
+    if (!response.ok) {
+      throw readLogsError(response.status, logs);
+    }
     if (!logs || logs.trim().length === 0) {
       return emptyLogsMessage(selectedContainer, name, previous);
     }

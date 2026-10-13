@@ -409,6 +409,18 @@ renderer keeps the views and talks to the agents over a local HTTP bridge:
   `Renderer.Util.fetch`; the port and token are read from `PreferencesStore`
   for every request.
 
+The Kubernetes tools (`src/main/agents/tools/`) act on the cluster of the run:
+the cluster id travels in the run config (`configurable.clusterId`), which
+LangChain hands to a tool function as its second argument, and
+`cluster-api.ts` turns it into the host's `Main.K8sApi.KubeJsonApi.forCluster`
+client after checking it with `Main.Catalog.getClusterById`. Every request
+goes by path: a kind and an apiVersion are resolved to their plural and scope
+from the API server's discovery document of the group version
+(`resource-paths.ts`), so built-in kinds, custom resources, subresources and
+`/version` are reached the same way, and the write operations send what the
+host's `KubeApi` sends (merge and strategic merge patches, delete options with
+background propagation, the `restartedAt` annotation of a rollout restart).
+
 Main starts the bridge in `onActivate`, writes its port and token into
 `PreferencesStore`, and closes it in `onDeactivate`, which cancels every open
 run, so a reload leaves exactly one bridge bound and the chat reaches the new
