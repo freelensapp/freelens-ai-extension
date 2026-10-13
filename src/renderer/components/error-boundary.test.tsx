@@ -3,7 +3,12 @@
 import { Common, type Renderer } from "@freelensapp/extensions";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ErrorBoundary, withMenuItemErrorBoundary, withPageErrorBoundary } from "./error-boundary";
+import {
+  ErrorBoundary,
+  withMenuItemErrorBoundary,
+  withPageErrorBoundary,
+  withPreferenceErrorBoundary,
+} from "./error-boundary";
 
 // A minimal stub extension - only `name` is read by the boundary.
 const extension = { name: "@freelensapp/ai-extension" } as Renderer.LensExtension;
@@ -150,5 +155,47 @@ describe("the registration wrappers", () => {
     );
 
     expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Edit", "Explain", "Delete"]);
+  });
+
+  it("keep an error of the preferences inside this extension's preferences", () => {
+    const { Input, Hint } = withPreferenceErrorBoundary(extension, {
+      title: "Freelens AI Settings",
+      components: { Input: () => <Throws message="preferences" />, Hint: () => <Throws message="hint" /> },
+    }).components;
+
+    render(
+      <>
+        <Input />
+        <Hint />
+        <p>other extension</p>
+      </>,
+    );
+
+    expect(screen.getByText("Error: preferences")).toBeDefined();
+    expect(screen.queryByText("Error: hint")).toBeNull();
+    expect(screen.getByText("other extension")).toBeDefined();
+    expect(Common.logger.error).toHaveBeenCalledWith(
+      "[@freelensapp/ai-extension]: Error: preferences",
+      expect.any(String),
+    );
+    expect(Common.logger.error).toHaveBeenCalledWith("[@freelensapp/ai-extension]: Error: hint", expect.any(String));
+  });
+
+  it("render the preferences as they are without an error", () => {
+    const { Input, Hint } = withPreferenceErrorBoundary(extension, {
+      title: "Freelens AI Settings",
+      components: { Input: () => <p>settings</p>, Hint: () => <span>hint</span> },
+    }).components;
+
+    render(
+      <>
+        <Input />
+        <Hint />
+      </>,
+    );
+
+    expect(screen.getByText("settings")).toBeDefined();
+    expect(screen.getByText("hint")).toBeDefined();
+    expect(Common.logger.error).not.toHaveBeenCalled();
   });
 });

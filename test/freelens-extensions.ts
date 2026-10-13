@@ -99,13 +99,80 @@ function MonacoEditor({ value }: { value: string }) {
   return React.createElement("pre", { "data-testid": "monaco-editor" }, value);
 }
 
+function Icon({ tooltip, onClick }: { tooltip?: string; onClick?: () => void }) {
+  return React.createElement("button", { type: "button", "aria-label": tooltip, onClick });
+}
+
+interface InputProps {
+  type?: string;
+  placeholder?: string;
+  value?: string;
+  onChange?: (value: string) => void;
+  onSubmit?: (value: string) => void;
+}
+
+// The host's Input calls `onChange` and `onSubmit` with the value.
+function Input({ type, placeholder, value, onChange, onSubmit }: InputProps) {
+  return React.createElement("input", {
+    type,
+    placeholder,
+    value,
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => onChange?.(event.target.value),
+    onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") onSubmit?.(event.currentTarget.value);
+    },
+  });
+}
+
+interface SelectProps {
+  options: { value: unknown; label: string }[];
+  onChange?: (option: { value: unknown; label: string } | null) => void;
+}
+
+// One button per option, and one that clears the selection as react-select
+// does, with `null`.
+function Select({ options, onChange }: SelectProps) {
+  return React.createElement(
+    "div",
+    { "data-testid": "select" },
+    ...options.map((option) =>
+      React.createElement(
+        "button",
+        { type: "button", key: option.label, onClick: () => onChange?.(option) },
+        option.label,
+      ),
+    ),
+    React.createElement("button", { type: "button", key: "clear", onClick: () => onChange?.(null) }, "Clear"),
+  );
+}
+
+// The host's Switch passes its other props to the checkbox and calls
+// `onChange` with the checked state.
+function Switch({ onChange, ...props }: { checked?: boolean; onChange?: (checked: boolean) => void }) {
+  return React.createElement("input", {
+    ...props,
+    type: "checkbox",
+    role: "switch",
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => onChange?.(event.target.checked),
+  });
+}
+
+function HorizontalLine() {
+  return React.createElement("hr");
+}
+
 export const Renderer = {
   Catalog: {
     getActiveCluster: vi.fn<() => { id: string } | undefined>(() => undefined),
   },
   Component: {
     Button,
+    HorizontalLine,
+    Icon,
+    Input,
     MonacoEditor,
+    Select,
+    Switch,
     createTerminalTab: vi.fn(),
     terminalStore: {
       getTerminal: vi.fn(),

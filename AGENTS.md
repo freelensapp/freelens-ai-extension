@@ -393,7 +393,9 @@ lifecycle methods a test calls itself, `vi.fn()` stand-ins for
 `Main.K8sApi.KubeJsonApi.forCluster`, `Main.Shell.getEnvironment`,
 `Main.Util.fetch`, `Renderer.Catalog.getActiveCluster` and the terminal of
 `Renderer.Component`, and plain DOM stand-ins for the host components the views
-render (`Button`, and `MonacoEditor`, which shows its value as text). Extend it
+render (`Button`, `Icon`, `Input`, `Switch`, `HorizontalLine`, `MonacoEditor`,
+which shows its value as text, and `Select`, a button per option and one that
+clears it with `null`). Extend it
 when a test needs
 more of the host; it is runtime only, the types stay the real declaration's.
 knip does not follow the alias, so the stub is an entry of `knip.jsonc`.
