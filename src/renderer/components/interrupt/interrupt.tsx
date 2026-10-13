@@ -75,6 +75,7 @@ const Interrupt = ({
           <div>
             {options.map((option) => (
               <Button
+                key={option}
                 className={`${styles.messageButtonsOptions} ${
                   option === "yes" ? styles.interruptButtonYes : option === "no" ? styles.interruptButtonNo : ""
                 }`}

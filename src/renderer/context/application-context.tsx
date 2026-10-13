@@ -18,6 +18,8 @@ import { getTextMessage } from "../business/objects/message-object-provider";
 import useLog from "../utils/logger/logger-service";
 import { IS_CONVERSATION_INTERRUPTED_KEY, IS_LOADING_KEY } from "./chat-session-storage";
 
+import type { Renderer } from "@freelensapp/extensions";
+
 import type {
   CompactResponse,
   ModelPricingResponse,
@@ -79,11 +81,18 @@ export interface AppContextType {
   clearChat: () => void;
   changeInterruptStatus: (id: string, status: boolean) => void;
   getAvailableTools: () => Promise<ToolDescription[]>;
+  // Opens this extension's preferences tab, in the root frame.
+  navigateToPreferences: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-export const ApplicationContextProvider = observer(({ children }: { children: React.ReactNode }) => {
+export interface ApplicationContextProviderProps {
+  extension: Renderer.LensExtension;
+  children: React.ReactNode;
+}
+
+export const ApplicationContextProvider = observer(({ extension, children }: ApplicationContextProviderProps) => {
   const { log } = useLog("useChatService");
   const [preferencesStore, _setPreferencesStore] = useState<PreferencesStore>(
     PreferencesStore.getInstanceOrCreate<PreferencesStore>(),
@@ -368,6 +377,11 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
 
   const getAvailableTools = async () => (await getFromBridge<ToolsResponse>(BridgeRoute.tools, { clusterId })).tools;
 
+  // The chat runs in the cluster frame and the preferences live in the root
+  // frame; `navigateToPreferences()` reaches the root frame from here, which
+  // `Renderer.Navigation.navigate` cannot.
+  const navigateToPreferences = () => extension.navigateToPreferences();
+
   const setExplainEvent = (messageObject: MessageObject) => {
     preferencesStore.explainEvent = messageObject;
   };
@@ -425,6 +439,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         clearChat,
         changeInterruptStatus,
         getAvailableTools,
+        navigateToPreferences,
       }}
     >
       {children}

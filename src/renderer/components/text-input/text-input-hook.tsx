@@ -3,9 +3,6 @@ import * as React from "react";
 import { buildAgentReadinessInput, isAgentConfigured } from "../../../common/provider/chat-readiness";
 import { PreferencesStore } from "../../../common/store";
 import { useApplicationStatusStore } from "../../context/application-context";
-import { navigateToExtensionPreferences } from "../../navigation/navigate-to-extension-preferences";
-
-import type { SingleValue } from "react-select";
 
 const { useCallback, useEffect, useRef, useState } = React;
 
@@ -67,13 +64,14 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
     }
   };
 
-  const onChangeModel = (option: SingleValue<Renderer.Component.SelectOption<string>>) => {
+  // The option of a single-value `Select`, or null when it is cleared.
+  const onChangeModel = (option: Renderer.Component.SelectOption<string> | null) => {
     if (option) {
       applicationStatusStore.setSelectedModel(option.value);
     }
   };
 
-  const goToPreferences = () => navigateToExtensionPreferences();
+  const goToPreferences = () => applicationStatusStore.navigateToPreferences();
 
   return {
     message,
