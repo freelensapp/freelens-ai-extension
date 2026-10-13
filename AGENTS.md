@@ -548,6 +548,46 @@ once (`wait.ts`). A reload therefore leaves exactly one bridge bound, and the
 chat reaches the new one without reopening the page. Do not keep a server, a
 timer or a run in module state that `onDeactivate` cannot reach.
 
+### MCP servers
+
+With MCP enabled in the preferences, the MCP agent (`mcp-agent.ts`) takes the
+place of the supervisor, with the tools of the user's MCP servers. The servers
+run in main (`src/main/mcp/`), never in the renderer, which cannot spawn a
+process; an MCP tool call never leaves main, and the renderer sees only the
+agent's stream and its approvals, through the bridge.
+
+- **One client per cluster.** `McpClients` keeps one `MultiServerMCPClient` of
+  `@langchain/mcp-adapters` per cluster id, built from the `mcpServers` of the
+  `mcpConfiguration` preference (`mcp-configuration.ts`). The servers start on
+  the first request for a cluster, a run or the tool list, and keep running
+  for the next ones. A failed start leaves nothing running, and the next
+  request tries again; an empty or invalid configuration has no servers, and
+  the client refuses it with "No MCP servers provided", which the chat shows.
+- **The environment.** A stdio server is a child process of main, started with
+  `Main.Shell.getEnvironment(clusterId)` under the server's own `env`, where a
+  variable the user set wins. That environment has the `KUBECONFIG` and
+  `KUBECACHEDIR` that reach the chat's cluster through Freelens, and its
+  `PATH` resolves `npx` and other commands named without a path, so the
+  default `npx mcp-server-kubernetes` acts on the cluster the chat is open for,
+  not on the kubeconfig's current context. The environment is asked for only
+  when a stdio server is configured: it rejects for a cluster that is not
+  connected. HTTP and SSE servers are reached from main as they are configured.
+- **Lifecycle.** The servers of a cluster stop when the configuration they
+  were started with changes; every server stops when MCP is turned off or its
+  configuration changes (a `reaction` in `AgentRuntime`) and in
+  `onDeactivate`, through `AgentRuntime#dispose()`, so a reload or disabling
+  the extension leaves no server process behind. A cluster's servers stop when
+  it is no longer connected, since a disconnect removes the files of its
+  environment: a `reaction` on the statuses of `Main.Catalog.getAllClusters()`,
+  which the host computes with its mobx. They start again, with a fresh
+  environment, on the next request. `MultiServerMCPClient#close()` ends the
+  process of every stdio server.
+- **The agent.** The MCP agent of a cluster is built from the tools of its
+  client and rebuilt when the servers were started again, since its tools call
+  the servers that were running when it was built; the checkpointer hydrates
+  from `AgentStateStore`, so the conversation continues. Its approval gate is
+  `interrupt()` in the synchronous `shouldContinue` node, before any tool runs.
+
 ## Code Style
 
 - **Biome** formats **TypeScript/TSX and SCSS**: double quotes, semicolons, trailing commas, 2-space indent, 120 char line width
