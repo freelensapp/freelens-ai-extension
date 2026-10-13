@@ -52,7 +52,6 @@
     "type:check:tooling": "tsc -p tsconfig.json",
     "type:check:environments": "tsc -p environment-tests/tsconfig.main.json && tsc -p environment-tests/tsconfig.renderer.json && tsc -p environment-tests",
     "build": "vite build && vite build --mode main",
-    "build:production": "pnpm build",
     "dev": "pnpm \"/^dev:(renderer|main)\\$/\"",
     "dev:main": "vite build --watch --mode main",
     "dev:renderer": "vite build --watch --no-emptyOutDir",

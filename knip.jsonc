@@ -40,10 +40,8 @@
   "ignore": ["dist/**"],
 
   // Binaries the workflows call that no dependency provides: yq comes from
-  // mise (see mise.toml); electron-rebuild is called by the integration tests
-  // workflow until its replacement in github-workflow-fix/ is moved into
-  // .github/workflows/, and goes with it.
-  "ignoreBinaries": ["electron-rebuild", "yq"],
+  // mise (see mise.toml).
+  "ignoreBinaries": ["yq"],
 
   "ignoreDependencies": [
     // host-provided modules. The bundle maps them onto
