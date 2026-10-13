@@ -344,7 +344,8 @@ The shim of `@freelensapp/extensions` reads the host's global when it is
 loaded, so it throws under Vitest. `vitest.config.ts` aliases the package to
 `test/freelens-extensions.ts`, a stub of the runtime surface the tests reach:
 an in-memory `Common.Store.ExtensionStore` (a singleton per class, with
-`resetInstance()` between tests), and `vi.fn()` stand-ins for
+`resetInstance()` between tests), an empty `Main.LensExtension`, whose
+lifecycle methods a test calls itself, and `vi.fn()` stand-ins for
 `Main.Catalog.getClusterById`, `Main.K8sApi.KubeJsonApi.forCluster`,
 `Main.Shell.getEnvironment` and `Main.Util.fetch`. Extend it when a test needs
 more of the host; it is runtime only, the types stay the real declaration's.

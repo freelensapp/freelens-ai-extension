@@ -45,7 +45,12 @@ export const Common = {
   },
 };
 
+// Minimal stand-in for the host's main extension base class: the lifecycle
+// methods are called by the tests themselves.
+class LensExtension {}
+
 export const Main = {
+  LensExtension,
   Catalog: {
     getClusterById: vi.fn<(id: string) => unknown>(() => undefined),
   },
