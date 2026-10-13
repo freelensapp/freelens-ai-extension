@@ -363,7 +363,10 @@ the stubbed `forCluster`. The tool tests assert on the recorded requests. The
 approval gate runs inside a real LangGraph graph in `agent-service.test.ts`,
 since `interrupt()` needs one; elsewhere `@langchain/langgraph` is mocked so
 that `interrupt()` answers at once. The bridge is tested over plain HTTP on an
-ephemeral port.
+ephemeral port. `McpClients` takes its host calls as dependencies, which the
+tests replace; one test starts `test/fixtures/environment-mcp-server.mjs`, a
+minimal stdio MCP server, with `process.execPath`, to see the environment a
+server gets and that closing the client ends its process.
 
 The root `tsconfig.json` checks the tooling files. It has `checkJs`, so the
 Vite config and the build plugins are type-checked too; give their function

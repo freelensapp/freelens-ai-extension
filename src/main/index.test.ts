@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BRIDGE_TOKEN_HEADER, BridgeRoute } from "../common/bridge/protocol";
 import { PreferencesStore } from "../common/store";
 import LensExtensionAiMain from "./index";
+import { McpClients } from "./mcp/mcp-clients";
 
 // The lifecycle methods are protected in the host's declaration; the host
 // calls them, and so does this test.
@@ -60,6 +61,16 @@ describe("LensExtensionAiMain", () => {
 
     expect(preferences().aiProxyPort).toBeNull();
     await expect(callTools(aiProxyPort, aiProxyToken)).rejects.toThrow();
+  });
+
+  it("stops the MCP servers on deactivation", async () => {
+    const closeAll = vi.spyOn(McpClients.prototype, "closeAll");
+    const extension = await activate();
+
+    await extension.onDeactivate();
+
+    expect(closeAll).toHaveBeenCalledOnce();
+    closeAll.mockRestore();
   });
 
   it("leaves exactly one bridge bound after a reload, with a new port and token", async () => {

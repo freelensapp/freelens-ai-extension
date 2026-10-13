@@ -50,8 +50,12 @@ interface Entry {
 export class McpClients {
   private readonly log = useLog("McpClients").log;
   private readonly entries = new Map<string, Entry>();
+  private readonly dependencies: McpClientsDependencies;
 
-  constructor(private readonly dependencies: McpClientsDependencies = hostDependencies) {}
+  // The host's by default; a test replaces some of them.
+  constructor(dependencies: Partial<McpClientsDependencies> = {}) {
+    this.dependencies = { ...hostDependencies, ...dependencies };
+  }
 
   /**
    * The tools of the cluster's MCP servers. The servers start on the first

@@ -1,7 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Common, Main } from "@freelensapp/extensions";
+import { observable, runInAction } from "mobx";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentStateStore, PreferencesStore } from "../../common/store";
+import { McpClients } from "../mcp/mcp-clients";
 import { AgentRuntime } from "./agent-runtime";
 import { useFreeLensAgentSystem } from "./freelens-agent-system";
+
+import type { StructuredToolInterface } from "@langchain/core/tools";
 
 import type { AgentRunRequest } from "../../common/bridge/protocol";
 import type { AgentServiceEvent } from "./agent-service";
@@ -18,6 +23,15 @@ vi.mock("./freelens-agent-system", () => {
   return {
     useFreeLensAgentSystem: () => ({ buildAgentSystem, availableTools: [{ name: "getNamespaces", description: "d" }] }),
   };
+});
+
+vi.mock("./mcp-agent", () => {
+  const buildAgentSystem = vi.fn((clusterId: string, tools: StructuredToolInterface[]) => ({
+    name: `mcp:${clusterId}:${tools.map(({ name }) => name).join(",")}`,
+    getState: async () => ({ values: { messages: [] } }),
+    updateState: async () => undefined,
+  }));
+  return { useMcpAgent: () => ({ buildAgentSystem }) };
 });
 
 vi.mock("./agent-service", () => ({
@@ -48,15 +62,58 @@ const request = (clusterId: string, conversationId = "t1"): AgentRunRequest => (
   input: { kind: "message", text: "hi" },
 });
 
+const preferences = () => PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+
+type ClusterInfo = ReturnType<typeof Main.Catalog.getAllClusters>[number];
+
+// The part of a catalog cluster the runtime reads.
+const cluster = (id: string, status: Common.Clusters.ClusterConnectionStatus) => ({ id, status }) as ClusterInfo;
+
+// MCP clients whose tools are named after the cluster and the number of the
+// start, and which record what the runtime stops.
+const fakeMcpClients = () => {
+  let starts = 0;
+  const tools = new Map<string, StructuredToolInterface[]>();
+  const mcpClients = new McpClients();
+  vi.spyOn(mcpClients, "getTools").mockImplementation(async (clusterId: string) => {
+    let current = tools.get(clusterId);
+    if (!current) {
+      starts += 1;
+      current = [{ name: `${clusterId}-tool-${starts}`, description: "an MCP tool" } as StructuredToolInterface];
+      tools.set(clusterId, current);
+    }
+    return current;
+  });
+  vi.spyOn(mcpClients, "closeAll").mockImplementation(async () => tools.clear());
+  vi.spyOn(mcpClients, "closeDisconnected").mockResolvedValue();
+  return { mcpClients, stop: (clusterId: string) => tools.delete(clusterId) };
+};
+
+let runtimes: AgentRuntime[] = [];
+
+const createRuntime = (mcpClients?: McpClients) => {
+  const runtime = new AgentRuntime(mcpClients);
+  runtimes.push(runtime);
+  return runtime;
+};
+
 beforeEach(() => {
   PreferencesStore.resetInstance();
   AgentStateStore.resetInstance();
   vi.mocked(useFreeLensAgentSystem().buildAgentSystem).mockClear();
+  vi.mocked(Main.Catalog.getAllClusters).mockReset().mockReturnValue([]);
+});
+
+afterEach(async () => {
+  for (const runtime of runtimes) {
+    await runtime.dispose();
+  }
+  runtimes = [];
 });
 
 describe("AgentRuntime", () => {
   it("builds one agent per cluster and keeps it for the next run", async () => {
-    const runtime = new AgentRuntime();
+    const runtime = createRuntime();
     const signal = new AbortController().signal;
 
     expect(await collect(runtime.run(request("cluster-a"), signal))).toEqual([
@@ -71,8 +128,8 @@ describe("AgentRuntime", () => {
   });
 
   it("turns an endpoint error into the message the chat shows", async () => {
-    PreferencesStore.getInstanceOrCreate<PreferencesStore>().openAIBaseUrl = "http://litellm.local:4000";
-    const runtime = new AgentRuntime();
+    preferences().openAIBaseUrl = "http://litellm.local:4000";
+    const runtime = createRuntime();
 
     await expect(collect(runtime.run(request("cluster-a", "failing"), new AbortController().signal))).rejects.toThrow(
       "The AI endpoint http://litellm.local:4000 answered with a server error.",
@@ -83,7 +140,7 @@ describe("AgentRuntime", () => {
     const store = AgentStateStore.getInstanceOrCreate<AgentStateStore>();
     store.setCheckpoint("cluster-a::freelens", "a");
     store.setCheckpoint("cluster-b::freelens", "b");
-    const runtime = new AgentRuntime();
+    const runtime = createRuntime();
     await collect(runtime.run(request("cluster-a"), new AbortController().signal));
 
     expect(await runtime.clear({ clusterId: "cluster-a", conversationId: "t1" })).toEqual({});
@@ -92,6 +149,80 @@ describe("AgentRuntime", () => {
   });
 
   it("lists the Kubernetes tools when MCP is off", async () => {
-    expect(await new AgentRuntime().tools("cluster-a")).toEqual([{ name: "getNamespaces", description: "d" }]);
+    expect(await createRuntime().tools("cluster-a")).toEqual([{ name: "getNamespaces", description: "d" }]);
+  });
+});
+
+describe("AgentRuntime with MCP", () => {
+  beforeEach(() => {
+    preferences().mcpEnabled = true;
+  });
+
+  it("runs the MCP agent of the cluster with the tools of the cluster's servers", async () => {
+    const { mcpClients } = fakeMcpClients();
+    const runtime = createRuntime(mcpClients);
+    const signal = new AbortController().signal;
+
+    expect(await collect(runtime.run(request("cluster-a"), signal))).toEqual([
+      { type: "text", text: "mcp:cluster-a:cluster-a-tool-1 ran cluster-a/t1" },
+    ]);
+    expect(await collect(runtime.run(request("cluster-b"), signal))).toEqual([
+      { type: "text", text: "mcp:cluster-b:cluster-b-tool-2 ran cluster-b/t1" },
+    ]);
+    expect(await runtime.tools("cluster-a")).toEqual([{ name: "cluster-a-tool-1", description: "an MCP tool" }]);
+    expect(mcpClients.getTools).toHaveBeenCalledWith("cluster-a", preferences().mcpConfiguration);
+  });
+
+  it("rebuilds the agent when the cluster's servers were started again", async () => {
+    const { mcpClients, stop } = fakeMcpClients();
+    const runtime = createRuntime(mcpClients);
+    const signal = new AbortController().signal;
+    await collect(runtime.run(request("cluster-a"), signal));
+
+    stop("cluster-a");
+
+    expect(await collect(runtime.run(request("cluster-a"), signal))).toEqual([
+      { type: "text", text: "mcp:cluster-a:cluster-a-tool-2 ran cluster-a/t1" },
+    ]);
+  });
+
+  it("stops every server when MCP is turned off or its configuration changes", async () => {
+    const { mcpClients } = fakeMcpClients();
+    createRuntime(mcpClients);
+
+    runInAction(() => {
+      preferences().mcpConfiguration = JSON.stringify({ mcpServers: { other: { command: "other" } } });
+    });
+    expect(mcpClients.closeAll).toHaveBeenCalledTimes(1);
+
+    runInAction(() => {
+      preferences().mcpEnabled = false;
+    });
+    expect(mcpClients.closeAll).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops the servers of a cluster when its connection status changes", async () => {
+    const clusters = observable.array([cluster("cluster-a", Common.Clusters.ClusterConnectionStatus.CONNECTED)]);
+    vi.mocked(Main.Catalog.getAllClusters).mockImplementation(() => clusters.slice());
+    const { mcpClients } = fakeMcpClients();
+    createRuntime(mcpClients);
+
+    runInAction(() => {
+      clusters[0] = cluster("cluster-a", Common.Clusters.ClusterConnectionStatus.DISCONNECTED);
+    });
+
+    expect(mcpClients.closeDisconnected).toHaveBeenCalledOnce();
+  });
+
+  it("stops every server and follows no change after dispose", async () => {
+    const { mcpClients } = fakeMcpClients();
+    const runtime = createRuntime(mcpClients);
+
+    await runtime.dispose();
+    runInAction(() => {
+      preferences().mcpEnabled = false;
+    });
+
+    expect(mcpClients.closeAll).toHaveBeenCalledOnce();
   });
 });
