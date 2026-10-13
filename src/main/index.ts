@@ -5,7 +5,6 @@ import { startAiProxyServer } from "./ai-proxy-server";
 
 export default class LensExtensionAiMain extends Main.LensExtension {
   async onActivate() {
-    // @ts-ignore
     const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
     preferencesStore.loadExtension(this);
@@ -13,14 +12,16 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     // Owns the on-disk file for the persisted LangGraph checkpointer state. The
     // main process must load it so the renderer receives the persisted value
     // over IPC and the agent can restore its conversation after a restart.
-    // @ts-ignore
     AgentStateStore.getInstanceOrCreate<AgentStateStore>().loadExtension(this);
 
     // Owns the on-disk file for the persisted chat transcript and conversation
     // id. The main process must load it so the renderer receives the persisted
     // value over IPC and the chat HTML can be restored after a restart.
-    // @ts-ignore
     ChatSessionStore.getInstanceOrCreate<ChatSessionStore>().loadExtension(this);
+
+    // The renderer has no environment of its own; it learns from the store
+    // whether OPENAI_API_KEY is set, never the key.
+    preferencesStore.openAIKeyFromEnvironment = Boolean(process.env.OPENAI_API_KEY?.trim());
 
     // Generate a fresh shared secret for this launch and require it on every
     // proxy request, so a local process that learns the port cannot reuse the

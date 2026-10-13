@@ -1,9 +1,9 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
-import { type CustomModel, DEFAULT_MODELS, DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
-import { resolveSelectedModel } from "../../renderer/business/provider/model-list";
+import { type CustomModel, DEFAULT_MODELS, DEFAULT_OPENAI_BASE_URL } from "../provider/ai-models";
+import { resolveSelectedModel } from "../provider/model-list";
 
-import type { MessageObject } from "../../renderer/business/objects/message-object";
+import type { MessageObject } from "../objects/message-object";
 
 const DEFAULT_SELECTED_MODEL = DEFAULT_MODELS[0]?.name ?? "";
 
@@ -14,6 +14,7 @@ export interface PreferencesModel {
   disableThinking: boolean;
   aiProxyPort: number | null;
   aiProxyToken: string | null;
+  openAIKeyFromEnvironment: boolean;
   selectedModel: string;
   models: CustomModel[];
   mcpEnabled: boolean;
@@ -36,6 +37,10 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   // Generated in the main process on activation and synced to the renderer via
   // this store; blocks other local processes that learn the port from using it.
   aiProxyToken: string | null = null;
+  // Whether main found OPENAI_API_KEY in its environment. Set by main on
+  // activation, so the renderer can tell whether a key is available without
+  // ever receiving the key itself.
+  openAIKeyFromEnvironment: boolean = false;
   selectedModel: string = DEFAULT_SELECTED_MODEL;
   models: CustomModel[] = [...DEFAULT_MODELS];
   mcpEnabled: boolean = false;
@@ -63,6 +68,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         disableThinking: false,
         aiProxyPort: null,
         aiProxyToken: null,
+        openAIKeyFromEnvironment: false,
         selectedModel: DEFAULT_SELECTED_MODEL,
         models: [...DEFAULT_MODELS],
         mcpEnabled: false,
@@ -83,11 +89,11 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         ),
       },
     });
-    // Use the explicit annotation form instead of `@observable` decorators.
-    // The build's legacy decorator transform emits native class-field
-    // initializers, which the decorators cannot convert into observables; the
-    // explicit form reads the initialized field values directly and works
-    // regardless of how the build emits class fields.
+    // The annotation map on plain fields rather than `@observable accessor`
+    // fields: `makeObservable` runs after the field initializers, the fields stay
+    // own properties of the instance, and `toJSON()`, which the host persists,
+    // reads them as they are. Accessor fields would keep the values behind
+    // getters on the prototype, which `toJS()` and spreading do not see.
     makeObservable(this, {
       openAIKey: observable,
       openAIBaseUrl: observable,
@@ -95,6 +101,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       disableThinking: observable,
       aiProxyPort: observable,
       aiProxyToken: observable,
+      openAIKeyFromEnvironment: observable,
       selectedModel: observable,
       models: observable,
       mcpEnabled: observable,
@@ -118,6 +125,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
     this.disableThinking = preferencesModel.disableThinking ?? false;
     this.aiProxyPort = preferencesModel.aiProxyPort ?? null;
     this.aiProxyToken = preferencesModel.aiProxyToken ?? null;
+    this.openAIKeyFromEnvironment = preferencesModel.openAIKeyFromEnvironment ?? false;
     this.models = preferencesModel.models?.length ? preferencesModel.models : [...DEFAULT_MODELS];
     // Validate the selection against the available models; fall back to the
     // first entry (replaces the old enum validation).
@@ -145,6 +153,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
       disableThinking: this.disableThinking,
       aiProxyPort: this.aiProxyPort,
       aiProxyToken: this.aiProxyToken,
+      openAIKeyFromEnvironment: this.openAIKeyFromEnvironment,
       selectedModel: this.selectedModel,
       models: toJS(this.models),
       mcpEnabled: this.mcpEnabled,

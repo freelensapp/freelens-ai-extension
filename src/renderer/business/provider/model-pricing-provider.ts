@@ -10,7 +10,7 @@
 //      the proxy with the no-auth header so the user's API key is never sent to
 //      GitHub.
 
-import { DEFAULT_OPENAI_BASE_URL } from "./ai-models";
+import { DEFAULT_OPENAI_BASE_URL } from "../../../common/provider/ai-models";
 import { buildModelPricingMap, type ModelPricingMap, parseModelInfoResponse, parsePriceMap } from "./model-pricing";
 import { PROXY_NO_AUTH_HEADER, PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
 

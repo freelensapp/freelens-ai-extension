@@ -1,27 +1,23 @@
 import { Command } from "@langchain/langgraph";
-import {
-  getErrorMessage,
-  getExplainMessage,
-  getInterruptMessage,
-} from "../../renderer/business/objects/message-object-provider";
-import { MessageType } from "../../renderer/business/objects/message-type";
-import { DEFAULT_OPENAI_BASE_URL } from "../../renderer/business/provider/ai-models";
-import { approximateTokenCount } from "../../renderer/business/provider/token-estimate";
+import { MessageType } from "../../../common/objects/message-type";
+import { DEFAULT_OPENAI_BASE_URL } from "../../../common/provider/ai-models";
+import { PreferencesStore } from "../../../common/store";
+import { ActionToApprove } from "../../components/chat";
+import { useApplicationStatusStore } from "../../context/application-context";
+import useLog from "../../utils/logger/logger-service";
+import { getErrorMessage, getExplainMessage, getInterruptMessage } from "../objects/message-object-provider";
+import { approximateTokenCount } from "../provider/token-estimate";
 import {
   AgentService,
   isContextSizeChunk,
   isReasoningChunk,
   isTokenUsageChunk,
   useAgentService,
-} from "../../renderer/business/service/agent-service";
-import { AiAnalysisService, useAiAnalysisService } from "../../renderer/business/service/ai-analysis-service";
-import { estimateNextPromptTokens, shouldCompactSession } from "../../renderer/business/service/session-compaction";
-import { ActionToApprove } from "../../renderer/components/chat";
-import { useApplicationStatusStore } from "../../renderer/context/application-context";
-import { PreferencesStore } from "../store";
-import useLog from "../utils/logger/logger-service";
+} from "./agent-service";
+import { AiAnalysisService, useAiAnalysisService } from "./ai-analysis-service";
+import { estimateNextPromptTokens, shouldCompactSession } from "./session-compaction";
 
-import type { MessageObject, RetryContext } from "../../renderer/business/objects/message-object";
+import type { MessageObject, RetryContext } from "../../../common/objects/message-object";
 
 export interface ApprovalInterrupt {
   question: string;

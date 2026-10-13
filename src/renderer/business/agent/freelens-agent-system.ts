@@ -1,9 +1,9 @@
 import { HumanMessage } from "@langchain/core/messages";
 import { RunnableConfig, RunnableLambda, RunnableLike } from "@langchain/core/runnables";
 import { Command, StateGraph } from "@langchain/langgraph";
-import useLog from "../../../common/utils/logger/logger-service";
+import { checkpointNamespace } from "../../../common/agent/checkpoint-namespace";
+import useLog from "../../utils/logger/logger-service";
 import { useAgentAnalyzer } from "./analyzer-agent";
-import { checkpointNamespace } from "./checkpoint-namespace";
 import { useConclusionsAgent } from "./conclusions-agent";
 import { useGeneralPurposeAgent } from "./general-purpose-agent";
 import { useAgentKubernetesOperator } from "./kubernetes-operator-agent";

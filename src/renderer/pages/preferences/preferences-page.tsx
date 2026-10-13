@@ -1,8 +1,8 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
-import { AIProviders, DEFAULT_MODELS, PROVIDER_LABELS } from "../../business/provider/ai-models";
-import { addModel, removeModelAt, resolveSelectedModel } from "../../business/provider/model-list";
+import { AIProviders, DEFAULT_MODELS, PROVIDER_LABELS } from "../../../common/provider/ai-models";
+import { addModel, removeModelAt, resolveSelectedModel } from "../../../common/provider/model-list";
 
 import type { SingleValue } from "react-select";
 

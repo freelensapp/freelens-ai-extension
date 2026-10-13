@@ -72,11 +72,11 @@ export const deploymentManifestSchema = z
     spec: z.object({
       replicas: z.number(),
       selector: z.object({
-        matchLabels: z.record(z.string()),
+        matchLabels: z.record(z.string(), z.string()),
       }),
       template: z.object({
         metadata: z.object({
-          labels: z.record(z.string()),
+          labels: z.record(z.string(), z.string()),
         }),
         spec: z.object({
           containers: z.array(
@@ -103,12 +103,12 @@ export const serviceManifestSchema = z
     metadata: z.object({
       name: z.string(),
       namespace: z.string().optional(),
-      labels: z.record(z.string()).optional(),
-      annotations: z.record(z.string()).optional(),
+      labels: z.record(z.string(), z.string()).optional(),
+      annotations: z.record(z.string(), z.string()).optional(),
     }),
     spec: z.object({
       type: z.enum(["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"]).optional(),
-      selector: z.record(z.string()).optional(),
+      selector: z.record(z.string(), z.string()).optional(),
       ports: z.array(
         z.object({
           name: z.string().optional(),

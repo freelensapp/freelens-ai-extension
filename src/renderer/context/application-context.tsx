@@ -5,27 +5,27 @@ import * as React from "react";
 const { observer } = MobxReact;
 const { createContext, useContext, useEffect, useRef, useState } = React;
 
+import { MessageType } from "../../common/objects/message-type";
+import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../../common/provider/ai-models";
+import { emptyTokenUsage, addTokenUsage as sumTokenUsage, type TokenUsage } from "../../common/service/token-usage";
 import { PreferencesStore } from "../../common/store";
 import { AgentStateStore } from "../../common/store/agent-state-store";
-import { AgentsStore } from "../../common/store/agents-store";
 import { ChatSessionStore } from "../../common/store/chat-session-store";
-import useLog from "../../common/utils/logger/logger-service";
 import { generateUuid } from "../../common/utils/uuid";
+import { type AgentsStore, agentsStore as sharedAgentsStore } from "../business/agent/agents-store";
 import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
 import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
 import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
-import { MessageType } from "../business/objects/message-type";
-import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../business/provider/ai-models";
 import { computeSessionCost, type ModelPricingMap } from "../business/provider/model-pricing";
 import { fetchModelPricing } from "../business/provider/model-pricing-provider";
 import { approximateTokenCount } from "../business/provider/token-estimate";
 import { resolveMaxInputTokens } from "../business/service/session-compaction";
 import { useSessionCompactionService } from "../business/service/session-compaction-service";
-import { emptyTokenUsage, addTokenUsage as sumTokenUsage, type TokenUsage } from "../business/service/token-usage";
+import useLog from "../utils/logger/logger-service";
 import { IS_CONVERSATION_INTERRUPTED_KEY, IS_LOADING_KEY } from "./chat-session-storage";
 
-import type { MessageObject } from "../business/objects/message-object";
+import type { MessageObject } from "../../common/objects/message-object";
 
 // Transient status shown while the session is compacted: dimmed "Compacting
 // conversation..." during, then normal "Compacted conversation." after. Null
@@ -91,7 +91,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const [preferencesStore, _setPreferencesStore] = useState<PreferencesStore>(
     PreferencesStore.getInstanceOrCreate<PreferencesStore>(),
   );
-  const [agentsStore, _setAgentsStore] = useState<AgentsStore>(AgentsStore.getInstanceOrCreate<AgentsStore>());
+  const [agentsStore, _setAgentsStore] = useState<AgentsStore>(sharedAgentsStore);
   const [chatSessionStore, _setChatSessionStore] = useState<ChatSessionStore>(
     ChatSessionStore.getInstanceOrCreate<ChatSessionStore>(),
   );

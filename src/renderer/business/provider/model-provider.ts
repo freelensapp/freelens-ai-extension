@@ -1,8 +1,8 @@
+import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../../../common/provider/ai-models";
+import { findProvider } from "../../../common/provider/model-list";
 import { PreferencesStore } from "../../../common/store";
-import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "./ai-models";
 import { DsmlAwareChatOpenAI } from "./dsml-aware-chat-model";
 import { emitsDsmlToolCalls } from "./model-capabilities";
-import { findProvider } from "./model-list";
 import { OfflineTokenChatOpenAI } from "./offline-token-chat-model";
 import { buildOpenAIChatFields } from "./openai-fields";
 

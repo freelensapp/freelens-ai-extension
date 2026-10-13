@@ -1,6 +1,6 @@
 import log from "loglevel";
 import * as React from "react";
-import { redactSecrets } from "../redact";
+import { redactSecrets } from "../../../common/utils/redact";
 
 const { useMemo } = React;
 

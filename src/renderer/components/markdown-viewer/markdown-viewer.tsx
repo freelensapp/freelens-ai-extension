@@ -1,6 +1,6 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import styleInline from "./markdown-viewer.scss?inline";
+import styles from "./markdown-viewer.module.scss";
 import { useMarkDownViewerHook } from "./markdown-viewer-hook";
 
 type MarkdownViewerProps = {
@@ -12,8 +12,7 @@ export const MarkdownViewer = ({ content }: MarkdownViewerProps) => {
 
   return (
     <>
-      <style>{styleInline}</style>
-      <div className="markdown-viewer-container-theme">
+      <div className={styles.markdownViewerContainerTheme}>
         <Markdown
           children={content}
           remarkPlugins={[remarkGfm]}

@@ -26,7 +26,7 @@ const apiVersionSchema = z
   .describe(
     'The apiVersion (group/version) of the resource, e.g. "v1" or "apps/v1". Required for kinds without a built-in default.',
   );
-const manifestSchema = z.record(z.any()).describe("The Kubernetes resource manifest as a JSON object.");
+const manifestSchema = z.record(z.string(), z.any()).describe("The Kubernetes resource manifest as a JSON object.");
 const includeManagedFieldsSchema = z
   .boolean()
   .optional()

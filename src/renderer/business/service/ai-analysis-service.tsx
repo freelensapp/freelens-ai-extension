@@ -1,6 +1,6 @@
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { PreferencesStore } from "../../../common/store";
-import useLog from "../../../common/utils/logger/logger-service";
+import useLog from "../../utils/logger/logger-service";
 import { buildAgentReadinessInput, isAgentConfigured } from "../provider/chat-readiness";
 import { useModelProvider } from "../provider/model-provider";
 import { ANALYSIS_PROMPT_TEMPLATE } from "../provider/prompt-template-provider";

@@ -3,7 +3,7 @@
 // math can be unit-tested in isolation (see model-pricing.test.ts). The impure
 // fetching (through the local AI proxy) lives in model-pricing-provider.ts.
 
-import type { TokenUsage } from "../service/token-usage";
+import type { TokenUsage } from "../../../common/service/token-usage";
 
 // Per-token costs (in USD) and context limits for a single model. All costs are
 // per single token, matching the LiteLLM data shape. `cachedInputCostPerToken`

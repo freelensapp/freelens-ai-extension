@@ -1,6 +1,6 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
-import { belongsToCluster } from "../../renderer/business/agent/checkpoint-namespace";
+import { belongsToCluster } from "../agent/checkpoint-namespace";
 
 export interface AgentStateModel {
   // Serialized LangGraph checkpointer state, keyed by saver namespace. The

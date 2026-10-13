@@ -3,7 +3,7 @@ import { CheckCircle, XCircle } from "lucide-react";
 import * as React from "react";
 import { CodeBlock } from "../code-block";
 import { MarkdownViewer } from "../markdown-viewer";
-import styleInline from "./interrupt.scss?inline";
+import styles from "./interrupt.module.scss";
 
 const {
   Component: { Button },
@@ -17,7 +17,7 @@ export type InterruptProps = {
   resources?: string;
   options: string[];
   approved: boolean | null;
-  onAction: (option) => void;
+  onAction: (option: string) => void;
 };
 
 const Interrupt = ({
@@ -53,18 +53,17 @@ const Interrupt = ({
 
   return (
     <div>
-      <style>{styleInline}</style>
-      <div className="interrupt-prompt">
+      <div className={styles.interruptPrompt}>
         <div
-          className={`interrupt-header${pending ? "" : " interrupt-header-toggle"}`}
+          className={`${styles.interruptHeader}${pending ? "" : ` ${styles.interruptHeaderToggle}`}`}
           onClick={pending ? undefined : () => setDetailsOpen((open) => !open)}
         >
           {pending ? (
-            <span className="interrupt-warning-icon">⚠️</span>
+            <span className={styles.interruptWarningIcon}>⚠️</span>
           ) : approved ? (
-            <CheckCircle className="interrupt-status-icon interrupt-status-approved" />
+            <CheckCircle className={`${styles.interruptStatusIcon} ${styles.interruptStatusApproved}`} />
           ) : (
-            <XCircle className="interrupt-status-icon interrupt-status-rejected" />
+            <XCircle className={`${styles.interruptStatusIcon} ${styles.interruptStatusRejected}`} />
           )}
           {header}
         </div>
@@ -72,12 +71,12 @@ const Interrupt = ({
       {pending && (
         <>
           {renderBody()}
-          <div className="interrupt-question">{question}</div>
+          <div className={styles.interruptQuestion}>{question}</div>
           <div>
             {options.map((option) => (
               <Button
-                className={`message-buttons-options ${
-                  option === "yes" ? "interrupt-button-yes" : option === "no" ? "interrupt-button-no" : ""
+                className={`${styles.messageButtonsOptions} ${
+                  option === "yes" ? styles.interruptButtonYes : option === "no" ? styles.interruptButtonNo : ""
                 }`}
                 label={option}
                 onClick={() => {
@@ -88,7 +87,7 @@ const Interrupt = ({
           </div>
         </>
       )}
-      {!pending && detailsOpen && <div className="interrupt-details">{renderBody()}</div>}
+      {!pending && detailsOpen && <div className={styles.interruptDetails}>{renderBody()}</div>}
     </div>
   );
 };

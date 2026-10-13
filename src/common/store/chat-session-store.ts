@@ -1,8 +1,8 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable, toJS } from "mobx";
-import { emptyTokenUsage, type TokenUsage } from "../../renderer/business/service/token-usage";
+import { emptyTokenUsage, type TokenUsage } from "../service/token-usage";
 
-import type { MessageObject } from "../../renderer/business/objects/message-object";
+import type { MessageObject } from "../objects/message-object";
 
 export interface ChatSession {
   // The rendered chat transcript and the conversation id that ties it to the

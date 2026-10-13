@@ -35,6 +35,7 @@
 
 .text-input-send-button {
   margin-left: 0;
+  padding-left: 10px;
   background: none;
   border: none;
   cursor: pointer;
@@ -63,11 +64,11 @@
   stroke: #a0a0a0; // used tokens (dark theme)
 }
 
-body.theme-light .text-input-token-capacity-track {
+:global(body.theme-light) .text-input-token-capacity-track {
   stroke: #acacac; // unused capacity (light theme)
 }
 
-body.theme-light .text-input-token-capacity-arc {
+:global(body.theme-light) .text-input-token-capacity-arc {
   stroke: var(--textColorPrimary); // used tokens (light theme)
 }
 
@@ -105,19 +106,15 @@ body.theme-light .text-input-token-capacity-arc {
   min-width: 70px !important;
 }
 
-.text-input-select-box .Select__single-value {
+.text-input-select-box :global(.Select__single-value) {
   font-size: 13px;
 }
 
-.text-input-select-box .Select__value-container {
+.text-input-select-box :global(.Select__value-container) {
   margin: 0;
   padding-top: 0;
   padding-bottom: 0;
   padding-right: 0;
-}
-
-#send-button {
-  padding-left: 10px;
 }
 
 .chat-clear-button {
@@ -127,7 +124,10 @@ body.theme-light .text-input-token-capacity-arc {
   margin-right: 0.5rem;
   border-radius: 15px;
   padding: 5px;
-  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  transition:
+    background 0.2s,
+    color 0.2s,
+    border-color 0.2s;
 }
 
 .chat-clear-button:disabled {

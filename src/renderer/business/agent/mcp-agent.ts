@@ -1,53 +1,26 @@
 import { AIMessage, ToolMessage } from "@langchain/core/messages";
 import { Command, interrupt, StateGraph } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { MultiServerMCPClient } from "@langchain/mcp-adapters";
-import useLog from "../../../common/utils/logger/logger-service";
+import { checkpointNamespace } from "../../../common/agent/checkpoint-namespace";
+import useLog from "../../utils/logger/logger-service";
 import { useModelProvider } from "../provider/model-provider";
-import { checkpointNamespace } from "./checkpoint-namespace";
 import { teardownNode } from "./nodes/teardown";
 import { PersistentMemorySaver } from "./persistent-memory-saver";
 import { GraphState } from "./state/graph-state";
+
+import type { StructuredToolInterface } from "@langchain/core/tools";
 
 export type MPCAgent = Awaited<ReturnType<ReturnType<typeof useMcpAgent>["buildAgentSystem"]>>;
 
 export const useMcpAgent = (mcpConfiguration: string) => {
   const { log } = useLog("useMcpAgent");
 
-  const parseMcpConfiguration = () => {
-    try {
-      if ("" === mcpConfiguration) {
-        console.warn("No MCP configuration provided or invalid type. Returning empty configuration.");
-        return {};
-      }
-
-      const parsedMcpConfiguration = JSON.parse(mcpConfiguration);
-      if (!parsedMcpConfiguration.mcpServers) {
-        throw new Error("Invalid MCP configuration: 'mcpServers' property is missing.");
-      }
-      return parsedMcpConfiguration.mcpServers;
-    } catch (error) {
-      console.error("Failed to parse MCP configuration:", error);
-      return {};
-    }
-  };
-
-  const loadMcpTools = async () => {
-    const mcpServers = parseMcpConfiguration();
-
-    const client = new MultiServerMCPClient({
-      throwOnLoadError: true,
-      prefixToolNameWithServerName: false,
-      additionalToolNamePrefix: "",
-      useStandardContentBlocks: true,
-      mcpServers: mcpServers,
-    });
-
-    const mcpTools = await client.getTools();
-    mcpTools.forEach((tool) => {
-      log.debug("Loading MCP tool with name: %s, description: %s", tool.name, tool.description);
-    });
-    return mcpTools;
+  // The MCP client spawns stdio servers as child processes, which the renderer
+  // cannot do, so it runs in main with the agents (#295). Until then the MCP
+  // agent has no tools and fails to start, as with an invalid configuration.
+  const loadMcpTools = async (): Promise<StructuredToolInterface[]> => {
+    log.debug("MCP configuration: ", mcpConfiguration);
+    throw new Error("MCP servers are not available in the renderer; they move to the main process.");
   };
 
   const buildAgentSystem = async (clusterId: string) => {

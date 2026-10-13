@@ -2,11 +2,11 @@ import { Renderer } from "@freelensapp/extensions";
 import { Eraser, SendHorizonal, ShieldOff } from "lucide-react";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
+import { formatTokenUsage } from "../../../common/service/token-usage";
 import { formatCost } from "../../business/provider/model-pricing";
-import { formatTokenUsage } from "../../business/service/token-usage";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { AvailableTools } from "../available-tools/available-tools";
-import styleInline from "./text-input.scss?inline";
+import styles from "./text-input.module.scss";
 import { useTextInput } from "./text-input-hook";
 import { TokenCapacityIndicator } from "./token-capacity-indicator";
 
@@ -32,23 +32,22 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
 
   return (
     <>
-      <style>{styleInline}</style>
-      <div className="text-input-container">
-        <div className="text-input-inner-wrapper">
+      <div className={styles.textInputContainer}>
+        <div className={styles.textInputInnerWrapper}>
           <textarea
             ref={textInputHook.textareaRef}
             rows={1}
-            className="text-input-textarea"
+            className={styles.textInputTextarea}
             placeholder="Write a message..."
             value={textInputHook.message}
             onChange={(e) => textInputHook.setMessage(e.target.value)}
             onKeyDown={textInputHook.handleKeyDown}
           />
-          <div className="text-input-buttons-container">
+          <div className={styles.textInputButtonsContainer}>
             <div id="chatButtonsContainer" style={{ display: "flex" }}>
               {/* Button to clear the chat history */}
               <button
-                className="chat-button chat-clear-button"
+                className={`chat-button ${styles.chatClearButton}`}
                 onClick={async () => applicationStatusStore.clearChat()}
                 disabled={applicationStatusStore.chatMessages?.length === 0}
                 title="Clear chat"
@@ -57,7 +56,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               </button>
               {/* Button to toggle tools */}
               <button
-                className={`chat-button chat-clear-button${showList ? " active" : ""}`}
+                className={`chat-button ${styles.chatClearButton}${showList ? " active" : ""}`}
                 onClick={() => setShowList((prev) => !prev)}
                 title={showList ? "Hide Tools" : "Show Tools"}
                 style={{
@@ -83,7 +82,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               </button>
               {/* Button to toggle Bypass Approvals mode */}
               <button
-                className={`chat-button chat-clear-button${applicationStatusStore.bypassApprovals ? " active" : ""}`}
+                className={`chat-button ${styles.chatClearButton}${applicationStatusStore.bypassApprovals ? " active" : ""}`}
                 onClick={() => applicationStatusStore.setBypassApprovals(!applicationStatusStore.bypassApprovals)}
                 title={
                   applicationStatusStore.bypassApprovals
@@ -113,8 +112,8 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
             <div style={{ display: "flex", alignItems: "center" }}>
               {applicationStatusStore.compactionStatus && (
                 <span
-                  className={`text-input-compaction-status${
-                    applicationStatusStore.compactionStatus === "compacting" ? " compacting" : ""
+                  className={`${styles.textInputCompactionStatus}${
+                    applicationStatusStore.compactionStatus === "compacting" ? ` ${styles.compacting}` : ""
                   }`}
                   title="The conversation was getting close to the model's input token limit, so it was summarized to free up context."
                 >
@@ -125,7 +124,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               )}
               {textInputHook.agentConfigured && (
                 <span
-                  className="text-input-token-counter text-input-tooltip"
+                  className={`${styles.textInputTokenCounter} ${styles.textInputTooltip}`}
                   data-tooltip="Tokens used this session (input, cached input, output), with estimated cost when known. Resets when the chat is cleared."
                 >
                   {formatTokenUsage(applicationStatusStore.tokenUsage)}
@@ -139,7 +138,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                   value={applicationStatusStore.selectedModel}
                   onChange={textInputHook.onChangeModel}
                   themeName="lens"
-                  className="text-input-select-box"
+                  className={styles.textInputSelectBox}
                 />
               ) : (
                 <Button
@@ -157,7 +156,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                 />
               )}
               <button
-                className="text-input-send-button"
+                className={styles.textInputSendButton}
                 onClick={textInputHook.handleSend}
                 disabled={applicationStatusStore.isLoading || !textInputHook.message.trim()}
                 title="Send"

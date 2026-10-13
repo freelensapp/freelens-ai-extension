@@ -113,6 +113,7 @@ Each CRD file exports three classes: the KubeObject, the KubeApi, and the KubeOb
 ## Renderer Components
 
 - Detail views use the `observer` wrapper from `../../observer` (re-exports MobX `observer`).
+- A component's stylesheet is a CSS module next to it, `x.module.scss`, imported as `import styles from "./x.module.scss"` and used as `className={styles.someClass}`; there is no `?inline` import and no `<style>` element. The host's own classes and theme markers are matched with `:global(...)`, for example `:global(body.theme-light) .x` and `.x :global(.Select__single-value)`, since every other class name in a module is scoped.
 - CSS modules get TypeScript declarations (`*.module.d.scss.ts`) from `build/vite-plugin-css-module-declarations.mjs`, written by the renderer build (see "CSS module declarations" under "Build").
 - Common detail view styles are in `src/renderer/details/gateway-api/common.module.scss`.
 
@@ -328,18 +329,24 @@ parameters JSDoc types.
 ## AI Model & Provider System
 
 The list of chat models is user-editable and persisted in the preferences
-store; there is no hardcoded model enum. Key files live in
-`src/renderer/business/provider/`:
+store; there is no hardcoded model enum. What `PreferencesStore` needs lives in
+`src/common/provider/`, since main loads the store too:
 
-- `ai-models.tsx` — `AIProviders` enum (only `OPEN_AI` active), the
+- `ai-models.ts` — `AIProviders` enum (only `OPEN_AI` active), the
   `CustomModel` type (`{ provider, name }`), the seed list `DEFAULT_MODELS`
   (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`), and `DEFAULT_OPENAI_BASE_URL`.
-- `model-capabilities.ts` — name heuristics (regex) deciding model behavior.
-  Add new model families here rather than hardcoding ids. Reasoning models
-  (`o<n>`, `gpt-5.x`) take a reasoning effort and reject `temperature`.
 - `model-list.ts` — pure helpers for the editable list (trim, dedupe, remove,
   `resolveSelectedModel` selection fallback). No host/MobX deps so they are
   unit-tested directly.
+
+The rest is in `src/renderer/business/provider/`:
+
+- `model-capabilities.ts` — name heuristics (regex) deciding model behavior.
+  Add new model families here rather than hardcoding ids. Reasoning models
+  (`o<n>`, `gpt-5.x`) take a reasoning effort and reject `temperature`.
+- `chat-readiness.ts` — whether a model and a key are configured. The renderer
+  has no environment of its own: main sets `openAIKeyFromEnvironment` in the
+  store when `OPENAI_API_KEY` is set, and never sends the key.
 - `openai-fields.ts` — pure `buildOpenAIChatFields` builder (proxy routing
   header + reasoning-effort/temperature heuristic), unit-tested in isolation.
 - `model-provider.ts` — `getModel()` resolves the selected model's provider and

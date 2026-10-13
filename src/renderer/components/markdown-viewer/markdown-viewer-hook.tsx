@@ -1,6 +1,6 @@
 import { CodeBlock } from "../code-block";
 
-import type { HTMLAttributes, ReactNode } from "react";
+import type { AnchorHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 
 export const useMarkDownViewerHook = () => {
   const getLanguage = (className?: string) => {
@@ -25,7 +25,7 @@ export const useMarkDownViewerHook = () => {
     );
   };
 
-  const renderLinks = (href?: string, children?: ReactNode, props?: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+  const renderLinks = (href?: string, children?: ReactNode, props?: AnchorHTMLAttributes<HTMLAnchorElement>) => {
     return (
       <a href={href} target="_blank" {...props} style={{ color: "var(--blue)" }}>
         {children}
