@@ -1,0 +1,20 @@
+declare const classNames: {
+  readonly sectionTitle: "sectionTitle";
+  readonly sectionHint: "sectionHint";
+  readonly label: "label";
+  readonly hint: "hint";
+  readonly switch: "switch";
+  readonly modelRow: "modelRow";
+  readonly modelProvider: "modelProvider";
+  readonly modelName: "modelName";
+  readonly addModelRow: "addModelRow";
+  readonly addModelProvider: "addModelProvider";
+  readonly addModelName: "addModelName";
+  readonly resetModels: "resetModels";
+  readonly mcpEnabledLabel: "mcpEnabledLabel";
+  readonly mcpConfigurationLabel: "mcpConfigurationLabel";
+  readonly textarea: "textarea";
+  readonly agentRules: "agentRules";
+  readonly mcpConfiguration: "mcpConfiguration";
+};
+export = classNames;

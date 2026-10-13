@@ -5,18 +5,23 @@
 
 import { Renderer } from "@freelensapp/extensions";
 import { ChatSessionStore, PreferencesStore } from "../common/store";
-import { withMenuItemErrorBoundary, withPageErrorBoundary } from "./components/error-boundary";
+import {
+  withMenuItemErrorBoundary,
+  withPageErrorBoundary,
+  withPreferenceErrorBoundary,
+} from "./components/error-boundary";
 import { FreeLensAiIcon } from "./components/freelens-ai-icon";
 import { MenuEntry } from "./components/menu-entry";
 import { MAIN_PAGE_ID } from "./navigation/pages";
 import { MainPage } from "./pages/main";
 import { PreferencesPage } from "./pages/preferences";
 
-// The chat page and the "Explain" menu item render inside an error boundary, so
-// that an error they throw stays in their place: the host has none around a menu
-// item, and its boundary around the cluster frame would replace the whole
-// cluster view. Each registration field is mapped through its wrapper, so an
-// entry added to it is wrapped too.
+// The chat page, the "Explain" menu item and the preferences render inside an
+// error boundary, so that an error they throw stays in their place: the host has
+// none around a menu item or an extension's preferences, and its boundary around
+// a frame would replace the whole cluster view or preferences page. Each
+// registration field is mapped through its wrapper, so an entry added to it is
+// wrapped too.
 export default class FreeLensAIRenderer extends Renderer.LensExtension {
   async onActivate() {
     // The bridge's port and token, written by main, are read from here too.
@@ -48,7 +53,7 @@ export default class FreeLensAIRenderer extends Renderer.LensExtension {
     },
   ];
 
-  appPreferences = [
+  appPreferences: Renderer.LensExtension["appPreferences"] = [
     {
       title: "Freelens AI Settings",
       components: {
@@ -56,7 +61,7 @@ export default class FreeLensAIRenderer extends Renderer.LensExtension {
         Hint: () => <span></span>,
       },
     },
-  ];
+  ].map((registration) => withPreferenceErrorBoundary(this, registration));
 
   kubeObjectMenuItems: Renderer.LensExtension["kubeObjectMenuItems"] = [
     Renderer.K8sApi.menuItemFor(Renderer.K8sApi.KubeEvent, {

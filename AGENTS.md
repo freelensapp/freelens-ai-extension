@@ -193,8 +193,7 @@ Freelens extension API (`docs/extensions/api.md`):
 
 `build/vite-plugin-host-modules.mjs` replaces a bare import of one of these
 with a module that reads the global, in the extension's code and in every
-library it bundles (`lucide-react`, `react-markdown` and `react-select` import
-`react` too). Its named exports are the members of the copy installed as a
+library it bundles (`lucide-react` and `react-markdown` import `react` too). Its named exports are the members of the copy installed as a
 devDependency, which is pinned to the host's version, so an import of a name
 the host's version lacks fails the build. The plugin also fails the build on an
 import of a host module that the process does not publish (`react` in main),

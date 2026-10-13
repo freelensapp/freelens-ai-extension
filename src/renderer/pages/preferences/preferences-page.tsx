@@ -3,8 +3,7 @@ import * as MobxReact from "mobx-react";
 import * as React from "react";
 import { AIProviders, DEFAULT_MODELS, PROVIDER_LABELS } from "../../../common/provider/ai-models";
 import { addModel, removeModelAt, resolveSelectedModel } from "../../../common/provider/model-list";
-
-import type { SingleValue } from "react-select";
+import styles from "./preferences-page.module.scss";
 
 const { observer } = MobxReact;
 const { useCallback, useEffect, useRef, useState } = React;
@@ -117,39 +116,37 @@ export const PreferencesPage = observer(() => {
 
   return (
     <>
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>OpenAI</div>
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>API key</div>
+      <div className={styles.sectionTitle}>OpenAI</div>
+      <div className={styles.label}>API key</div>
       <Input
         type="password"
         placeholder="Put here your OpenAI API key"
         value={preferencesStore.openAIKey}
         onChange={(value: string) => (preferencesStore.openAIKey = value)}
       />
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Base URL</div>
+      <div className={styles.label}>Base URL</div>
       <Input
         placeholder="https://api.openai.com/v1"
         value={preferencesStore.openAIBaseUrl}
         onChange={(value: string) => (preferencesStore.openAIBaseUrl = value)}
       />
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Reasoning effort</div>
-      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
-        Applied only to reasoning-capable models (o-series, gpt-5.x).
-      </div>
+      <div className={styles.label}>Reasoning effort</div>
+      <div className={styles.hint}>Applied only to reasoning-capable models (o-series, gpt-5.x).</div>
       <Select
         options={REASONING_EFFORT_OPTIONS}
         value={preferencesStore.openAIReasoningEffort}
-        onChange={(option: SingleValue<SelectOption<string>>) =>
+        onChange={(option: SelectOption<string> | null) =>
           (preferencesStore.openAIReasoningEffort = option?.value ?? "")
         }
         themeName="lens"
       />
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Disable thinking mode</div>
-      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
+      <div className={styles.label}>Disable thinking mode</div>
+      <div className={styles.hint}>
         Turn off the model&apos;s thinking mode. Required by some providers (e.g. DeepSeek via LiteLLM) whose thinking
         mode conflicts with the forced tool selection used for structured output.
       </div>
       <Switch
-        style={{ marginBottom: 8 }}
+        className={styles.switch}
         label="Disable thinking mode"
         checked={preferencesStore.disableThinking}
         onChange={(checked: boolean) => (preferencesStore.disableThinking = checked)}
@@ -157,32 +154,29 @@ export const PreferencesPage = observer(() => {
 
       <HorizontalLine />
 
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>Models</div>
-      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
+      <div className={styles.sectionTitle}>Models</div>
+      <div className={styles.sectionHint}>
         Add or remove the models offered in the chat. The model name is sent to the provider API.
       </div>
       {preferencesStore.models.map((model, index) => (
-        <div
-          key={`${model.provider}/${model.name}`}
-          style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}
-        >
-          <span style={{ minWidth: 80, opacity: 0.7 }}>{PROVIDER_LABELS[model.provider] ?? model.provider}</span>
-          <span style={{ flex: 1, fontFamily: "monospace" }}>{model.name}</span>
+        <div key={`${model.provider}/${model.name}`} className={styles.modelRow}>
+          <span className={styles.modelProvider}>{PROVIDER_LABELS[model.provider] ?? model.provider}</span>
+          <span className={styles.modelName}>{model.name}</span>
           <Icon material="delete" small interactive tooltip="Remove model" onClick={() => removeModel(index)} />
         </div>
       ))}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-        <div style={{ minWidth: 120 }}>
+      <div className={styles.addModelRow}>
+        <div className={styles.addModelProvider}>
           <Select
             options={PROVIDER_OPTIONS}
             value={newModelProvider}
-            onChange={(option: SingleValue<SelectOption<AIProviders>>) =>
+            onChange={(option: SelectOption<AIProviders> | null) =>
               setNewModelProvider(option?.value ?? AIProviders.OPEN_AI)
             }
             themeName="lens"
           />
         </div>
-        <div style={{ flex: 1 }}>
+        <div className={styles.addModelName}>
           <Input
             placeholder="Model name, e.g. gpt-5.5"
             value={newModelName}
@@ -192,29 +186,19 @@ export const PreferencesPage = observer(() => {
         </div>
         <Button primary label="Add" onClick={handleAddModel} />
       </div>
-      <div style={{ marginTop: 8 }}>
+      <div className={styles.resetModels}>
         <Button plain label="Reset to defaults" onClick={resetModels} />
       </div>
 
       <HorizontalLine />
 
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>Agent rules</div>
-      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
+      <div className={styles.sectionTitle}>Agent rules</div>
+      <div className={styles.sectionHint}>
         Extra rules appended to the agent system message at the start of every session. Use them to set your own
         conventions, preferences, or constraints. Leave empty to use the built-in rules only.
       </div>
       <textarea
-        style={{
-          width: "100%",
-          minHeight: 150,
-          fontFamily: "monospace",
-          fontSize: 14,
-          padding: 8,
-          borderRadius: 4,
-          border: "1px solid #ccc",
-          background: "#222",
-          color: "#fff",
-        }}
+        className={`${styles.textarea} ${styles.agentRules}`}
         placeholder="e.g. Always answer in English. Prefer kubectl examples over Helm."
         value={customAgentRulesField.value}
         onChange={(e) => customAgentRulesField.onChange(e.target.value)}
@@ -224,27 +208,17 @@ export const PreferencesPage = observer(() => {
 
       <HorizontalLine />
       <div>
-        <div style={{ fontWeight: "bold" }}>Enable MCP</div>
+        <div className={styles.mcpEnabledLabel}>Enable MCP</div>
         <Switch
-          style={{ marginBottom: 8 }}
+          className={styles.switch}
           label="Enable MCP"
           checked={preferencesStore.mcpEnabled}
           onChange={(checked: boolean) => (preferencesStore.mcpEnabled = checked)}
         />
         <div>
-          <div style={{ marginBottom: 8, fontWeight: "bold" }}>MCP JSON Configuration</div>
+          <div className={styles.mcpConfigurationLabel}>MCP JSON Configuration</div>
           <textarea
-            style={{
-              width: "100%",
-              minHeight: 250,
-              fontFamily: "monospace",
-              fontSize: 14,
-              padding: 8,
-              borderRadius: 4,
-              border: "1px solid #ccc",
-              background: "#222",
-              color: "#fff",
-            }}
+            className={`${styles.textarea} ${styles.mcpConfiguration}`}
             placeholder="Paste or edit your MCP JSON configuration here"
             value={mcpConfigurationField.value}
             onChange={(e) => mcpConfigurationField.onChange(e.target.value)}
@@ -256,20 +230,20 @@ export const PreferencesPage = observer(() => {
 
       <HorizontalLine />
 
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>Pod logs</div>
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Require approval before reading pod logs</div>
-      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
+      <div className={styles.sectionTitle}>Pod logs</div>
+      <div className={styles.label}>Require approval before reading pod logs</div>
+      <div className={styles.hint}>
         Pod logs can contain secrets or personal data. When enabled, the agent asks for confirmation before reading
         container logs.
       </div>
       <Switch
-        style={{ marginBottom: 8 }}
+        className={styles.switch}
         label="Require approval before reading pod logs"
         checked={preferencesStore.podLogsRequireApproval}
         onChange={(checked: boolean) => (preferencesStore.podLogsRequireApproval = checked)}
       />
-      <div style={{ marginTop: 8, fontWeight: "bold" }}>Default tail lines</div>
-      <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>
+      <div className={styles.label}>Default tail lines</div>
+      <div className={styles.hint}>
         Number of lines read from the end of the logs when the agent does not request a specific amount.
       </div>
       <Input

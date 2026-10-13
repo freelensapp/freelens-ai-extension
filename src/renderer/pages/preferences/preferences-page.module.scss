@@ -1,0 +1,97 @@
+.sectionTitle {
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.sectionHint {
+  margin-bottom: 8px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.label {
+  margin-top: 8px;
+  font-weight: bold;
+}
+
+.hint {
+  margin-bottom: 4px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+// The host's Switch passes its props to the checkbox, so this is the
+// checkbox's margin.
+.switch {
+  margin-bottom: 8px;
+}
+
+.modelRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.modelProvider {
+  min-width: 80px;
+  opacity: 0.7;
+}
+
+.modelName {
+  flex: 1;
+  font-family: monospace;
+}
+
+.addModelRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.addModelProvider {
+  min-width: 120px;
+}
+
+.addModelName {
+  flex: 1;
+}
+
+.resetModels {
+  margin-top: 8px;
+}
+
+.mcpEnabledLabel {
+  font-weight: bold;
+}
+
+.mcpConfigurationLabel {
+  margin-bottom: 8px;
+  font-weight: bold;
+}
+
+// The text areas follow the theme through the host's variables for input
+// controls, in the light and the dark theme.
+.textarea {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--inputControlBorder);
+  border-radius: 4px;
+  background: var(--inputControlBackground);
+  color: var(--textColorPrimary);
+  font-family: monospace;
+  font-size: 14px;
+
+  &:hover {
+    border-color: var(--inputControlHoverBorder);
+  }
+}
+
+.agentRules {
+  min-height: 150px;
+}
+
+.mcpConfiguration {
+  min-height: 250px;
+}

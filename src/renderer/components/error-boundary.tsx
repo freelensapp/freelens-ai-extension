@@ -4,6 +4,7 @@ import { ErrorPage } from "./error-page";
 
 type PageRegistration = Renderer.LensExtension["clusterPages"][number];
 type MenuRegistration = Renderer.LensExtension["kubeObjectMenuItems"][number];
+type PreferenceRegistration = Renderer.LensExtension["appPreferences"][number];
 
 export interface ErrorBoundaryProps {
   extension: Renderer.LensExtension;
@@ -31,9 +32,9 @@ interface ErrorBoundaryState {
  * name of the extension and the component stack, and renders the error page, or nothing, in place of the children.
  *
  * A `try`/`catch` around the call of a component does not see such an error: a child component renders later than
- * the call. The host has no boundary around a menu item of an extension, and its boundary around the cluster frame
- * would replace the whole cluster view. The registrations of the extension are wrapped with `withPageErrorBoundary`
- * and `withMenuItemErrorBoundary`.
+ * the call. The host has no boundary around a menu item or the preferences of an extension, and its boundary around
+ * a frame would replace the whole cluster view or preferences page. The registrations of the extension are wrapped
+ * with `withPageErrorBoundary`, `withMenuItemErrorBoundary` and `withPreferenceErrorBoundary`.
  *
  * It is a class component of the host's React, because only a class component can be an error boundary, with no
  * decorators and no `observer`: it reads no observable, and the children it renders are observers of their own.
@@ -99,6 +100,34 @@ export function withMenuItemErrorBoundary(
       MenuItem: (props) => (
         <ErrorBoundary extension={extension} fallback="nothing" resetKey={props.object}>
           <MenuItem {...props} />
+        </ErrorBoundary>
+      ),
+    },
+  };
+}
+
+/**
+ * The registration of a preference, with its input inside an error boundary that renders the error page, and its
+ * hint inside one that renders nothing, so that an error stays in this extension's preferences.
+ */
+export function withPreferenceErrorBoundary(
+  extension: Renderer.LensExtension,
+  registration: PreferenceRegistration,
+): PreferenceRegistration {
+  const { Input, Hint } = registration.components;
+
+  return {
+    ...registration,
+    components: {
+      ...registration.components,
+      Input: () => (
+        <ErrorBoundary extension={extension}>
+          <Input />
+        </ErrorBoundary>
+      ),
+      Hint: () => (
+        <ErrorBoundary extension={extension} fallback="nothing">
+          <Hint />
         </ErrorBoundary>
       ),
     },
