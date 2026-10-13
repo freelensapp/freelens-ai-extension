@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 import { standardDecorators } from "./build/vite-plugin-standard-decorators.mjs";
@@ -25,5 +26,14 @@ export default defineConfig({
     // import "vitest".
     include: ["src/**/*.test.{ts,tsx}"],
     passWithNoTests: true,
+    alias: {
+      // The host provides `@freelensapp/extensions` on
+      // `globalThis.FreelensExtensionApi`, and the package is a shim that reads
+      // that global when it is imported, so the real package throws in a test.
+      // Tests import a small stub instead - see `test/freelens-extensions.ts`.
+      // The other host modules (react, mobx, ...) resolve to the
+      // devDependencies, which are pinned to the host's versions.
+      "@freelensapp/extensions": fileURLToPath(new URL("./test/freelens-extensions.ts", import.meta.url)),
+    },
   },
 });

@@ -338,10 +338,26 @@ registers its automatic cleanup only when `afterEach` is a global.
 
 `vitest.config.ts` uses the build's plugins (the standard decorators and
 React), runs tests in Node, and a test that renders a component opts into jsdom
-with a `// @vitest-environment jsdom` comment. Tests cover modules kept free of
-`@freelensapp/extensions`, whose shim reads the host's global when it is loaded
-and so throws under Vitest; a test that needs such a module gets an `alias` of
-the package to a stub in `test/`.
+with a `// @vitest-environment jsdom` comment.
+
+The shim of `@freelensapp/extensions` reads the host's global when it is
+loaded, so it throws under Vitest. `vitest.config.ts` aliases the package to
+`test/freelens-extensions.ts`, a stub of the runtime surface the tests reach:
+an in-memory `Common.Store.ExtensionStore` (a singleton per class, with
+`resetInstance()` between tests), and `vi.fn()` stand-ins for
+`Main.Catalog.getClusterById`, `Main.K8sApi.KubeJsonApi.forCluster`,
+`Main.Shell.getEnvironment` and `Main.Util.fetch`. Extend it when a test needs
+more of the host; it is runtime only, the types stay the real declaration's.
+knip does not follow the alias, so the stub is an entry of `knip.jsonc`.
+
+`test/kube-json-api.ts` is a stand-in `KubeJsonApi` for the Kubernetes tools:
+it answers a GET from a map of paths (the discovery documents included),
+records every request, and `installFakeClusters()` hands one per cluster id to
+the stubbed `forCluster`. The tool tests assert on the recorded requests. The
+approval gate runs inside a real LangGraph graph in `agent-service.test.ts`,
+since `interrupt()` needs one; elsewhere `@langchain/langgraph` is mocked so
+that `interrupt()` answers at once. The bridge is tested over plain HTTP on an
+ephemeral port.
 
 The root `tsconfig.json` checks the tooling files. It has `checkJs`, so the
 Vite config and the build plugins are type-checked too; give their function

@@ -9,6 +9,8 @@
     "vite.config.mjs",
     "src/main/index.ts!",
     "src/renderer/index.tsx!",
+    // the Vitest alias for @freelensapp/extensions, which knip does not follow
+    "test/freelens-extensions.ts",
     // compiled by `type:check:environments` only, with no importer
     "environment-tests/*.ts"
   ],
@@ -20,7 +22,8 @@
     // the CSS module declarations. TypeScript reaches them through
     // allowArbitraryExtensions, while knip resolves `import styles from
     // "./x.module.scss"` to the stylesheet, so it would report them as unused
-    "!src/**/*.d.scss.ts"
+    "!src/**/*.d.scss.ts",
+    "test/**/*.ts"
   ],
 
   // The Vite plugin adds the renderer entry of vite.config.mjs as an entry of
