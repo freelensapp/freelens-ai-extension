@@ -1,5 +1,5 @@
 import { MemorySaver } from "@langchain/langgraph";
-import { AgentStateStore } from "../../../common/store/agent-state-store";
+import { AgentStateStore } from "../../common/store/agent-state-store";
 import { deserializeSaverState, serializeSaverState } from "./checkpoint-serialization";
 
 /**

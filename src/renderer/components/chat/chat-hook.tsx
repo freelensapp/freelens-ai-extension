@@ -1,4 +1,3 @@
-import { Renderer } from "@freelensapp/extensions";
 import * as React from "react";
 
 const { useEffect, useRef } = React;
@@ -8,13 +7,6 @@ import useChatService from "../../business/service/chat-service";
 import { useApplicationStatusStore } from "../../context/application-context";
 
 import type { MessageObject } from "../../../common/objects/message-object";
-
-export interface ActionToApprove {
-  action: string;
-  name?: string;
-  namespace?: string;
-  data?: Renderer.K8sApi.KubeObject;
-}
 
 export const useChatHook = () => {
   const chatService = useChatService();

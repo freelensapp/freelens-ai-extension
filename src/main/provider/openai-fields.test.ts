@@ -1,33 +1,21 @@
-import { describe, expect, it } from "vitest";
-import { buildOpenAIChatFields, PROXY_TOKEN_HEADER, UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
+import { describe, expect, it, vi } from "vitest";
+import { buildOpenAIChatFields } from "./openai-fields";
+
+const fetch = vi.fn<typeof globalThis.fetch>();
 
 const baseOptions = {
   apiKey: "sk-test",
-  upstreamBaseUrl: "https://api.openai.com/v1",
-  proxyBaseUrl: "http://127.0.0.1:1234",
+  baseUrl: "https://gateway.example.com/v1",
+  fetch,
 };
 
 describe("buildOpenAIChatFields", () => {
-  it("routes through the proxy and advertises the upstream via header", () => {
+  it("sends the requests to the endpoint with the given fetch and key", () => {
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-4.1" });
     expect(fields.model).toBe("gpt-4.1");
     expect(fields.apiKey).toBe("sk-test");
-    expect(fields.configuration?.baseURL).toBe("http://127.0.0.1:1234/openai");
-    expect(fields.configuration?.defaultHeaders).toMatchObject({
-      [UPSTREAM_BASE_URL_HEADER]: "https://api.openai.com/v1",
-    });
-  });
-
-  it("sends the proxy token header when a token is provided", () => {
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-4.1", proxyToken: "secret-token" });
-    expect(fields.configuration?.defaultHeaders).toMatchObject({
-      [PROXY_TOKEN_HEADER]: "secret-token",
-    });
-  });
-
-  it("omits the proxy token header when no token is provided", () => {
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-4.1" });
-    expect(fields.configuration?.defaultHeaders).not.toHaveProperty(PROXY_TOKEN_HEADER);
+    expect(fields.configuration?.baseURL).toBe("https://gateway.example.com/v1");
+    expect(fields.configuration?.fetch).toBe(fetch);
   });
 
   it("sets temperature 0 and no reasoning effort for non-reasoning models", () => {

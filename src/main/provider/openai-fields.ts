@@ -1,5 +1,5 @@
 // Pure builder for the `ChatOpenAIFields` passed to `ChatOpenAI`. Separated from
-// `model-provider.ts` so the option-building logic (proxy routing header,
+// `model-provider.ts` so the option-building logic (endpoint, fetch,
 // reasoning-effort vs temperature heuristic) can be unit-tested without the
 // MobX store or instantiating a real client.
 
@@ -7,29 +7,18 @@ import { isReasoningModel } from "./model-capabilities";
 
 import type { ChatOpenAIFields } from "@langchain/openai";
 
-// Header read by the local AI proxy to decide which upstream to forward to,
-// letting the user configure a custom base URL without changing the proxy code.
-export const UPSTREAM_BASE_URL_HEADER = "x-upstream-base-url";
-
-// Header carrying the per-launch shared secret the proxy requires on every
-// request.
-export const PROXY_TOKEN_HEADER = "x-ai-proxy-token";
-
-// Header that tells the proxy to fetch a public resource without attaching the
-// managed API key (see model-pricing-provider.ts).
-export const PROXY_NO_AUTH_HEADER = "x-ai-proxy-no-auth";
+type ClientFetch = NonNullable<NonNullable<ChatOpenAIFields["configuration"]>["fetch"]>;
 
 export interface OpenAIChatFieldsOptions {
   // Model id sent to the OpenAI API (e.g. "gpt-5.5").
   modelName: string;
   // API key used for the request.
   apiKey: string;
-  // Full upstream base URL advertised to the proxy (e.g. https://api.openai.com/v1).
-  upstreamBaseUrl: string;
-  // Local proxy origin (e.g. http://127.0.0.1:<port>); the "/openai" prefix is appended.
-  proxyBaseUrl: string;
-  // Per-launch shared secret sent to the proxy so it accepts the request.
-  proxyToken?: string | null;
+  // Base URL of the OpenAI-compatible endpoint (e.g. https://api.openai.com/v1).
+  baseUrl: string;
+  // The fetch the client sends its requests with: the host's, so the user's
+  // HTTPS proxy and certificate preferences apply (see host-fetch.ts).
+  fetch: ClientFetch;
   // Optional reasoning effort; applied only to reasoning-capable models.
   reasoningEffort?: string;
   // When true, request the upstream to disable its "thinking" mode. Some
@@ -43,9 +32,8 @@ export interface OpenAIChatFieldsOptions {
 export const buildOpenAIChatFields = ({
   modelName,
   apiKey,
-  upstreamBaseUrl,
-  proxyBaseUrl,
-  proxyToken,
+  baseUrl,
+  fetch,
   reasoningEffort,
   disableThinking,
 }: OpenAIChatFieldsOptions): ChatOpenAIFields => {
@@ -53,13 +41,8 @@ export const buildOpenAIChatFields = ({
     model: modelName,
     apiKey,
     configuration: {
-      // The proxy strips the "/openai" prefix and forwards to the upstream
-      // advertised via UPSTREAM_BASE_URL_HEADER.
-      baseURL: `${proxyBaseUrl}/openai`,
-      defaultHeaders: {
-        [UPSTREAM_BASE_URL_HEADER]: upstreamBaseUrl,
-        ...(proxyToken ? { [PROXY_TOKEN_HEADER]: proxyToken } : {}),
-      },
+      baseURL: baseUrl,
+      fetch,
     },
   };
 
@@ -69,8 +52,8 @@ export const buildOpenAIChatFields = ({
     if (reasoningEffort) {
       // `@langchain/openai` v1 dropped the top-level `reasoningEffort`
       // constructor field in favor of `reasoning.effort`. The chat-completions
-      // path (used through our proxy) maps `reasoning.effort` back to the
-      // `reasoning_effort` request parameter.
+      // path maps `reasoning.effort` back to the `reasoning_effort` request
+      // parameter.
       fields.reasoning = { effort: reasoningEffort as NonNullable<ChatOpenAIFields["reasoning"]>["effort"] };
     }
   } else {

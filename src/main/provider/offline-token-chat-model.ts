@@ -29,7 +29,7 @@
 
 import { BaseLanguageModel } from "@langchain/core/language_models/base";
 import { ChatOpenAI } from "@langchain/openai";
-import { approximateTokenCount } from "./token-estimate";
+import { approximateTokenCount } from "../../common/provider/token-estimate";
 
 import type { MessageContent } from "@langchain/core/messages";
 

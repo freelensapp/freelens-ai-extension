@@ -30,7 +30,7 @@
 
 import { ChatGenerationChunk } from "@langchain/core/outputs";
 import { concat } from "@langchain/core/utils/stream";
-import { recoverDsmlToolCalls } from "../agent/leaked-tool-calls";
+import { recoverDsmlToolCalls } from "../agents/leaked-tool-calls";
 import { OfflineTokenChatOpenAI } from "./offline-token-chat-model";
 
 import type { CallbackManagerForLLMRun } from "@langchain/core/callbacks/manager";

@@ -1,30 +1,26 @@
-import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../../../common/provider/ai-models";
-import { findProvider } from "../../../common/provider/model-list";
-import { PreferencesStore } from "../../../common/store";
+import { Main } from "@freelensapp/extensions";
+import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../../common/provider/ai-models";
+import { findProvider } from "../../common/provider/model-list";
+import { PreferencesStore } from "../../common/store";
 import { DsmlAwareChatOpenAI } from "./dsml-aware-chat-model";
+import { createStandardFetch } from "./host-fetch";
 import { emitsDsmlToolCalls } from "./model-capabilities";
 import { OfflineTokenChatOpenAI } from "./offline-token-chat-model";
 import { buildOpenAIChatFields } from "./openai-fields";
 
-// Re-exported for callers that imported it from here previously; the canonical
-// definition now lives next to the field builder.
-export { UPSTREAM_BASE_URL_HEADER } from "./openai-fields";
+// Read at call time: the namespace is the host's, and exists only once the
+// extension is loaded.
+const hostFetch: typeof globalThis.fetch = (input, init) => createStandardFetch(Main.Util.fetch)(input, init);
 
-// Placeholder key sent to the SDK so it populates the Authorization header; the
-// AI proxy overrides it with the real key resolved in the main process, so the
-// secret never travels through the renderer.
-const PROXY_MANAGED_API_KEY = "freelens-proxy-managed";
-
-const getAiProxyBaseUrl = (aiProxyPort: number | null) => {
-  if (aiProxyPort === null) {
-    throw new Error("AI proxy is not ready yet. Retry in a moment.");
-  }
-
-  return `http://127.0.0.1:${aiProxyPort}`;
-};
+/**
+ * The OpenAI API key: OPENAI_API_KEY of main's environment, else the key of the
+ * preferences. Read per model, so a key changed in the preferences applies to
+ * the next request. It never leaves main.
+ */
+export const resolveOpenAIKey = (preferencesStore: PreferencesStore): string | undefined =>
+  process.env.OPENAI_API_KEY?.trim() || preferencesStore.openAIKey.trim() || undefined;
 
 export const useModelProvider = () => {
-  // @ts-ignore
   const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
   const getModel = () => {
@@ -41,14 +37,16 @@ export const useModelProvider = () => {
 
     switch (provider) {
       case AIProviders.OPEN_AI: {
-        const openAIBaseUrl = preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
+        const apiKey = resolveOpenAIKey(preferencesStore);
+        if (!apiKey) {
+          throw new Error("No API key configured. Set it in the extension preferences or in OPENAI_API_KEY.");
+        }
 
         const fields = buildOpenAIChatFields({
           modelName,
-          apiKey: PROXY_MANAGED_API_KEY,
-          upstreamBaseUrl: openAIBaseUrl,
-          proxyBaseUrl: getAiProxyBaseUrl(preferencesStore.aiProxyPort),
-          proxyToken: preferencesStore.aiProxyToken,
+          apiKey,
+          baseUrl: preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
+          fetch: hostFetch,
           reasoningEffort: preferencesStore.openAIReasoningEffort,
           disableThinking: preferencesStore.disableThinking,
         });

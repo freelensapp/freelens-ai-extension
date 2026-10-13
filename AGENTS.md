@@ -359,24 +359,60 @@ store; there is no hardcoded model enum. What `PreferencesStore` needs lives in
 - `model-list.ts` — pure helpers for the editable list (trim, dedupe, remove,
   `resolveSelectedModel` selection fallback). No host/MobX deps so they are
   unit-tested directly.
+- `chat-readiness.ts` — whether a model and a key are configured, asked by the
+  chat input and by Explain in main. The renderer has no environment of its
+  own: main sets `openAIKeyFromEnvironment` in the store when `OPENAI_API_KEY`
+  is set, and never sends the key.
+- `model-pricing.ts`, `token-estimate.ts` — the pure cost and token math, used
+  by both processes.
 
-The rest is in `src/renderer/business/provider/`:
+The chat models run in main, with the agents, so the API key never leaves main.
+The rest is in `src/main/provider/`:
 
 - `model-capabilities.ts` — name heuristics (regex) deciding model behavior.
   Add new model families here rather than hardcoding ids. Reasoning models
   (`o<n>`, `gpt-5.x`) take a reasoning effort and reject `temperature`.
-- `chat-readiness.ts` — whether a model and a key are configured. The renderer
-  has no environment of its own: main sets `openAIKeyFromEnvironment` in the
-  store when `OPENAI_API_KEY` is set, and never sends the key.
-- `openai-fields.ts` — pure `buildOpenAIChatFields` builder (proxy routing
-  header + reasoning-effort/temperature heuristic), unit-tested in isolation.
+- `openai-fields.ts` — pure `buildOpenAIChatFields` builder (endpoint, fetch,
+  reasoning-effort/temperature heuristic), unit-tested in isolation.
 - `model-provider.ts` — `getModel()` resolves the selected model's provider and
-  builds the LangChain client; throws when no model is selected.
+  builds the LangChain client with the key of `OPENAI_API_KEY` or the
+  preferences; throws when no model or no key is configured.
+- `host-fetch.ts` — the client's `fetch` is `Main.Util.fetch`, so the user's
+  HTTPS proxy and certificate preferences apply. The host's structural `Fetch`
+  is not assignable to the standard `fetch` the OpenAI SDK takes, so this
+  adapter asserts the type once; it is the only place the extension asserts a
+  host type.
+- `model-pricing-provider.ts` — fetches `/model/info` of the endpoint and the
+  public LiteLLM price list, served to the renderer by the bridge.
 
-A custom base URL is routed to the local proxy (`src/main/ai-proxy-server.ts`)
-via the `x-upstream-base-url` header rather than being passed straight to the
-client. When changing the heuristics or list logic, prefer extending the pure
-helpers and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`).
+When changing the heuristics or list logic, prefer extending the pure helpers
+and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`).
+
+## Agents and the Bridge
+
+The LangGraph agents run in main (`src/main/agents/`), with LangGraph's Node
+entry, whose `AsyncLocalStorage` gives `interrupt()`, the approval gate of the
+mutating tools, its run context; a browser page has no equivalent. The
+renderer keeps the views and talks to the agents over a local HTTP bridge:
+
+- `src/common/bridge/protocol.ts` — the routes, the request and response types
+  and the events of a run; `sse.ts` encodes and reads the event stream.
+- `src/main/bridge/server.ts` — the server on `127.0.0.1` and an ephemeral
+  port: a per-launch token in `x-freelens-ai-token` on every request, CORS
+  with the caller's Origin reflected. A streamed route answers with SSE, ends
+  with a `done` or an `error` event, and is aborted when the caller closes the
+  request. `routes.ts` maps the routes to the `AgentRuntime`.
+- `src/main/agents/agent-runtime.ts` — the agents of every cluster, keyed by
+  the cluster id each request carries, so two cluster frames never share a run
+  or a memory. Its checkpointer state is written to `AgentStateStore` in main.
+- `src/renderer/business/bridge/bridge-client.ts` — requests with
+  `Renderer.Util.fetch`; the port and token are read from `PreferencesStore`
+  for every request.
+
+Main starts the bridge in `onActivate`, writes its port and token into
+`PreferencesStore`, and closes it in `onDeactivate`, which cancels every open
+run, so a reload leaves exactly one bridge bound and the chat reaches the new
+one without reopening the page.
 
 ## Code Style
 

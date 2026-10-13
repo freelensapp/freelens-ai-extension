@@ -1,4 +1,4 @@
-import { PreferencesStore } from "../../../common/store";
+import { PreferencesStore } from "../../common/store";
 import { appendCustomAgentRules } from "./agent-rules";
 
 // Store-aware wrapper around `appendCustomAgentRules`: reads the custom agent

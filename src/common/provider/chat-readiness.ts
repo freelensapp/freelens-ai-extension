@@ -2,8 +2,8 @@
 // Kept free of any host (`@freelensapp/extensions`) or MobX dependency so it can
 // be unit-tested in isolation and reused by the chat input.
 
-import { AIProviders, type CustomModel } from "../../../common/provider/ai-models";
-import { findProvider } from "../../../common/provider/model-list";
+import { AIProviders, type CustomModel } from "./ai-models";
+import { findProvider } from "./model-list";
 
 export interface AgentReadinessInput {
   models: CustomModel[];

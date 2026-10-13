@@ -1,14 +1,13 @@
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { PreferencesStore } from "../../../common/store";
-import useLog from "../../utils/logger/logger-service";
-import { buildAgentReadinessInput, isAgentConfigured } from "../provider/chat-readiness";
+import { buildAgentReadinessInput, isAgentConfigured } from "../../common/provider/chat-readiness";
+import { PreferencesStore } from "../../common/store";
 import { useModelProvider } from "../provider/model-provider";
 import { ANALYSIS_PROMPT_TEMPLATE } from "../provider/prompt-template-provider";
+import useLog from "../utils/logger";
+import { wait } from "./wait";
 
 const MAX_GEMINI_STREAM_RETRIES = 3;
 const BASE_BACKOFF_MS = 700;
-
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isGeminiTransientError = (error: unknown) => {
   if (!(error instanceof Error)) {
@@ -34,13 +33,13 @@ const getRetryDelay = (attempt: number) => {
 };
 
 export interface AiAnalysisService {
-  analyze: (message: string) => AsyncGenerator<string, void, unknown>;
+  analyze: (message: string, signal: AbortSignal) => AsyncGenerator<string, void, unknown>;
 }
 
 export const useAiAnalysisService = (): AiAnalysisService => {
   const { log } = useLog("useAiAnalysisService");
 
-  const analyze = async function* (message: string) {
+  const analyze = async function* (message: string, signal: AbortSignal) {
     log.debug("Starting AI analysis for message: ", message);
 
     if (!message) {
@@ -65,7 +64,7 @@ export const useAiAnalysisService = (): AiAnalysisService => {
       let hasYieldedContent = false;
 
       try {
-        const streamResponse = await chain.stream({ context: message });
+        const streamResponse = await chain.stream({ context: message }, { signal });
 
         for await (const chunk of streamResponse) {
           if (chunk?.content) {
@@ -76,13 +75,17 @@ export const useAiAnalysisService = (): AiAnalysisService => {
 
         return;
       } catch (error) {
-        const canRetry = !hasYieldedContent && isGeminiTransientError(error) && attempt <= MAX_GEMINI_STREAM_RETRIES;
+        const canRetry =
+          !signal.aborted &&
+          !hasYieldedContent &&
+          isGeminiTransientError(error) &&
+          attempt <= MAX_GEMINI_STREAM_RETRIES;
 
         if (!canRetry) {
           throw error;
         }
 
-        await wait(getRetryDelay(attempt));
+        await wait(getRetryDelay(attempt), signal);
       }
     }
   };

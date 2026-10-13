@@ -1,7 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as React from "react";
+import { buildAgentReadinessInput, isAgentConfigured } from "../../../common/provider/chat-readiness";
 import { PreferencesStore } from "../../../common/store";
-import { buildAgentReadinessInput, isAgentConfigured } from "../../business/provider/chat-readiness";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { navigateToExtensionPreferences } from "../../navigation/navigate-to-extension-preferences";
 

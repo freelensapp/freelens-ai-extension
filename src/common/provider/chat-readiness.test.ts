@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AIProviders, type CustomModel } from "../../../common/provider/ai-models";
+import { AIProviders, type CustomModel } from "./ai-models";
 import { buildAgentReadinessInput, isAgentConfigured } from "./chat-readiness";
 
 const openAiModels: CustomModel[] = [

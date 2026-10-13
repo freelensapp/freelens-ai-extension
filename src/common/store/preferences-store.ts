@@ -32,8 +32,10 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
   openAIBaseUrl: string = DEFAULT_OPENAI_BASE_URL;
   openAIReasoningEffort: string = "";
   disableThinking: boolean = false;
+  // Port of the local bridge to the agents in main (src/main/bridge/), null
+  // while it is not running. Written by main on activation.
   aiProxyPort: number | null = null;
-  // Per-launch shared secret required on every request to the local AI proxy.
+  // Per-launch shared secret required on every request to the bridge.
   // Generated in the main process on activation and synced to the renderer via
   // this store; blocks other local processes that learn the port from using it.
   aiProxyToken: string | null = null;

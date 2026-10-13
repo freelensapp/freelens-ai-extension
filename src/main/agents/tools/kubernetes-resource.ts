@@ -1,7 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import { interrupt } from "@langchain/langgraph";
 import { stringify as stringifyYaml } from "yaml";
-import { PreferencesStore } from "../../../../common/store";
+import { PreferencesStore } from "../../../common/store";
 import { type KubernetesVersionInfo, summarizeClusterVersion } from "./cluster-version";
 import { buildFieldSelector } from "./field-filter";
 import {

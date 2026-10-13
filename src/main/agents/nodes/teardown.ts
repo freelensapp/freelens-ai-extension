@@ -1,5 +1,5 @@
 import { RemoveMessage } from "@langchain/core/messages";
-import { redactSecrets } from "../../../../common/utils/redact";
+import { redactSecrets } from "../../../common/utils/redact";
 import { GraphState } from "../state/graph-state";
 
 /* this is the size of the history to keep in the state.

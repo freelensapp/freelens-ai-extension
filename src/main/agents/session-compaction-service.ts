@@ -3,9 +3,13 @@
 // token limit. The decision math and prompt assembly are the pure helpers in
 // session-compaction.ts; this module owns the impure model invocation.
 
+import { messageContentToText } from "../../common/provider/token-estimate";
+import {
+  buildSummaryPrompt,
+  type HistoryMessageLike,
+  toSummarizableMessages,
+} from "../../common/service/session-compaction";
 import { useModelProvider } from "../provider/model-provider";
-import { messageContentToText } from "../provider/token-estimate";
-import { buildSummaryPrompt, type HistoryMessageLike, toSummarizableMessages } from "./session-compaction";
 
 export interface SessionCompactionService {
   // Summarize the given model-side history into a single compact summary string.

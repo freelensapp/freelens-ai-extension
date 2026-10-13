@@ -4,7 +4,7 @@
  */
 
 import { Renderer } from "@freelensapp/extensions";
-import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
+import { ChatSessionStore, PreferencesStore } from "../common/store";
 import { FreeLensAiIcon } from "./components/freelens-ai-icon";
 import { MenuEntry } from "./components/menu-entry";
 import { setNavigateToExtensionPreferences } from "./navigation/navigate-to-extension-preferences";
@@ -19,10 +19,10 @@ export default class FreeLensAIRenderer extends Renderer.LensExtension {
     // The chat's "Configure agent" button opens this extension's own
     // preferences tab.
     setNavigateToExtensionPreferences(() => this.navigateToPreferences());
+    // The bridge's port and token, written by main, are read from here too.
     PreferencesStore.getInstanceOrCreate<PreferencesStore>().loadExtension(this);
-    // Durable, host-managed storage for the agents' LangGraph checkpointer
-    // state, so the conversation context survives an application restart.
-    AgentStateStore.getInstanceOrCreate<AgentStateStore>().loadExtension(this);
+    // The agents' checkpointer state (AgentStateStore) is main's alone: the
+    // agents run there.
     // Durable, host-managed storage for the rendered chat transcript and
     // conversation id, so the chat HTML survives an application restart.
     ChatSessionStore.getInstanceOrCreate<ChatSessionStore>().loadExtension(this);

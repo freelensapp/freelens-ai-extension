@@ -1,17 +1,24 @@
 import { randomBytes } from "node:crypto";
 import { Main } from "@freelensapp/extensions";
+import { DEFAULT_OPENAI_BASE_URL } from "../common/provider/ai-models";
 import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
-import { startAiProxyServer } from "./ai-proxy-server";
+import { AgentRuntime } from "./agents/agent-runtime";
+import { createBridgeRoutes } from "./bridge/routes";
+import { type BridgeServer, startBridgeServer } from "./bridge/server";
+import { fetchModelPricing } from "./provider/model-pricing-provider";
+import { resolveOpenAIKey } from "./provider/model-provider";
 
 export default class LensExtensionAiMain extends Main.LensExtension {
+  private bridge: BridgeServer | null = null;
+
   async onActivate() {
     const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
     preferencesStore.loadExtension(this);
 
-    // Owns the on-disk file for the persisted LangGraph checkpointer state. The
-    // main process must load it so the renderer receives the persisted value
-    // over IPC and the agent can restore its conversation after a restart.
+    // Owns the on-disk file for the persisted LangGraph checkpointer state,
+    // which the agents read and write here in main, so the agent can restore
+    // its conversation after a restart.
     AgentStateStore.getInstanceOrCreate<AgentStateStore>().loadExtension(this);
 
     // Owns the on-disk file for the persisted chat transcript and conversation
@@ -23,19 +30,37 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     // whether OPENAI_API_KEY is set, never the key.
     preferencesStore.openAIKeyFromEnvironment = Boolean(process.env.OPENAI_API_KEY?.trim());
 
-    // Generate a fresh shared secret for this launch and require it on every
-    // proxy request, so a local process that learns the port cannot reuse the
+    // A fresh shared secret for this launch, required on every bridge request,
+    // so a local process that learns the port cannot drive the agents with the
     // user's API key.
-    const aiProxyToken = randomBytes(32).toString("hex");
-    preferencesStore.aiProxyToken = aiProxyToken;
-
+    const token = randomBytes(32).toString("hex");
     preferencesStore.aiProxyPort = null;
-    // The proxy injects the API key into the upstream request from here in the
-    // main process, so the key never has to be sent from the renderer. It also
-    // requires the per-launch shared secret on every request.
-    preferencesStore.aiProxyPort = await startAiProxyServer(
-      aiProxyToken,
-      () => process.env.OPENAI_API_KEY || preferencesStore.openAIKey || undefined,
-    );
+    preferencesStore.aiProxyToken = token;
+
+    const runtime = new AgentRuntime();
+    this.bridge = await startBridgeServer({
+      token,
+      routes: createBridgeRoutes({
+        runtime,
+        fetchModelPricing: () =>
+          fetchModelPricing({
+            modelNames: preferencesStore.models.map((model) => model.name),
+            openAIBaseUrl: preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
+            apiKey: resolveOpenAIKey(preferencesStore),
+            fetch: Main.Util.fetch,
+          }),
+      }),
+    });
+    // The renderer reads the port and the token for every request, so after a
+    // reload it reaches the new bridge without reopening the page.
+    preferencesStore.aiProxyPort = this.bridge.port;
+  }
+
+  async onDeactivate() {
+    // Cancels every open run, so a reload leaves exactly one bridge bound.
+    const bridge = this.bridge;
+    this.bridge = null;
+    PreferencesStore.getInstanceOrCreate<PreferencesStore>().aiProxyPort = null;
+    await bridge?.close();
   }
 }

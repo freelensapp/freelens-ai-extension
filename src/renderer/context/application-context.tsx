@@ -1,30 +1,29 @@
-import { RemoveMessage } from "@langchain/core/messages";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
 
 const { observer } = MobxReact;
 const { createContext, useContext, useEffect, useRef, useState } = React;
 
+import { BridgeRoute } from "../../common/bridge/protocol";
 import { MessageType } from "../../common/objects/message-type";
-import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../../common/provider/ai-models";
+import { computeSessionCost, type ModelPricingMap } from "../../common/provider/model-pricing";
+import { resolveMaxInputTokens } from "../../common/service/session-compaction";
 import { emptyTokenUsage, addTokenUsage as sumTokenUsage, type TokenUsage } from "../../common/service/token-usage";
 import { PreferencesStore } from "../../common/store";
-import { AgentStateStore } from "../../common/store/agent-state-store";
 import { ChatSessionStore } from "../../common/store/chat-session-store";
 import { generateUuid } from "../../common/utils/uuid";
-import { type AgentsStore, agentsStore as sharedAgentsStore } from "../business/agent/agents-store";
-import { FreeLensAgent, useFreeLensAgentSystem } from "../business/agent/freelens-agent-system";
-import { MPCAgent, useMcpAgent } from "../business/agent/mcp-agent";
+import { getFromBridge, postToBridge } from "../business/bridge/bridge-client";
 import { getActiveClusterId } from "../business/cluster/active-cluster";
 import { getTextMessage } from "../business/objects/message-object-provider";
-import { computeSessionCost, type ModelPricingMap } from "../business/provider/model-pricing";
-import { fetchModelPricing } from "../business/provider/model-pricing-provider";
-import { approximateTokenCount } from "../business/provider/token-estimate";
-import { resolveMaxInputTokens } from "../business/service/session-compaction";
-import { useSessionCompactionService } from "../business/service/session-compaction-service";
 import useLog from "../utils/logger/logger-service";
 import { IS_CONVERSATION_INTERRUPTED_KEY, IS_LOADING_KEY } from "./chat-session-storage";
 
+import type {
+  CompactResponse,
+  ModelPricingResponse,
+  ToolDescription,
+  ToolsResponse,
+} from "../../common/bridge/protocol";
 import type { MessageObject } from "../../common/objects/message-object";
 
 // Transient status shown while the session is compacted: dimmed "Compacting
@@ -33,7 +32,8 @@ import type { MessageObject } from "../../common/objects/message-object";
 export type CompactionStatus = "compacting" | "compacted" | null;
 
 export interface AppContextType {
-  apiKey: string;
+  // The cluster of this frame, sent with every request to the agents.
+  clusterId: string;
   selectedModel: string;
   mcpEnabled: boolean;
   mcpConfiguration: string;
@@ -57,8 +57,6 @@ export interface AppContextType {
   lastPeakInputTokens: number;
   // Transient compaction status shown in the input bar, or null when idle.
   compactionStatus: CompactionStatus;
-  freeLensAgent: FreeLensAgent | null;
-  mcpAgent: MPCAgent | null;
   setSelectedModel: (selectedModel: string) => void;
   addTokenUsage: (usage: TokenUsage) => void;
   setLastInputTokens: (lastInputTokens: number) => void;
@@ -79,9 +77,8 @@ export interface AppContextType {
   updateLastMessage: (newText: string) => void;
   updateLastMessageReasoning: (newText: string) => void;
   clearChat: () => void;
-  getActiveAgent: () => Promise<any>;
   changeInterruptStatus: (id: string, status: boolean) => void;
-  getAvailableTools: () => Promise<any[]>;
+  getAvailableTools: () => Promise<ToolDescription[]>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -91,7 +88,6 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   const [preferencesStore, _setPreferencesStore] = useState<PreferencesStore>(
     PreferencesStore.getInstanceOrCreate<PreferencesStore>(),
   );
-  const [agentsStore, _setAgentsStore] = useState<AgentsStore>(sharedAgentsStore);
   const [chatSessionStore, _setChatSessionStore] = useState<ChatSessionStore>(
     ChatSessionStore.getInstanceOrCreate<ChatSessionStore>(),
   );
@@ -113,17 +109,10 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   // Model name => pricing, fetched on start and whenever the model list or
   // endpoint changes. Used to estimate the per-session cost shown by the UI.
   const [modelPricing, _setModelPricing] = useState<ModelPricingMap>({});
-  const [freeLensAgent, _setFreeLensAgent] = useState<FreeLensAgent | null>(agentsStore.freeLensAgent);
-  const [mcpAgent, _setMcpAgent] = useState<MPCAgent | null>(agentsStore.mcpAgent);
 
-  const prevMcpConfiguration = useRef(preferencesStore.mcpConfiguration);
   // Holds the pending timer that hides the "Compacted conversation." status after
   // a short delay, so a new compaction can cancel and restart it.
   const compactionStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const mcpAgentSystem = useMcpAgent(preferencesStore.mcpConfiguration);
-  const freeLensAgentSystem = useFreeLensAgentSystem();
-  const sessionCompactionService = useSessionCompactionService();
 
   // Init variables
   useEffect(() => {
@@ -133,21 +122,18 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     _loadChatMessages();
     _setTokenUsage(chatSessionStore.getTokenUsage(clusterId));
     _setLastInputTokens(chatSessionStore.getLastInputTokens(clusterId));
-    _initFreeLensAgent();
   }, []);
 
-  // Fetch model pricing on start and whenever the model list, endpoint, or proxy
-  // changes. Best-effort: failures leave the map empty and the cost is hidden.
-  const modelNames = preferencesStore.models.map((model) => model.name);
-  const modelNamesKey = modelNames.join(",");
+  // Fetch model pricing from main on start and whenever the model list, the
+  // endpoint, or the bridge changes. Best-effort: failures leave the map empty
+  // and the cost is hidden.
+  const modelNamesKey = preferencesStore.models.map((model) => model.name).join(",");
   useEffect(() => {
+    if (preferencesStore.aiProxyPort === null) {
+      return;
+    }
     let cancelled = false;
-    fetchModelPricing({
-      modelNames,
-      openAIBaseUrl: preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
-      proxyPort: preferencesStore.aiProxyPort,
-      proxyToken: preferencesStore.aiProxyToken,
-    })
+    getFromBridge<ModelPricingResponse>(BridgeRoute.modelPricing)
       .then((pricing) => {
         if (!cancelled) {
           _setModelPricing(pricing);
@@ -158,21 +144,6 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
       cancelled = true;
     };
   }, [modelNamesKey, preferencesStore.openAIBaseUrl, preferencesStore.aiProxyPort, preferencesStore.aiProxyToken]);
-
-  // Recreate MCP server when MCP configuration change
-  useEffect(() => {
-    const forceMcpInitialization = preferencesStore.mcpConfiguration !== prevMcpConfiguration.current;
-    _initMcpAgent(forceMcpInitialization).then();
-    prevMcpConfiguration.current = preferencesStore.mcpConfiguration;
-  }, [preferencesStore.mcpConfiguration, preferencesStore.mcpEnabled, preferencesStore.selectedModel]);
-
-  useEffect(() => {
-    log.debug("MCP Agent: ", mcpAgent);
-  }, [mcpAgent]);
-
-  useEffect(() => {
-    log.debug("Freelens Agent: ", freeLensAgent);
-  }, [freeLensAgent]);
 
   const _loadChatMessages = () => {
     // Durable: persisted in the host-managed ChatSessionStore so the transcript
@@ -321,35 +292,27 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   // models with no known limit.
   const getMaxInputTokens = (): number => resolveMaxInputTokens(modelPricing[preferencesStore.selectedModel]);
 
-  // Summarize the model-side history into a short summary, wipe that history, and
-  // reset the context-size estimate so the next prompt starts small. The summary
-  // is returned so the caller can seed it into the next prompt. On any failure
-  // the history is still wiped (best effort) so the next prompt cannot exceed the
-  // limit; only the summary context is lost.
+  // Have main summarize the model-side history into a short summary and wipe
+  // that history, and reset the context-size estimate so the next prompt starts
+  // small. The summary is returned so the caller can seed it into the next
+  // prompt. On any failure main still wipes the history (best effort) so the
+  // next prompt cannot exceed the limit; only the summary context is lost.
   const compactSession = async (): Promise<string | null> => {
     _showCompacting();
-    const agent = await getActiveAgent();
-    const config = { configurable: { thread_id: conversationId } };
 
     try {
-      const messages = (await agent.getState(config)).values.messages ?? [];
-      const summary = await sessionCompactionService.summarize(messages);
-      await cleanAgentMessageHistory(agent);
+      const { summary, contextTokens } = await postToBridge<CompactResponse>(BridgeRoute.compact, {
+        clusterId,
+        conversationId,
+      });
       // The new context is just the summary, so reset the estimate to its size
       // and clear the last run's peak (a stale within-turn diagnostic).
-      setLastInputTokens(approximateTokenCount(summary));
+      setLastInputTokens(contextTokens);
       setLastPeakInputTokens(0);
       _showCompacted();
-      return summary.length > 0 ? summary : null;
+      return summary;
     } catch (error) {
       log.error("Failed to compact session: ", error);
-      // Best effort: drop the model-side history anyway so the next prompt is
-      // small, even though we could not summarize it.
-      try {
-        await cleanAgentMessageHistory(agent);
-      } catch (cleanError) {
-        log.error("Failed to clean history during compaction fallback: ", cleanError);
-      }
       setLastInputTokens(0);
       setLastPeakInputTokens(0);
       _showCompacted();
@@ -385,124 +348,25 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     setLastInputTokens(0);
     setLastPeakInputTokens(0);
     _setCompactionStatus(null);
-    if (freeLensAgent) {
-      cleanAgentMessageHistory(freeLensAgent).finally(() => {
-        _setChatMessages([]);
-        chatSessionStore.clear(clusterId);
-      });
+    // Main wipes the agents' history of this conversation and this cluster's
+    // durable checkpointer state, so a restart right after a clear does not
+    // restore the model-side conversation context. Other clusters' memory is
+    // left untouched.
+    try {
+      await postToBridge(BridgeRoute.clear, { clusterId, conversationId });
+    } catch (error) {
+      log.error("Failed to clear the agent history: ", error);
+    } finally {
+      _setChatMessages([]);
+      chatSessionStore.clear(clusterId);
     }
-    if (mcpAgent) {
-      await cleanAgentMessageHistory(mcpAgent).finally(() => {
-        _setChatMessages([]);
-        chatSessionStore.clear(clusterId);
-      });
-    }
-    // Wipe this cluster's durable LangGraph checkpointer state so a restart right
-    // after a clear does not restore the model-side conversation context. Other
-    // clusters' memory is left untouched.
-    AgentStateStore.getInstanceOrCreate<AgentStateStore>().clearForCluster(clusterId);
-  };
-
-  const cleanAgentMessageHistory = async (agent: FreeLensAgent | MPCAgent) => {
-    log.debug("Cleaning agent message history for agent: ", agent);
-    if (!agent) {
-      console.warn("No agent provided to clean message history.");
-      return;
-    }
-
-    const config = { configurable: { thread_id: conversationId } };
-
-    const messages = (await agent.getState(config)).values.messages;
-    log.debug("Messages to remove: ", messages);
-    if (!messages || messages.length === 0) {
-      log.debug("No messages to remove.");
-      return;
-    }
-
-    for (const msg of messages) {
-      await agent.updateState(config, { messages: new RemoveMessage({ id: msg.id }) });
-    }
-  };
-
-  const setFreeLensAgent = (freeLensAgent: FreeLensAgent) => {
-    agentsStore.freeLensAgent = freeLensAgent;
-    _setFreeLensAgent(freeLensAgent);
-  };
-
-  const setMcpAgent = (mcpAgent: MPCAgent) => {
-    agentsStore.mcpAgent = mcpAgent;
-    _setMcpAgent(mcpAgent);
-  };
-
-  const _initMcpAgent = async (forceInitialization: boolean = false) => {
-    if (!preferencesStore.mcpEnabled) {
-      if (mcpAgent) {
-        log.debug("The MCP Agent is disabled but it is already initialized");
-      } else {
-        log.debug("The MCP Agent is disabled and will not be initialized");
-        return;
-      }
-    }
-
-    if (mcpAgent === null || forceInitialization) {
-      log.debug("initializing MCP agent with configuration", preferencesStore.mcpConfiguration);
-      setMcpAgent(await mcpAgentSystem.buildAgentSystem(clusterId));
-      log.debug("MCP agent initialized!");
-    } else {
-      log.debug("The MCP Agent was already initialized: ", mcpAgent);
-    }
-  };
-
-  const _initFreeLensAgent = () => {
-    if (freeLensAgent === null) {
-      setFreeLensAgent(freeLensAgentSystem.buildAgentSystem(clusterId));
-    } else {
-      log.debug("Freelens Agent was already initialized: ", freeLensAgent);
-    }
-  };
-
-  const getActiveAgent = async () => {
-    if (preferencesStore.mcpEnabled) {
-      if (mcpAgent === null) {
-        const _mcpAgent = await mcpAgentSystem.buildAgentSystem(clusterId);
-        setMcpAgent(_mcpAgent);
-        return _mcpAgent;
-      }
-
-      return mcpAgent;
-    }
-
-    if (freeLensAgent === null) {
-      const _freeLensAgent = freeLensAgentSystem.buildAgentSystem(clusterId);
-      setFreeLensAgent(_freeLensAgent);
-      log.debug("Freelens Agent initialized: ", freeLensAgent);
-      return _freeLensAgent;
-    }
-    return freeLensAgent;
   };
 
   const setSelectedModel = (selectedModel: string) => {
     preferencesStore.selectedModel = selectedModel;
   };
 
-  // The API key to use depends on the selected model's provider. Only OpenAI is
-  // active for now; other providers are derived here once re-added.
-  const getApiKeyForSelectedModel = (): string => {
-    const provider = preferencesStore.models.find((model) => model.name === preferencesStore.selectedModel)?.provider;
-    switch (provider) {
-      case AIProviders.OPEN_AI:
-        return preferencesStore.openAIKey;
-      default:
-        return preferencesStore.openAIKey;
-    }
-  };
-
-  const getAvailableTools = async () => {
-    if (preferencesStore.mcpEnabled) {
-      return await mcpAgentSystem.loadMcpTools();
-    }
-    return freeLensAgentSystem.availableTools;
-  };
+  const getAvailableTools = async () => (await getFromBridge<ToolsResponse>(BridgeRoute.tools, { clusterId })).tools;
 
   const setExplainEvent = (messageObject: MessageObject) => {
     preferencesStore.explainEvent = messageObject;
@@ -528,7 +392,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
   return (
     <AppContext.Provider
       value={{
-        apiKey: getApiKeyForSelectedModel(),
+        clusterId,
         selectedModel: preferencesStore.selectedModel,
         mcpEnabled: preferencesStore.mcpEnabled,
         mcpConfiguration: preferencesStore.mcpConfiguration,
@@ -543,8 +407,6 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         lastInputTokens,
         lastPeakInputTokens,
         compactionStatus,
-        mcpAgent,
-        freeLensAgent,
         setSelectedModel,
         addTokenUsage,
         setLastInputTokens,
@@ -561,7 +423,6 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         updateLastMessage,
         updateLastMessageReasoning,
         clearChat,
-        getActiveAgent,
         changeInterruptStatus,
         getAvailableTools,
       }}

@@ -1,9 +1,9 @@
 // Pure helpers for the per-session cost estimate shown next to the token
 // counter. Kept free of host/MobX/fetch dependencies so the parsing and cost
 // math can be unit-tested in isolation (see model-pricing.test.ts). The impure
-// fetching (through the local AI proxy) lives in model-pricing-provider.ts.
+// fetching lives in main, in src/main/provider/model-pricing-provider.ts.
 
-import type { TokenUsage } from "../../../common/service/token-usage";
+import type { TokenUsage } from "../service/token-usage";
 
 // Per-token costs (in USD) and context limits for a single model. All costs are
 // per single token, matching the LiteLLM data shape. `cachedInputCostPerToken`
