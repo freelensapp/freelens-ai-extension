@@ -6,19 +6,50 @@ This file provides guidance to coding agents when working with code in this repo
 
 ## Project Overview
 
-This repository serves as an example how to build and publish extensions for
-Freelens application.
+Freelens AI (`@freelensapp/ai-extension`) is an extension of the Freelens v2
+extension API that adds an AI chat to every cluster: LangGraph agents that
+read and, with the user's approval, change Kubernetes resources, an MCP agent
+for the user's MCP servers, an "Explain" item on warning Events, and a
+preferences page for the model, its key and the agents. It is built on the
+patterns of freelensapp/freelens-example-extension, the template of the
+Freelens extension docs.
 
 - **Language**: TypeScript 7.0.2
-- **Runtime**: Node.js >= 24.0.0, Freelens >= 2.0.0
-- **Package manager**: pnpm 12.x (locked), with `strictPeerDependencies: true`
-- **Shared library versions**: the libraries the extension shares with Freelens
-  (`react`, `mobx`, `mobx-react`, `monaco-editor`, `typescript`, `vite`,
-  `vitest`, `electron`, ...) are pinned to the versions of the Freelens
-  `pnpm-workspace.yaml` catalog at the commit the `@freelensapp/extensions`
-  nightly was built from. Node and the tools in `mise.toml` follow Freelens's
-  `mise.toml`.
+- **Runtime**: Freelens >= 2.0.0 (extension API v2)
+- **Toolchain**: Node.js 24.x, yq 4.x and cosign 3.x (`mise.toml` with
+  `mise.lock`; Node also in `.nvmrc`)
+- **Package manager**: pnpm 12.x (`packageManager`, run through corepack)
 - **License**: MIT
+
+Library and tool versions follow the Freelens stack: the libraries the
+extension shares with Freelens (`react`, `mobx`, `mobx-react`,
+`monaco-editor`, `typescript`, `vite`, `vitest`, `electron`, `zod`, ...) are
+pinned to the versions of the Freelens `pnpm-workspace.yaml` catalog at the
+commit the pinned `@freelensapp/extensions` nightly was built from; the tools
+run with `pnpm dlx` (Biome, knip, the Trunk launcher) to the root
+`package.json` scripts of Freelens; Node and the other mise tools to Freelens's
+`mise.toml` and `.nvmrc`. Renovate keeps them there: custom datasources in
+`.renovaterc.json` read the versions from the same Freelens files on `main`,
+so an update arrives only once Freelens has adopted it, at that version, in
+one "Freelens dependencies" group together with the nightly. A bundled library
+that Freelens does not have is excluded from the catalog rule and updated as
+usual (see "Modules provided by the host"). After changing `mise.toml`, run `mise lock`, which re-locks every
+platform, not only `mise install`.
+
+pnpm settings live in `pnpm-workspace.yaml`. A dependency runs its install
+scripts only when `allowBuilds` sets it to `true`, and a new dependency with
+install scripts that is not listed there fails `pnpm install`, so add it with
+`true` or `false` deliberately. `@freelensapp/extensions` is excluded from
+`minimumReleaseAge`, because its pinned nightly is often adopted on the day it
+is published. `strictPeerDependencies: true` makes `pnpm install` fail when
+the extension's own copy of a library it shares with the host (`react`,
+`react-dom`, their types, `mobx`, `mobx-react`, `monaco-editor`, `electron`)
+is outside the peer range `@freelensapp/extensions` declares for it; without
+it pnpm prints one warning line and installs anyway, and these peers are the
+only place where the extension's copies are compared with the versions the
+host runs. `monaco-editor` is declared, without being imported, because the
+`options` of `Renderer.Component.MonacoEditor` take their types from it; without
+it they are `any`, and `skipLibCheck` hides the unresolved import.
 
 ## Common Commands
 
@@ -33,11 +64,12 @@ pnpm type:check:environments   # Environment tests
 # Linting & formatting
 pnpm biome:check          # TypeScript/TSX/SCSS (biome) — prefer this for TS/TSX/SCSS
 pnpm biome:fix            # Auto-fix TypeScript/TSX/SCSS
-pnpm trunk:check          # Markdown, YAML, and other formats not covered by biome
-pnpm trunk:fix            # Auto-fix Markdown, YAML, etc.
+pnpm trunk:check          # Markdown, YAML, SCSS and other formats not covered by biome (modified files)
+pnpm trunk:check:all      # The same over every file, as trunk-check.yaml runs it
+pnpm trunk:fix            # Auto-fix Markdown, YAML, SCSS, etc.
 pnpm lint:check           # biome check (all biome formats)
 pnpm lint:fix             # biome fix (all biome formats)
-pnpm knip:check           # Unused files, dependencies and exports; run after `pnpm build`
+pnpm knip:check           # Unused files and dependencies; run after `pnpm build`
 
 # Tests
 pnpm test:unit            # vitest
@@ -65,57 +97,33 @@ src/
   main/bridge/                   # Local HTTP/SSE bridge server and its routes
   main/mcp/                      # MCP servers of the preferences, one client per cluster
   main/provider/                 # Chat models, host fetch adapter, prompts, model pricing
+  main/utils/                    # Logger of main
   renderer/index.tsx             # Extension entry point (renderer process, ESM): pages, menus, preferences
   renderer/business/bridge/      # Client of the bridge (Renderer.Util.fetch)
   renderer/business/service/     # Chat service: runs, approvals and their events, as the views use them
+  renderer/business/cluster/     # Id of the active cluster of the frame
   renderer/components/, pages/   # Views: chat, messages, approvals, preferences, error boundary
   renderer/context/              # Application context of a cluster frame
   renderer/navigation/           # Id of the chat page
+  renderer/icons/, utils/        # The sidebar icon; the useLog hook of the views
   common/bridge/                 # Bridge protocol (routes, bodies, events) and the SSE codec
   common/store/                  # ExtensionStores shared by both processes
   common/provider/, service/     # Pure model, pricing, token and compaction helpers
+  common/agent/, objects/        # Checkpoint namespaces; the chat message objects
+  common/utils/                  # Logger factory, redaction, ids
 test/                            # Test stub of @freelensapp/extensions and test support
+environment-tests/               # Probes that prove the per-environment type check (see "TypeScript")
+integration/__tests__/           # Integration tests, run inside a Freelens checkout (see "Lint and CI")
+build/                           # Vite plugins: host modules, standard decorators, CSS module declarations
 ```
 
 Build output goes to `dist/`: `dist/main.js`, `dist/renderer.js` and
 `dist/renderer.css`, the entries `package.json` names.
 
-## CRD KubeObject Pattern
-
-K8s object classes MUST use `static readonly` properties for metadata. **Instance methods do NOT work and MUST NOT be used.** The Freelens host reads properties from the class constructor statically — instance methods are not available at runtime because the host creates plain object copies of the K8s resource data, not instances of the extension's class. This means:
-
-- **Allowed**: `object.spec?.someField`, `object.status?.conditions` — direct property access on typed `spec`/`status` interfaces
-- **Allowed**: helper functions like `hasTrueCondition(conditions, "Accepted")` from `types.ts`
-- **Forbidden**: `object.someMethod()` — instance methods will never exist at runtime
-- **Forbidden**: `typeof (object as any).someMethod === "function" ? ...` — anti-pattern that always falls through to the fallback path
-- **Forbidden**: `as any` — use the existing typed `spec`/`status` interfaces directly; all CRD models already define proper `Spec`/`Status` interfaces
-
-Always access `spec` and `status` properties directly via their typed interfaces. Do not define instance methods on KubeObject subclasses — they will not be callable at runtime.
-
-```typescript
-export class Gateway extends Renderer.K8sApi.LensExtensionKubeObject<
-  Renderer.K8sApi.KubeObjectMetadata,
-  GatewayStatus,
-  GatewaySpec
-> {
-  static readonly kind = "Gateway";
-  static readonly namespaced = true;
-  static readonly apiBase = "/apis/gateway.networking.k8s.io/v1/gateways";
-  static readonly crd: GatewayKubeObjectCRD = {
-    apiVersions: ["gateway.networking.k8s.io/v1"],
-    plural: "gateways",
-    singular: "gateway",
-    shortNames: ["gtw"],
-    title: "Gateways",
-  };
-}
-
-// Also export Api and Store classes (always needed):
-export class GatewayApi extends Renderer.K8sApi.KubeApi<Gateway> {}
-export class GatewayStore extends Renderer.K8sApi.KubeObjectStore<Gateway, GatewayApi> {}
-```
-
-Each CRD file exports three classes: the KubeObject, the KubeApi, and the KubeObjectStore. They are registered in `src/renderer/index.tsx` via `kubeObjectDetailItems`, `clusterPages`, and `clusterPageMenus`.
+The extension presents no custom resource and has no `KubeObject` model of its
+own: the agents reach every kind by path from main (see "Runs and their
+cluster"), and the views use the host's `KubeEvent` only. So
+`customResources` of the renderer extension is not set.
 
 ## Renderer Components
 
@@ -168,6 +176,68 @@ Each CRD file exports three classes: the KubeObject, the KubeApi, and the KubeOb
   `console.error` (see "Tests and tooling").
 - A component's stylesheet is a CSS module next to it, `x.module.scss`, imported as `import styles from "./x.module.scss"` and used as `className={styles.someClass}`; there is no `?inline` import and no `<style>` element. The host's own classes and theme markers are matched with `:global(...)`, for example `:global(body.theme-light) .x` and `.x :global(.Select__single-value)`, since every other class name in a module is scoped.
 - CSS modules get TypeScript declarations (`*.module.d.scss.ts`) from `build/vite-plugin-css-module-declarations.mjs`, written by the renderer build (see "CSS module declarations" under "Build").
+
+## Rules That Fail Silently
+
+Each of these compiles when it is broken, and breaks the extension at runtime
+or not visibly at all. The sections named in parentheses explain the
+mechanism; this is the list to check a change against.
+
+- **The host's React and mobx, one copy each.** Import `react`, `react-dom`,
+  `mobx` and `mobx-react` by their bare module ids. A second React throws
+  `invalid hook call`; a second mobx throws nothing, and the host never reacts
+  to its observables. The build fails on the ways a second copy gets in
+  ("Modules provided by the host").
+- **The stores keep the annotation map.** An observable field of a store is a
+  plain field listed in `makeObservable(this, { field: observable })` after
+  `super()`. A decorator on a plain field type-checks and leaves the field
+  unobservable in mobx's production build; an `@observable accessor` field
+  moves the value behind a getter, which `toJSON()`, `toJS()` and spreading do
+  not see ("Decorators and the stores").
+- **No Node or Electron in renderer and common code.** They are `undefined` in
+  the renderer. The build fails on an import, `pnpm type:check` on a global
+  ("Process-specific settings").
+- **Main is built for the `node` platform.** On the `browser` platform a
+  bundled CommonJS package's `require()` of a builtin throws only when
+  Freelens evaluates `dist/main.js`; the build and the type check pass
+  ("Process-specific settings").
+- **One CSS asset, `dist/renderer.css`.** Any other name, or a second asset,
+  leaves the extension unstyled. Nothing checks it; look at `dist/` after a
+  change to the CSS setup ("CSS").
+- **One tsconfig per environment.** Each program has only its runtime's `lib`
+  and `types`, and no declaration may load Node into the renderer or the DOM
+  into main; otherwise a wrong API type-checks and is `undefined` at runtime.
+  The environment tests fail on a leak ("TypeScript").
+- **The agents and LangChain in main only.** In the renderer `interrupt()`
+  throws, `ToolNode` hands the error to the model as the tool's result, and a
+  write is neither applied nor asked about ("Agents and the Bridge").
+- **The cluster from the run config.** A tool reads its cluster from
+  `configurable.clusterId`, never from module state: two cluster frames run
+  at once, and a module-level cluster sends one chat's request to the other's
+  cluster ("Runs and their cluster").
+- **HTTP from main through `Main.Util.fetch`.** The global `fetch`, or a
+  bundled client's default one, works too, but ignores the user's proxy and
+  certificate preferences ("HTTP from main").
+- **Nothing in module state that `onDeactivate` cannot reach.** A server, a
+  timer, a run or an MCP process kept there survives a reload, and the next
+  `onActivate` starts a second one ("Lifecycle").
+- **Every page, menu item and preference inside an error boundary.** The host
+  has none around a menu item or an extension's preferences, and its boundary
+  around a frame replaces the whole cluster view or preferences page. Map the
+  registrations through their wrappers in `error-boundary.tsx` ("Renderer
+  Components").
+- **A view gets the extension from its registration.** The host passes a
+  cluster page `params` only. The type check rejects a page that requires
+  another prop, but not one that declares it optional; and only the
+  extension's `navigateToPreferences()` reaches the preferences from a cluster
+  frame ("Renderer Components").
+- **An ESM `main`, and the entries in `package.json` unchanged while
+  `pnpm dev` runs.** The host refuses to reload a CommonJS main and logs why,
+  and it watches only the entries it started with, so a manifest change needs
+  Freelens restarted.
+
+Neither `pnpm build` nor `pnpm dev` runs the type check, so a Node global in
+renderer code passes them; `pnpm type:check` and `type-check.yaml` catch it.
 
 ## Build
 
@@ -248,14 +318,27 @@ since that rule takes every other version from the Freelens catalog.
   Freelens evaluates `dist/main.js`, so on the wrong platform the extension
   fails only when Freelens loads it.
 
-### Decorators
+### Decorators and the stores
 
-MobX 7 supports standard decorators only, and Oxc, which transpiles TypeScript
-for Vite, passes them through unlowered, while neither Node nor Chromium runs
-them yet. `build/vite-plugin-standard-decorators.mjs` hands every module with a
-decorator to esbuild first, which lowers the decorators and their `accessor`
-fields. A decorator that reaches the host unlowered is a syntax error when the
-module is evaluated.
+The extension has no decorator. Its stores (`src/common/store/`) extend
+`Common.Store.ExtensionStore`, which the host persists and syncs between the
+processes through `toJSON()` and `fromStore()`. Their fields are plain own
+fields, made observable by an annotation map in the constructor,
+`makeObservable(this, { field: observable, ... })` after `super()`, which runs
+after the field initializers under `useDefineForClassFields`. `toJSON()` reads
+the fields as they are and converts an observable array with `toJS()`, since
+the host structure-clones the value and a mobx proxy cannot be cloned.
+`@observable accessor` fields would move the values to getters on the
+prototype, and a decorator on a plain field type-checks but leaves the field
+unobservable in mobx's production build.
+
+The build still lowers a decorator, should one be added: MobX 7 supports
+standard decorators only, and Oxc, which transpiles TypeScript for Vite, passes
+them through unlowered, while neither Node nor Chromium runs them yet.
+`build/vite-plugin-standard-decorators.mjs`, which Vitest uses too, hands every
+module with a decorator to esbuild first, which lowers the decorators and their
+`accessor` fields. A decorator that reaches the host unlowered is a syntax
+error when the module is evaluated.
 
 ### CSS
 
@@ -425,6 +508,95 @@ server gets and that closing the client ends its process.
 The root `tsconfig.json` checks the tooling files. It has `checkJs`, so the
 Vite config and the build plugins are type-checked too; give their function
 parameters JSDoc types.
+
+## Lint and CI
+
+### Biome
+
+`biome.jsonc` has the formatter, import groups and rules of Freelens. Two
+overrides are specific to how the extension is laid out:
+
+- `style/noRestrictedImports` keeps `vitest` out of the extension's code (see
+  "Tests and tooling").
+- `correctness/noNodejsModules` rejects a Node builtin import in
+  `src/renderer/` and `src/common/`, tests left out. It flags the import in the
+  editor, before the build does; it does not see Node globals such as `Buffer`
+  or `process`, which only the type check catches.
+
+Every path in an override starts with `**/`. Trunk runs Biome from a sandbox
+outside the repository, with `--config-path` pointing back at `biome.jsonc`,
+and there a path anchored at the repository root matches no file, so the
+override silently does nothing. A plain `biome check` matches both forms, so
+only `trunk check` shows the difference. In that sandbox Biome also cannot
+apply `vcs.useIgnoreFile`, so the Biome commands in `.trunk/trunk.yaml` pass
+`--vcs-use-ignore-file=false`; Trunk applies `.gitignore` itself before it
+picks the targets.
+
+Biome does not read SCSS; Trunk formats it with Prettier. Renovate updates
+Biome in the `biome` script and in `.trunk/trunk.yaml`; `biome migrate` runs
+from the `postupdate` script, and `biome-migrate.yaml` opens a pull request
+with the migration after a push to `main` that changes `biome.jsonc` or
+`package.json`, and daily.
+
+### Knip
+
+`pnpm knip:check` runs knip twice, for unused files and for dependencies: a
+development pass over everything, and a `--production --strict` pass over the
+code that reaches the bundles, which are the entries marked with `!` in
+`knip.jsonc`. In the production pass a devDependency imported by production
+code is reported as unlisted, so the host-provided modules and the bundled
+libraries are listed in `ignoreDependencies` (see "Modules provided by the
+host"). A file is unused when no entry reaches it; the production pass also
+reports a module that only tests import. The fix is to remove the file, not to
+ignore it. Unused exports are not checked.
+
+`knip.jsonc` lists the entries knip cannot find: the two source entries, the
+Vitest alias target `test/freelens-extensions.ts` and the probes in
+`environment-tests/`. Its Vite plugin is off: it adds the renderer entry of
+`vite.config.mjs` as a development entry, which displaces
+`src/renderer/index.tsx!`, and the production pass then skips the renderer.
+`project` leaves out the CSS module declarations (`!src/**/*.d.scss.ts`),
+which knip, resolving `import styles from "./x.module.scss"` to the
+stylesheet, would report as unused. `ignore` leaves out `dist/**`: the `main`
+field makes `dist/main.js` an entry once it exists, and with `--no-gitignore`
+knip would report what the bundle inlines from its libraries. Run
+`pnpm knip:check` after a build when changing `knip.jsonc`, as `check.yaml`
+does; without `dist/` that problem does not show.
+
+### Workflows
+
+| Workflow                 | Runs                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------- |
+| `type-check.yaml`        | `pnpm type:check`                                                               |
+| `check.yaml`             | `pnpm build`, `pnpm lint:check`, `pnpm knip:check`                              |
+| `unit-tests.yaml`        | `pnpm test:unit`                                                                |
+| `trunk-check.yaml`       | `trunk check` over every file (`check-mode: all`)                               |
+| `integration-tests.yaml` | the integration tests in `integration/`, against a Freelens build of `main`     |
+| `mise-lock-check.yaml`   | on a change to `mise.lock`: no checksum changed for an unchanged tool version   |
+| `release.yaml`           | on a tag: build, pack, publish to npm, the release with `.tgz` and `.sha256`    |
+
+The type check has a workflow of its own, on pull requests and on pushes to
+`main`, as in Freelens. It runs every program, tests, tooling and environment
+tests included, which no build reaches, and a type error shows as its own
+failed check rather than as a failed build. `check.yaml` builds without the
+type check for the same reason, so it does not run twice. `pnpm trunk:check`
+checks only modified files, so run `pnpm trunk:check:all` before pushing, as
+the workflow does.
+
+The integration tests run inside a Freelens checkout: the workflow builds the
+extension, packs it with a `.tgz.sha256` checksum next to the tarball, as the
+release publishes it, checks out and packages Freelens, copies
+`integration/__tests__/` into the `integration/__tests__/` of its app package
+(`freelens/freelens/`) and runs them there under Freelens's Vitest, with its
+helpers, against a KinD cluster. `extensions.tests.ts` is one
+session: the app installs the tarball from the extensions page, fails on any
+error logged by either process, and opens the extension's preferences, which
+show the title "Freelens AI Settings" and the "API key" label. The tests are
+deterministic, so the workflow passes `--retry=0` and runs the step once.
+The code the session uses is in `integration/__tests__/extension-helpers.ts`,
+whose name does not match `*.tests.ts`, so Freelens's Vitest does not collect
+it; the directory stays flat, because the workflow copies it with
+`cp integration/__tests__/*`.
 
 ## AI Model & Provider System
 
@@ -642,10 +814,53 @@ agent's stream and its approvals, through the bridge.
   from `AgentStateStore`, so the conversation continues. Its approval gate is
   `interrupt()` in the synchronous `shouldContinue` node, before any tool runs.
 
+## Checking the Extension in Freelens Dev
+
+The functional checks of a change run against Freelens started with
+`pnpm dev` from a freelensapp/freelens checkout. That script starts Electron
+with `--remoteDebuggingPort 9223`, so an agent can drive the app over the
+Chrome DevTools Protocol, with Playwright MCP as Freelens's `DEVELOPMENT.md`
+describes ("Inspecting the running dev app from an AI agent"), or with a
+`playwright-core` script that calls
+`chromium.connectOverCDP("http://127.0.0.1:9223")` and ends by exiting the
+process, never by closing the browser, which belongs to Freelens. Playwright
+MCP writes its snapshots to `.playwright-mcp/`, which is git-ignored.
+
+- **Installing the checkout.** `pnpm install`, then `pnpm build`, since
+  Freelens loads the extension from `dist/`. On the Extensions page, enter the
+  checkout's directory, press "Install" and confirm loading it in place; it is
+  listed as "in place, unverified". A rebuild, by `pnpm build` or `pnpm dev`,
+  reloads it in main, in the root frame and in each cluster frame.
+- **What a check needs.** A cluster (the maintainers use `kind-kind` with
+  Flux and workloads deployed by it), and a model endpoint with a key, set in
+  the preferences; an OpenAI-compatible gateway such as LiteLLM works as the
+  base URL. MCP needs `npx` on the login shell's `PATH`.
+- **Frames.** Every cluster renders in a cross-origin
+  `<clusterId>.renderer.freelens.app` iframe; the chat page, the sidebar entry
+  and the "Explain" item live in that frame, the preferences in the root frame.
+  The chat page is `/extension/freelensapp--ai-extension/ai-extension-main-page`.
+  A DOM `click()` on the sidebar entry's
+  `[data-testid="link-for-sidebar-item-…"]` element navigates; a click on its
+  `[data-testid="sidebar-item-…"]` element does not.
+- **The console.** The renderer console also carries the output of Freelens's
+  terminal dock, which can include the user's shell prompt, account names and
+  paths. Keep only warnings, errors, page errors and the extension's own lines,
+  and never paste the full console into a PR, an issue or a report. React
+  reports a missing `key` and a prop the DOM does not take as console errors;
+  they count as failures of the "no error in DevTools" check.
+- **Main.** The agents, the bridge and the MCP servers log in main: in the
+  terminal running Freelens, and in its log file (on macOS
+  `~/Library/Logs/Freelens/lens.log`). The process list shows whether an MCP
+  server is still running, and its environment which cluster it reaches.
+- **Disabling and enabling.** Without a restart of Freelens, disabling and
+  enabling the extension leaves two instances of its store in main, which
+  overwrite the bridge token in an endless save loop (freelensapp/freelens#2721).
+  Restart Freelens after enabling it again; rebuilds are not affected.
+
 ## Code Style
 
-- **Biome** formats **TypeScript/TSX and SCSS**: double quotes, semicolons, trailing commas, 2-space indent, 120 char line width
-- **Trunk** formats **Markdown, YAML**, and other formats not covered by biome — use `pnpm trunk:fix`
+- **Biome** formats **TypeScript/TSX, JavaScript and JSON**: double quotes, semicolons, trailing commas, 2-space indent, 120 char line width
+- **Trunk** formats **Markdown, YAML, SCSS** (with Prettier), and other formats not covered by biome — use `pnpm trunk:fix`
 - Import order (enforced by biome organizeImports): built-in modules → `@freelensapp/**` → packages → relative paths
 - React 19, provided by the Freelens host
 - **No emoji** in Markdown files (`.md`), comments, or any source code
@@ -685,9 +900,10 @@ Code in `src/common/` is shared between both processes.
 
 ### Changes Not Appearing
 
-1. Check that files are not in ignored output directories (`out/`, `dist/`, `node_modules/`)
-2. Full clean and rebuild: `pnpm clean:all && pnpm build`
-3. Reinstall the extension in Freelens (or restart the app in dev mode)
+1. Check that files are not in ignored output directories (`dist/`, `node_modules/`)
+2. Full clean and rebuild: `pnpm clean:all && pnpm install && pnpm build`
+3. For a directory install, check that `pnpm dev` is running, or rebuild with `pnpm build`; after a change to `main` or `renderer` in `package.json`, restart Freelens
+4. For a tarball, reinstall the extension in Freelens
 
 ### Build Failures
 
@@ -698,10 +914,10 @@ Code in `src/common/` is shared between both processes.
 
 ### Runtime Errors
 
-1. Open Freelens DevTools and check the Console tab for renderer errors
-2. Check the terminal where Freelens was launched for main process errors
+1. Open Freelens DevTools and check the Console tab for renderer errors; the chat runs in the cluster frame, the preferences in the root frame
+2. Check the terminal where Freelens was launched for main process errors: the agents, the bridge, the model requests and the MCP servers run there
 3. Look for stack traces with file:line numbers
-4. Verify all CRD objects have proper `static readonly` properties (kind, apiBase, crd)
+4. Check the change against "Rules That Fail Silently"
 5. Validate both with `pnpm type:check` **and** `pnpm build` — runtime failures can appear only in bundled `dist/` code
 
 ## Best Practices
@@ -710,9 +926,9 @@ Code in `src/common/` is shared between both processes.
 2. **Follow existing patterns** — grep for similar implementations before creating new ones
 3. **Test changes** before committing
 4. **Run validation before committing:** `pnpm lint:fix && pnpm type:check && pnpm test:unit`
-5. **For TypeScript/TSX/SCSS files:** run `pnpm biome:fix` (or `biome check` directly if `biome` is installed locally)
-6. **For Markdown, YAML, and other formats:** run `pnpm trunk:fix` (or `trunk check` directly if `trunk` is installed locally)
-7. **Full build** when in doubt about cached state: `pnpm clean:all && pnpm build`
+5. **For TypeScript/TSX, JavaScript and JSON files:** run `pnpm biome:fix` (or `biome check` directly if `biome` is installed locally)
+6. **For Markdown, YAML, SCSS and other formats:** run `pnpm trunk:fix` (or `trunk check` directly if `trunk` is installed locally), and `pnpm trunk:check:all` before pushing
+7. **Full build** when in doubt about cached state: `pnpm clean:all && pnpm install && pnpm build`
 8. **Do not use Anthropic Fable for coding tasks** — Fable may be used only for planning,
    analysis, and thinking through problems. When writing or editing code,
    use standard editing tools instead.
@@ -791,6 +1007,30 @@ When asked to implement a change on a PR:
    separately. Do not batch multiple independent fixes into a single
    commit. This keeps the history bisectable and makes each change easy
    to revert individually.
+
+### Modifying GitHub Actions Workflows
+
+Claude cannot push changes to files under `.github/workflows/` directly,
+because the GitHub token used by the action lacks the `workflows` permission.
+Any patch to a workflow file MUST therefore be delivered as a new, complete
+file under the `github-workflow-fix/` directory in the repository root instead
+of editing the file in place:
+
+1. Write the full, final contents of the workflow to
+   `github-workflow-fix/<workflow-file-name>`, with the same file name as in
+   `.github/workflows/` (e.g. `github-workflow-fix/check.yaml`). Do **not**
+   edit the original file under `.github/workflows/`.
+2. Make it a **complete** file — the entire workflow as it should look after
+   the change, not just a diff or fragment — so it can be copied verbatim.
+3. Commit it with the change that needs it, and list it in the report. In the
+   PR description, note it as a proposed workflow change that a maintainer
+   must move from `github-workflow-fix/` to `.github/workflows/`.
+
+A maintainer moves the file into `.github/workflows/` in a separate commit and
+removes `github-workflow-fix/`. Pull before continuing on the branch, as it may
+have gained such a commit. A change that depends on the moved workflow (a
+script it calls, a path in `knip.jsonc`) waits for that commit, or keeps the
+old one working until then.
 
 ### Branch Naming Conventions
 
