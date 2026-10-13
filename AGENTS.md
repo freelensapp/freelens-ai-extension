@@ -127,14 +127,24 @@ Each CRD file exports three classes: the KubeObject, the KubeApi, and the KubeOb
   its props extend `Common.Types.KubeObjectMenuItemProps<KubeEvent>`. The page
   id is `MAIN_PAGE_ID` of `src/renderer/navigation/pages.ts`, used wherever the
   page is named.
-- **Error boundary.** `clusterPages` and `kubeObjectMenuItems` are mapped
-  through `withPageErrorBoundary` and `withMenuItemErrorBoundary` of
+- **Error boundary.** `clusterPages`, `kubeObjectMenuItems` and
+  `appPreferences` are mapped through `withPageErrorBoundary`,
+  `withMenuItemErrorBoundary` and `withPreferenceErrorBoundary` of
   `src/renderer/components/error-boundary.tsx`, so that an entry added to them
-  is wrapped too. An error a page throws shows the error page in its place; one
-  a menu item throws leaves the item out of the menu. Either is logged with
-  `Common.logger` and the extension's name. The host has no boundary around a
-  menu item, and its boundary around the cluster frame would replace the whole
-  cluster view.
+  is wrapped too. An error a page or a preference `Input` throws shows the
+  error page in its place; one a menu item or a preference `Hint` throws leaves
+  it out. Either is logged with `Common.logger` and the extension's name. The
+  host has no boundary around a menu item or an extension's preferences, and
+  its boundary around a frame would replace the whole cluster view or
+  preferences page.
+- **Preferences.** `src/renderer/pages/preferences/preferences-page.tsx` is
+  the `Input` of the one `appPreferences` entry, an `observer` that writes
+  `PreferencesStore` directly; text areas commit on blur. It is styled by its
+  CSS module, and its controls follow the theme through the host's variables
+  (`--inputControlBackground`, `--inputControlBorder`,
+  `--inputControlHoverBorder`, `--textColorPrimary`), never hard-coded colours.
+  The host's `Switch` renders only its `children` in its label and passes
+  every other prop, `className` and `style` included, to the checkbox.
 - **Navigation.** A registration hands the extension instance to its view
   (`<MainPage extension={this} />`, `<MenuEntry {...props} extension={this} />`),
   never through module state. A view opens the chat page with
