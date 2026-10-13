@@ -59,16 +59,20 @@ pnpm clean:all            # Clean everything (dist, dts, node_modules, tgz)
 
 ```text
 src/
-  main/index.ts            # Extension entry point (main process, ESM)
-  renderer/index.tsx       # Extension entry point (renderer process, ESM)
-  renderer/k8s/gateway-api/ # K8s object model classes (one file per CRD)
-  renderer/details/gateway-api/ # Detail view components for CRDs
-  renderer/pages/gateway-api/  # Cluster page components
-  renderer/components/      # Shared components
-  renderer/icons/           # SVG icons
-  renderer/observer.ts      # MobX observer helper
-  renderer/utils.ts         # Utility functions (e.g., createHash)
-  common/utils.ts           # Common utilities (e.g., maybe)
+  main/index.ts                  # Extension entry point (main process, ESM): stores, bridge lifecycle
+  main/agents/                   # LangGraph agents, approval gate, compaction, Explain, AgentRuntime
+  main/agents/tools/             # Kubernetes tools, by path through KubeJsonApi.forCluster
+  main/bridge/                   # Local HTTP/SSE bridge server and its routes
+  main/provider/                 # Chat models, host fetch adapter, prompts, model pricing
+  renderer/index.tsx             # Extension entry point (renderer process, ESM): pages, menus, preferences
+  renderer/business/bridge/      # Client of the bridge (Renderer.Util.fetch)
+  renderer/business/service/     # Chat service: runs, approvals and their events, as the views use them
+  renderer/components/, pages/   # Views: chat, messages, approvals, preferences
+  renderer/context/              # Application context of a cluster frame
+  common/bridge/                 # Bridge protocol (routes, bodies, events) and the SSE codec
+  common/store/                  # ExtensionStores shared by both processes
+  common/provider/, service/     # Pure model, pricing, token and compaction helpers
+test/                            # Test stub of @freelensapp/extensions and test support
 ```
 
 Build output goes to `dist/`: `dist/main.js`, `dist/renderer.js` and
@@ -407,41 +411,112 @@ and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`).
 
 ## Agents and the Bridge
 
-The LangGraph agents run in main (`src/main/agents/`), with LangGraph's Node
-entry, whose `AsyncLocalStorage` gives `interrupt()`, the approval gate of the
-mutating tools, its run context; a browser page has no equivalent. The
-renderer keeps the views and talks to the agents over a local HTTP bridge:
+The LangGraph agents run in main (`src/main/agents/`), not in the renderer.
+LangGraph's `interrupt()`, the approval gate of every mutating tool, takes its
+run config only from LangChain's `AsyncLocalStorage`. Main bundles LangGraph's
+Node entry, which installs one; a browser page has none, and there
+`interrupt()` throws "Called interrupt() outside the context of a graph.",
+which `ToolNode` hands to the model as the tool's result, so a write is never
+applied and no approval is asked. Keep LangChain out of the renderer: the
+renderer bundle carries no `@langchain/*`, `openai` or `zod`, and a view needs
+none of their types, since every message of the bridge is plain JSON.
 
-- `src/common/bridge/protocol.ts` — the routes, the request and response types
-  and the events of a run; `sse.ts` encodes and reads the event stream.
-- `src/main/bridge/server.ts` — the server on `127.0.0.1` and an ephemeral
-  port: a per-launch token in `x-freelens-ai-token` on every request, CORS
-  with the caller's Origin reflected. A streamed route answers with SSE, ends
-  with a `done` or an `error` event, and is aborted when the caller closes the
-  request. `routes.ts` maps the routes to the `AgentRuntime`.
+The renderer keeps the views and talks to the agents over a local HTTP bridge
+in main, not over `Main.Ipc` / `Renderer.Ipc`: the stream of a run is the
+response to the request of the frame that started it, so nothing is broadcast
+to every frame and filtered by cluster, and closing the request cancels the
+run.
+
+- `src/common/bridge/protocol.ts` — the routes, the request and response
+  bodies and the events of a run; `sse.ts` encodes and reads the event stream.
+- `src/main/bridge/server.ts` — the `node:http` server on `127.0.0.1` and an
+  ephemeral port. `routes.ts` parses the bodies and maps the routes to the
+  `AgentRuntime`; a body it cannot parse is refused before anything runs.
 - `src/main/agents/agent-runtime.ts` — the agents of every cluster, keyed by
   the cluster id each request carries, so two cluster frames never share a run
-  or a memory. Its checkpointer state is written to `AgentStateStore` in main.
+  or a memory. `agent-service.ts` runs a graph and turns its stream into the
+  events below.
 - `src/renderer/business/bridge/bridge-client.ts` — requests with
-  `Renderer.Util.fetch`; the port and token are read from `PreferencesStore`
+  `Renderer.Util.fetch`, whose `body` is a `ReadableStream` that `readSseEvents`
+  reads as it arrives. The port and the token are read from `PreferencesStore`
   for every request.
 
-The Kubernetes tools (`src/main/agents/tools/`) act on the cluster of the run:
-the cluster id travels in the run config (`configurable.clusterId`), which
-LangChain hands to a tool function as its second argument, and
-`cluster-api.ts` turns it into the host's `Main.K8sApi.KubeJsonApi.forCluster`
-client after checking it with `Main.Catalog.getClusterById`. Every request
-goes by path: a kind and an apiVersion are resolved to their plural and scope
-from the API server's discovery document of the group version
+### Protocol
+
+Every request goes to `http://127.0.0.1:<aiProxyPort>` with the per-launch
+token of `aiProxyToken` in the `x-freelens-ai-token` header; without it, or with
+a wrong one, the answer is `401`, so another local process that learns the port
+cannot drive the agents with the user's key. A CORS preflight needs no token.
+The caller's `Origin` is reflected, not `*`: the frames are served from
+`https://renderer.freelens.app:<port>` and
+`https://<clusterId>.renderer.freelens.app:<port>`. An unknown route is `404`,
+a wrong method `405`, and a failure before a stream starts `500` with
+`{ "error": message }`.
+
+| Route                | Request                                       | Answer                                               |
+| -------------------- | --------------------------------------------- | ---------------------------------------------------- |
+| `POST /agent/run`     | `{ clusterId, conversationId, input }`        | SSE of run events                                    |
+| `POST /agent/explain` | `{ clusterId, text }`                         | SSE of `text` events                                 |
+| `POST /agent/compact` | `{ clusterId, conversationId }`               | `{ summary, contextTokens }`                         |
+| `POST /agent/clear`   | `{ clusterId, conversationId }`               | `{}`                                                 |
+| `GET /agent/tools`    | `?clusterId=`                                 | `{ tools: [{ name, description }] }`                 |
+| `GET /model/pricing`  |                                               | the pricing of the models of the preferences         |
+
+The `input` of a run is `{ kind: "message", text, summary? }`, a prompt, where
+`summary` seeds a just compacted session, or `{ kind: "resume", answer }`, the
+answer to a pending approval. A stream is `text/event-stream`, one
+`data: <json>` line per event:
+
+- `text` and `reasoning` — the answer and the model's reasoning, as generated;
+- `usage` — a token usage delta for the session counter, negative when a retry
+  rolls back a failed attempt;
+- `context` — the size of the persisted conversation the next prompt re-sends,
+  and the largest single call of the run;
+- `interrupt` — a pending approval (`ApprovalRequest`); the run ends after it,
+  and the renderer answers with a `resume` run of the same conversation;
+- last, `done`, or `error` with `{ message }`.
+
+A new route or event goes into `protocol.ts` first, with the parser in
+`routes.ts` and a test over HTTP in `routes.test.ts`.
+
+### Runs and their cluster
+
+The cluster id of a request travels in the run config as
+`configurable.clusterId`, next to `thread_id`, the conversation. LangChain
+hands the run config to a tool function as its second argument, and the
+Kubernetes tools (`src/main/agents/tools/`) read the cluster there:
+`cluster-api.ts` checks it with `Main.Catalog.getClusterById` and returns the
+host's `Main.K8sApi.KubeJsonApi.forCluster` client; without a cluster, or with
+one Freelens does not know, a tool answers the model with a message and sends
+nothing. Never read the cluster from a module-level variable: two cluster
+frames run at once.
+
+Every request of a tool goes by path. A kind and an apiVersion resolve to their
+plural and scope from the API server's discovery document of the group version
 (`resource-paths.ts`), so built-in kinds, custom resources, subresources and
 `/version` are reached the same way, and the write operations send what the
-host's `KubeApi` sends (merge and strategic merge patches, delete options with
-background propagation, the `restartedAt` annotation of a rollout restart).
+host's `KubeApi` sends: the kind, apiVersion, name and namespace set on a
+created or updated manifest, merge patches, a strategic merge patch for a
+subresource or a restart, delete options with background propagation, the
+eviction subresource. A write tool loads the current object as a backup, then
+calls `requestApproval()`, whose `interrupt()` must run inside the tool, that
+is inside the graph run.
 
-Main starts the bridge in `onActivate`, writes its port and token into
-`PreferencesStore`, and closes it in `onDeactivate`, which cancels every open
-run, so a reload leaves exactly one bridge bound and the chat reaches the new
-one without reopening the page.
+The checkpointer of each agent is a `PersistentMemorySaver`, which mirrors the
+LangGraph state into `AgentStateStore` under a namespace of the cluster id and
+the agent (`checkpointNamespace`), so the memory of every cluster survives a
+restart on its own. Only main loads `AgentStateStore`. `clear` wipes the
+conversation of the cluster's agents and only that cluster's checkpoints.
+
+### Lifecycle
+
+Main starts the bridge in `onActivate`, with a new token, and writes the port
+and the token into `PreferencesStore`. `onDeactivate` sets the port to `null`
+and closes the bridge, which aborts every open request and so every run: the
+abort reaches LangGraph as the run's `signal`, and a retry backoff resolves at
+once (`wait.ts`). A reload therefore leaves exactly one bridge bound, and the
+chat reaches the new one without reopening the page. Do not keep a server, a
+timer or a run in module state that `onDeactivate` cannot reach.
 
 ## Code Style
 

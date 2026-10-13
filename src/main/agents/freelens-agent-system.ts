@@ -38,10 +38,11 @@ export const useFreeLensAgentSystem = () => {
 
   // Forward the node `config` into every inner agent `.invoke()`. In `messages`
   // stream mode LangGraph captures LLM tokens through callbacks carried on the
-  // run config; in the renderer there is no Node `AsyncLocalStorage` to
-  // propagate that context implicitly, so an inner `createReactAgent` invoked
-  // without the config runs detached and its tokens never reach the parent
-  // stream - the graph finishes cleanly but the UI renders nothing. The
+  // run config. Passing it explicitly does not rely on LangChain's
+  // `AsyncLocalStorage` to carry that context across the `await`s of a node:
+  // an inner `createReactAgent` invoked without the config can run detached,
+  // and then its tokens never reach the parent stream - the graph finishes
+  // cleanly but the chat shows nothing. The
   // supervisor keeps streaming suppressed via its `nostream` tag (carried on the
   // same config).
   const supervisorAgentNode = async (state: typeof GraphState.State, config?: RunnableConfig) => {

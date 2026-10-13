@@ -26,8 +26,8 @@ export class PersistentMemorySaver extends MemorySaver {
 
   // Restore persisted state lazily on first use rather than in the constructor:
   // the store loads asynchronously at extension activation, while the agent
-  // graph is built eagerly during the first React render. Deferring hydration to
-  // the first checkpoint operation (which only happens once the user interacts)
+  // graph of a cluster may be built before it has. Deferring hydration to the
+  // first checkpoint operation (which only happens once a run starts)
   // guarantees the store is populated by then.
   private ensureHydrated(): void {
     if (this.hydrated) {

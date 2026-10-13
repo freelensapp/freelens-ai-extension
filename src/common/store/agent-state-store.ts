@@ -7,7 +7,7 @@ export interface AgentStateModel {
   // namespace is cluster-qualified (e.g. "<clusterId>::freelens",
   // "<clusterId>::mcp", see `checkpointNamespace`) so each cluster's agent
   // memory is stored independently. Each value is produced by
-  // `serializeSaverState` in the renderer and is opaque to this store.
+  // `serializeSaverState` in main and is opaque to this store.
   checkpoints: Record<string, string>;
 }
 
@@ -17,8 +17,8 @@ export interface AgentStateModel {
  * writes it to a JSON file in the extension's data directory, so it survives an
  * application restart (unlike `MemorySaver`, whose state lives only in memory).
  *
- * The renderer's `PersistentMemorySaver` reads/writes the serialized blob here;
- * the store itself never interprets it.
+ * Only main loads it: the agents' `PersistentMemorySaver` reads/writes the
+ * serialized blob here, and the store itself never interprets it.
  */
 export class AgentStateStore extends Common.Store.ExtensionStore<AgentStateModel> {
   checkpoints: Record<string, string> = {};
