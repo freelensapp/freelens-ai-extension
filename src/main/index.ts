@@ -1,40 +1,133 @@
-import { randomBytes } from "node:crypto";
+import { join } from "node:path";
+import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Main } from "@freelensapp/extensions";
-import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
-import { startAiProxyServer } from "./ai-proxy-server";
+import { AGENT_COMMAND_CHANNEL, AGENT_ENVELOPE_CHANNEL, type AgentCommand } from "../common/agent-protocol";
+import { AGENT_TOOLS } from "../common/agent-tools";
+import { PROVIDER_COMMAND_CHANNEL, PROVIDER_ENVELOPE_CHANNEL, type ProviderCommand } from "../common/provider-protocol";
+import { PreferencesStore } from "../common/store";
+import { legacyOpenAISettings } from "../common/store/legacy-preferences";
+import { AgentHost, type ModelRef } from "./agent/agent-host";
+import { importLegacyCredentials, importLegacyCustomProvider } from "./agent/credentials-import";
+import { loadDeviceId } from "./agent/device-id";
+import { ProviderService } from "./agent/provider-service";
+
+class AgentMainIpc extends Main.Ipc {}
+
+const parseModelRef = (value: string): ModelRef | undefined => {
+  const slash = value.indexOf("/");
+  if (slash <= 0 || slash === value.length - 1) return undefined;
+  return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
+};
 
 export default class LensExtensionAiMain extends Main.LensExtension {
+  private agentHost?: AgentHost;
+  private providerService?: ProviderService;
+
   async onActivate() {
     // @ts-ignore
     const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
     preferencesStore.loadExtension(this);
 
-    // Owns the on-disk file for the persisted LangGraph checkpointer state. The
-    // main process must load it so the renderer receives the persisted value
-    // over IPC and the agent can restore its conversation after a restart.
-    // @ts-ignore
-    AgentStateStore.getInstanceOrCreate<AgentStateStore>().loadExtension(this);
+    try {
+      await this.startAgentHost(preferencesStore);
+    } catch (error) {
+      console.error("[freelens-ai] Starting the pi agent failed:", error);
+    }
+  }
 
-    // Owns the on-disk file for the persisted chat transcript and conversation
-    // id. The main process must load it so the renderer receives the persisted
-    // value over IPC and the chat HTML can be restored after a restart.
-    // @ts-ignore
-    ChatSessionStore.getInstanceOrCreate<ChatSessionStore>().loadExtension(this);
+  async onDeactivate() {
+    this.agentHost?.dispose();
+    this.agentHost = undefined;
+    this.providerService?.dispose();
+    this.providerService = undefined;
+  }
 
-    // Generate a fresh shared secret for this launch and require it on every
-    // proxy request, so a local process that learns the port cannot reuse the
-    // user's API key.
-    const aiProxyToken = randomBytes(32).toString("hex");
-    preferencesStore.aiProxyToken = aiProxyToken;
+  // The chat's pi agent runs here in main. Frames send commands over IPC and
+  // receive the agent's events as broadcast envelopes.
+  private async startAgentHost(preferencesStore: PreferencesStore) {
+    // pi loads each OAuth login module by a runtime path, which does not exist
+    // in our bundle; this registers the bundled modules instead.
+    registerBunOAuthFlows();
 
-    preferencesStore.aiProxyPort = null;
-    // The proxy injects the API key into the upstream request from here in the
-    // main process, so the key never has to be sent from the renderer. It also
-    // requires the per-launch shared secret on every request.
-    preferencesStore.aiProxyPort = await startAiProxyServer(
-      aiProxyToken,
-      () => process.env.OPENAI_API_KEY || preferencesStore.openAIKey || undefined,
+    const dataDir = await this.getExtensionFileFolder();
+    const piDir = join(dataDir, "pi");
+    const modelsPath = join(piDir, "models.json");
+    const modelRuntime = await ModelRuntime.create({
+      authPath: join(piDir, "auth.json"),
+      modelsPath,
+    });
+
+    await this.importLegacySettings(preferencesStore, modelRuntime, piDir, modelsPath);
+
+    const ipc = AgentMainIpc.createInstance(this) as AgentMainIpc;
+
+    // Provider status, models and logins for the settings page. Global, not per
+    // cluster; credentials never leave main.
+    const providerService = new ProviderService({
+      modelRuntime,
+      modelsPath,
+      broadcast: (envelope) => ipc.broadcast(PROVIDER_ENVELOPE_CHANNEL, envelope),
+      getDeviceId: () => loadDeviceId(join(piDir, "device-id")),
+    });
+    this.providerService = providerService;
+    ipc.handle(PROVIDER_COMMAND_CHANNEL, (_event, command: ProviderCommand) => providerService.handleCommand(command));
+    const agentHost = new AgentHost({
+      dataDir,
+      modelRuntime,
+      broadcast: (envelope) => ipc.broadcast(AGENT_ENVELOPE_CHANNEL, envelope),
+      tools: AGENT_TOOLS,
+      // Read before every call, so a changed preference applies to the next one.
+      getApprovalOverrides: () => preferencesStore.toolApprovalOverrides,
+      // The chat's model picker remembers the last model used here.
+      getModelRef: () => parseModelRef(preferencesStore.agentModel),
+      getThinkingLevel: () => preferencesStore.thinkingLevel,
+      // Read before every prompt, so an edit applies from the next message. AI
+      // Explain gets the user's custom agent rules too.
+      getUserRules: () => preferencesStore.customAgentRules,
+      // Hosts before the main cluster API (Freelens 1.10) send no cluster section.
+      getClusterName: (clusterId) => Main.Catalog?.getClusterById?.(clusterId)?.name,
+      getRetentionDays: () => preferencesStore.chatRetentionDays,
+      // Hosts before the main cluster API (Freelens 1.10) keep every cluster's latest chat.
+      knownClusterIds: () => Main.Catalog?.getAllClusters?.()?.map((cluster) => cluster.id),
+    });
+    this.agentHost = agentHost;
+    ipc.handle(AGENT_COMMAND_CHANNEL, (_event, clusterId: string, command: AgentCommand) =>
+      agentHost.handleCommand(clusterId, command),
     );
+    // The catalog is still loading here, so a cluster missing from it is not
+    // taken as removed; New chat prunes the folders of removed clusters.
+    agentHost
+      .pruneSessions({ dropRemovedClusters: false })
+      .catch((error) => console.error("[freelens-ai] Deleting old chats failed:", error));
+  }
+
+  // One-time moves of the old LangChain OpenAI settings into pi, each with its
+  // own marker file. Once both have run, the old fields are cleared from the
+  // preferences file; a failed import keeps them for the next start.
+  private async importLegacySettings(
+    preferencesStore: PreferencesStore,
+    modelRuntime: ModelRuntime,
+    piDir: string,
+    modelsPath: string,
+  ) {
+    const legacy = legacyOpenAISettings(preferencesStore.legacy);
+    const seed = (seededModel: string | undefined) => {
+      if (seededModel && !preferencesStore.agentModel) {
+        preferencesStore.agentModel = seededModel;
+      }
+    };
+    try {
+      seed((await importLegacyCredentials(modelRuntime, legacy, join(piDir, "legacy-import-done"))).seededModel);
+      seed(
+        (await importLegacyCustomProvider(modelRuntime, modelsPath, legacy, join(piDir, "legacy-custom-import-done")))
+          .seededModel,
+      );
+    } catch (error) {
+      console.error("[freelens-ai] Importing the old OpenAI settings into pi failed:", error);
+      return;
+    }
+    preferencesStore.clearLegacy();
   }
 }

@@ -86,23 +86,15 @@ body.theme-light .text-input-token-capacity-arc {
   user-select: none;
 }
 
-// Transient compaction status shown next to the token counter. While compacting
-// it stays dimmed like the counter; once compacted it switches to the normal
-// (primary) text colour to confirm the conversation was compacted.
-.text-input-compaction-status {
-  margin-right: 0.5rem;
-  color: var(--textColorPrimary);
-  font-size: 0.9em;
-  white-space: nowrap;
-  user-select: none;
-}
-
-.text-input-compaction-status.compacting {
-  color: var(--textColorDimmed);
-}
-
 .text-input-select-box {
   min-width: 70px !important;
+}
+
+.text-input-no-provider {
+  margin-right: 0.5rem;
+  color: var(--textColorDimmed);
+  font-size: 0.9em;
+  white-space: nowrap;
 }
 
 .text-input-select-box .Select__single-value {
@@ -116,8 +108,14 @@ body.theme-light .text-input-token-capacity-arc {
   padding-right: 0;
 }
 
-#send-button {
+#send-button,
+#stop-button {
   padding-left: 10px;
+}
+
+.text-input-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .chat-clear-button {

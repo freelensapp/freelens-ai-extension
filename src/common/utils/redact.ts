@@ -1,13 +1,9 @@
 /**
  * Redaction of credentials carried by the objects the extension logs.
  *
- * The user's API key travels inside two objects that are logged verbatim for
- * troubleshooting: the agent input built by the chat service, and the LangGraph
- * state (`modelApiKey` is a graph channel, see
- * `renderer/business/agent/state/graph-state.ts`), which also appears one level
- * down as `values` on a state snapshot. Logging them printed the key in
- * cleartext into the DevTools console, so every logged value is passed through
- * here first rather than dropping the logs.
+ * Every value logged through the logger service is passed through here first,
+ * so an object that happens to carry an API key never prints it in cleartext
+ * into the DevTools console.
  */
 
 export const REDACTED = "<redacted>";
@@ -15,13 +11,12 @@ export const REDACTED = "<redacted>";
 // Keys whose value is a credential wherever it appears.
 const SECRET_KEYS = new Set(["apiKey", "api_key", "modelApiKey"]);
 
-// Deep enough for the shapes actually logged (channel values sit one level below
-// a state snapshot's `values`), shallow enough to bound the walk on a large or
-// self-referencing object.
+// Deep enough for the shapes actually logged, shallow enough to bound the walk
+// on a large or self-referencing object.
 const MAX_DEPTH = 6;
 
-// Only plain objects and arrays are walked: a class instance (a LangChain
-// message, an Error) is left untouched so the log keeps showing it as-is.
+// Only plain objects and arrays are walked: a class instance (an Error) is left
+// untouched so the log keeps showing it as-is.
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   if (typeof value !== "object" || value === null) {
     return false;

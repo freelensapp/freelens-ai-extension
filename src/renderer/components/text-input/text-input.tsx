@@ -1,22 +1,19 @@
 import { Renderer } from "@freelensapp/extensions";
-import { Eraser, SendHorizonal, ShieldOff } from "lucide-react";
+import { MessageSquarePlus, SendHorizonal, Square, Trash2 } from "lucide-react";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
-import { formatCost } from "../../business/provider/model-pricing";
-import { formatTokenUsage } from "../../business/service/token-usage";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { AvailableTools } from "../available-tools/available-tools";
 import styleInline from "./text-input.scss?inline";
 import { useTextInput } from "./text-input-hook";
 import { TokenCapacityIndicator } from "./token-capacity-indicator";
+import { formatCost, formatTokenCounts, tokenCounts } from "./usage-format";
 
 const { observer } = MobxReact;
 
 const {
   Component: { Button, Select },
 } = Renderer;
-
-type TextInputOption = Renderer.Component.SelectOption<string>;
 
 type TextInputProps = {
   onSend: (message: string) => void;
@@ -25,7 +22,11 @@ type TextInputProps = {
 export const TextInput = observer(({ onSend }: TextInputProps) => {
   const applicationStatusStore = useApplicationStatusStore();
   const textInputHook = useTextInput({ onSend });
-  const textInputOptions = textInputHook.modelSelections as TextInputOption[];
+  // Everything below comes from pi's stats for the chat, computed in main: the
+  // cost from each answer's model price, the context from the session's model.
+  const stats = applicationStatusStore.sessionStats;
+  const sessionCost = stats?.cost ?? 0;
+  const contextUsage = stats?.contextUsage;
 
   // State for showing/hiding the vertical list
   const [showList, setShowList] = React.useState(false);
@@ -39,21 +40,33 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
             ref={textInputHook.textareaRef}
             rows={1}
             className="text-input-textarea"
-            placeholder="Write a message..."
+            placeholder={applicationStatusStore.isLoading ? "The agent is working..." : "Write a message..."}
+            disabled={applicationStatusStore.isLoading}
             value={textInputHook.message}
             onChange={(e) => textInputHook.setMessage(e.target.value)}
             onKeyDown={textInputHook.handleKeyDown}
           />
           <div className="text-input-buttons-container">
             <div id="chatButtonsContainer" style={{ display: "flex" }}>
-              {/* Button to clear the chat history */}
+              {/* New chat: stops a run, the old chat stays saved until retention deletes it */}
               <button
                 className="chat-button chat-clear-button"
-                onClick={async () => applicationStatusStore.clearChat()}
+                onClick={() => applicationStatusStore.clearChat()}
                 disabled={applicationStatusStore.chatMessages?.length === 0}
-                title="Clear chat"
+                title="New chat"
               >
-                <Eraser size={20} />
+                <MessageSquarePlus size={20} />
+              </button>
+              <button
+                className="chat-button chat-clear-button"
+                onClick={() => {
+                  if (window.confirm("Delete all saved chats of this cluster? This cannot be undone.")) {
+                    void applicationStatusStore.deleteAllChats();
+                  }
+                }}
+                title="Delete all chats of this cluster"
+              >
+                <Trash2 size={20} />
               </button>
               {/* Button to toggle tools */}
               <button
@@ -81,90 +94,66 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               >
                 <span style={{ marginRight: 0 }}>🛠️</span>
               </button>
-              {/* Button to toggle Bypass Approvals mode */}
-              <button
-                className={`chat-button chat-clear-button${applicationStatusStore.bypassApprovals ? " active" : ""}`}
-                onClick={() => applicationStatusStore.setBypassApprovals(!applicationStatusStore.bypassApprovals)}
-                title={
-                  applicationStatusStore.bypassApprovals
-                    ? "Disable Bypass Approvals Mode (tool calls will require confirmation)"
-                    : "Enable Bypass Approvals Mode (tool calls will be auto-approved)"
-                }
-                id="bypass-approvals-button"
-                style={{
-                  borderRadius: "15px",
-                  width: 38,
-                  height: 38,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 15,
-                  background: applicationStatusStore.bypassApprovals ? "#E0A800" : undefined,
-                  color: applicationStatusStore.bypassApprovals ? "#fff" : undefined,
-                  borderColor: applicationStatusStore.bypassApprovals ? "#E0A800" : undefined,
-                  boxShadow: applicationStatusStore.bypassApprovals ? "0 2px 8px rgba(224,168,0,0.25)" : "none",
-                  cursor: "pointer",
-                  transition: "all 0.2s",
-                }}
-              >
-                <ShieldOff size={18} />
-              </button>
             </div>
             <div style={{ display: "flex", alignItems: "center" }}>
-              {applicationStatusStore.compactionStatus && (
-                <span
-                  className={`text-input-compaction-status${
-                    applicationStatusStore.compactionStatus === "compacting" ? " compacting" : ""
-                  }`}
-                  title="The conversation was getting close to the model's input token limit, so it was summarized to free up context."
-                >
-                  {applicationStatusStore.compactionStatus === "compacting"
-                    ? "Compacting conversation..."
-                    : "Compacted conversation."}
-                </span>
-              )}
               {textInputHook.agentConfigured && (
                 <span
                   className="text-input-token-counter text-input-tooltip"
-                  data-tooltip="Tokens used this session (input, cached input, output), with estimated cost when known. Resets when the chat is cleared."
+                  data-tooltip="Tokens used in this chat (input, cached input, output), with the cost when the model's price is known. Starts again with a new chat."
                 >
-                  {formatTokenUsage(applicationStatusStore.tokenUsage)}
-                  {applicationStatusStore.sessionCost > 0 ? ` = ${formatCost(applicationStatusStore.sessionCost)}` : ""}
+                  {formatTokenCounts(tokenCounts(stats?.tokens))}
+                  {sessionCost > 0 ? ` = ${formatCost(sessionCost)}` : ""}
                 </span>
               )}
-              {textInputHook.agentConfigured ? (
+              {textInputHook.agentConfigured && (
                 <Select
-                  id="update-channel-input"
-                  options={textInputOptions}
-                  value={applicationStatusStore.selectedModel}
+                  id="chat-model-picker"
+                  options={textInputHook.modelSelections}
+                  value={textInputHook.pickedModel ?? null}
+                  placeholder="Choose a model"
                   onChange={textInputHook.onChangeModel}
                   themeName="lens"
                   className="text-input-select-box"
                 />
-              ) : (
-                <Button
-                  primary
-                  label="Configure agent"
-                  onClick={textInputHook.goToPreferences}
-                  title="Set an API key and add a model in Freelens AI settings."
-                />
+              )}
+              {textInputHook.noProviderConnected && (
+                <>
+                  <span className="text-input-no-provider">No AI provider is connected.</span>
+                  <Button
+                    primary
+                    label="Connect a provider"
+                    onClick={textInputHook.goToPreferences}
+                    title="Add an API key or sign in to a provider in the Freelens AI settings."
+                  />
+                </>
               )}
               {textInputHook.agentConfigured && (
                 <TokenCapacityIndicator
-                  usedTokens={applicationStatusStore.lastInputTokens}
-                  maxTokens={applicationStatusStore.getMaxInputTokens()}
-                  peakTokens={applicationStatusStore.lastPeakInputTokens}
+                  usedTokens={contextUsage ? contextUsage.tokens : 0}
+                  maxTokens={contextUsage?.contextWindow || textInputHook.pickedModelSummary?.contextWindow || 0}
                 />
               )}
-              <button
-                className="text-input-send-button"
-                onClick={textInputHook.handleSend}
-                disabled={applicationStatusStore.isLoading || !textInputHook.message.trim()}
-                title="Send"
-                id="send-button"
-              >
-                <SendHorizonal size={25} />
-              </button>
+              {/* While a run is going, Stop is the only action */}
+              {applicationStatusStore.isAgentRunning ? (
+                <button
+                  className="text-input-send-button text-input-stop-button"
+                  onClick={() => applicationStatusStore.stopAgent()}
+                  title="Stop"
+                  id="stop-button"
+                >
+                  <Square size={20} fill="currentColor" />
+                </button>
+              ) : (
+                <button
+                  className="text-input-send-button"
+                  onClick={textInputHook.handleSend}
+                  disabled={applicationStatusStore.isLoading || !textInputHook.message.trim()}
+                  title="Send"
+                  id="send-button"
+                >
+                  <SendHorizonal size={25} />
+                </button>
+              )}
             </div>
           </div>
           {/* List of tools */}

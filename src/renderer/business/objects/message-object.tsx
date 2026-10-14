@@ -1,13 +1,13 @@
 import { MessageType } from "./message-type";
 
+import type { ApprovalTarget } from "../../../common/agent-protocol";
+
 // Describes how to re-run a query that failed, so an error message can offer a
-// "Retry" button. Kept to plain serializable fields because message objects are
-// persisted to localStorage as JSON.
-//   - "message": a normal user prompt -> re-run the agent with the same text.
-//   - "resume":  an approval answer ("yes"/"no") to a tool-use interrupt.
-//   - "explain": an EXPLAIN request analyzed by the AI analysis service.
+// "Retry" button.
+//   - "message": a normal user prompt -> send the same prompt again.
+//   - "explain": an AI Explain request -> run the explanation again.
 export interface RetryContext {
-  kind: "message" | "resume" | "explain";
+  kind: "message" | "explain";
   text: string;
 }
 
@@ -28,9 +28,17 @@ export interface MessageObject {
   resources?: string;
   options?: string[];
   approved?: boolean | null;
+  // Set on a pi agent approval card: the id main answers with `ui_response`,
+  // and the resource it is about, from which the frame loads the backup.
+  approvalId?: string;
+  approvalTarget?: ApprovalTarget;
   // Marks an agent error message that should render a "Retry" button. The
   // `retryContext` carries everything needed to re-run the failed query.
   error?: boolean;
   retryContext?: RetryContext;
+  // Set while the pi agent is still streaming this message.
+  streaming?: boolean;
+  // A status line from the agent run (stopped, retrying), not an answer.
+  notice?: boolean;
   sent: boolean;
 }
