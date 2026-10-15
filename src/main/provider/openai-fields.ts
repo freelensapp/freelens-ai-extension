@@ -17,7 +17,7 @@ export interface OpenAIChatFieldsOptions {
   // Base URL of the OpenAI-compatible endpoint (e.g. https://api.openai.com/v1).
   baseUrl: string;
   // The fetch the client sends its requests with: the host's, so the user's
-  // HTTPS proxy and certificate preferences apply (see host-fetch.ts).
+  // HTTPS proxy and certificate preferences apply (`Main.Util.fetch`).
   fetch: ClientFetch;
   // Optional reasoning effort; applied only to reasoning-capable models.
   reasoningEffort?: string;

@@ -96,7 +96,7 @@ src/
   main/agents/tools/             # Kubernetes tools, by path through KubeJsonApi.forCluster
   main/bridge/                   # Local HTTP/SSE bridge server and its routes
   main/mcp/                      # MCP servers of the preferences, one client per cluster
-  main/provider/                 # Chat models, host fetch adapter, prompts, model pricing
+  main/provider/                 # Chat models, prompts, model pricing
   main/utils/                    # Logger of main
   renderer/index.tsx             # Extension entry point (renderer process, ESM): pages, menus, preferences
   renderer/business/bridge/      # Client of the bridge (the global fetch)
@@ -634,8 +634,6 @@ endpoint. The rest is in `src/main/provider/`:
 - `offline-token-chat-model.ts`, `dsml-aware-chat-model.ts` — the `ChatOpenAI`
   subclasses: local token counting instead of the tiktoken download, and the
   recovery of DeepSeek's tool calls leaked into the text.
-- `host-fetch.ts` — the adapter that hands `Main.Util.fetch` to the OpenAI
-  client as its `fetch`.
 - `model-pricing-provider.ts` — fetches `/model/info` of the endpoint, with the
   key, and the public LiteLLM price list, without it; served to the renderer
   by the `/model/pricing` route of the bridge.
@@ -647,18 +645,12 @@ endpoint. The rest is in `src/main/provider/`:
 Every HTTP request main makes, to the model endpoint and for the pricing, goes
 through `Main.Util.fetch`, never the global `fetch` or a bundled client's
 default one, so the user's HTTPS proxy, CA certificates and "allow untrusted
-CAs" preferences apply. The host's `Fetch` is structural and not assignable to
-the standard `fetch` that the OpenAI SDK takes (`Request` inputs, `Blob` and
-`FormData` bodies, `Response#clone()`, `url`, ...), so `host-fetch.ts`
-asserts the type once: it is the only place the extension asserts a host type.
-At runtime main's fetch is undici's and returns a full `Response`. The adapter
-refuses a `Request` input, whose method, headers and body would be lost. Do not
-pass a `dispatcher` in the init: the host spreads the init after its own.
-
-The host's `Fetch` fits a request that uses only a URL, `method`, `headers`,
-a string or bytes `body` and `signal`, and reads `ok`, `status`, `headers`,
-`json()`, `text()` and `body`; `model-pricing-provider.ts` takes it as it is,
-without the adapter.
+CAs" preferences apply. `Main.Util.fetch` is typed as the standard `fetch`
+(C12), so it is the `fetch` option of the OpenAI client as it is, and
+`model-pricing-provider.ts` takes it too. `model-provider.ts` reads it when a
+request is sent, since the namespace exists only once the extension is loaded.
+The host translates a `Request` input and encodes a `FormData` body for its
+client, and drops a `dispatcher` of the init, so that its own always applies.
 
 When changing the heuristics or list logic, prefer extending the pure helpers
 and add/adjust the matching `*.test.ts` (run with `pnpm test:unit`). The tests

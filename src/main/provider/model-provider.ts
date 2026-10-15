@@ -3,14 +3,13 @@ import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../../common/provider/ai-m
 import { findProvider } from "../../common/provider/model-list";
 import { PreferencesStore } from "../../common/store";
 import { DsmlAwareChatOpenAI } from "./dsml-aware-chat-model";
-import { createStandardFetch } from "./host-fetch";
 import { emitsDsmlToolCalls } from "./model-capabilities";
 import { OfflineTokenChatOpenAI } from "./offline-token-chat-model";
 import { buildOpenAIChatFields } from "./openai-fields";
 
 // Read at call time: the namespace is the host's, and exists only once the
 // extension is loaded.
-const hostFetch: typeof globalThis.fetch = (input, init) => createStandardFetch(Main.Util.fetch)(input, init);
+const hostFetch: typeof globalThis.fetch = (input, init) => Main.Util.fetch(input, init);
 
 /**
  * The OpenAI API key: OPENAI_API_KEY of main's environment, else the key of the
