@@ -99,7 +99,7 @@ src/
   main/provider/                 # Chat models, host fetch adapter, prompts, model pricing
   main/utils/                    # Logger of main
   renderer/index.tsx             # Extension entry point (renderer process, ESM): pages, menus, preferences
-  renderer/business/bridge/      # Client of the bridge (Renderer.Util.fetch)
+  renderer/business/bridge/      # Client of the bridge (the global fetch)
   renderer/business/service/     # Chat service: runs, approvals and their events, as the views use them
   renderer/business/cluster/     # Id of the active cluster of the frame
   renderer/components/, pages/   # Views: chat, messages, approvals, preferences, error boundary
@@ -693,7 +693,8 @@ run.
   or a memory. `agent-service.ts` runs a graph and turns its stream into the
   events below.
 - `src/renderer/business/bridge/bridge-client.ts` — requests with
-  `Renderer.Util.fetch`, whose `body` is a `ReadableStream` that `readSseEvents`
+  the global `fetch`, Chromium's, which the host uses in the renderer too;
+  its `body` is a `ReadableStream` that `readSseEvents`
   reads as it arrives. The port and the token are read from `PreferencesStore`
   for every request.
 

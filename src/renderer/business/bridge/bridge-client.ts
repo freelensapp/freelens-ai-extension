@@ -1,9 +1,9 @@
 // The renderer's side of the bridge to the agents in main (see
-// src/common/bridge/protocol.ts). Requests go through `Renderer.Util.fetch`;
-// the port and the token are read from PreferencesStore for every request, so
-// after a reload of the extension the next request reaches the new bridge.
+// src/common/bridge/protocol.ts). Requests go through the global `fetch`,
+// Chromium's, which the host uses in the renderer too (C12); the port and the
+// token are read from PreferencesStore for every request, so after a reload of
+// the extension the next request reaches the new bridge.
 
-import { Renderer } from "@freelensapp/extensions";
 import { BRIDGE_HOST, BRIDGE_TOKEN_HEADER, type BridgeRoutePath } from "../../../common/bridge/protocol";
 import { readSseEvents } from "../../../common/bridge/sse";
 import { PreferencesStore } from "../../../common/store";
@@ -50,9 +50,9 @@ const request = async ({ method, path, query, body, signal }: BridgeRequest) => 
     headers["content-type"] = "application/json";
   }
 
-  let response: Awaited<ReturnType<typeof Renderer.Util.fetch>>;
+  let response: Response;
   try {
-    response = await Renderer.Util.fetch(url, {
+    response = await fetch(url, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
