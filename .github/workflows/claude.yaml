@@ -430,7 +430,7 @@ jobs:
             --model "${{ needs.parse.outputs.model }}"
             ${{ needs.parse.outputs.effort-arg }}
             --fallback-model claude-opus-5
-            --max-turns 200
+            --max-turns 400
             --setting-sources user
             --allowedTools "Read" "Glob" "Grep" "Task" "mcp__github_inline_comment__create_inline_comment" "Bash(git diff:*)" "Bash(git log:*)" "Bash(git show:*)" "Bash(git status:*)" "Bash(gh pr view:*)" "Bash(gh pr diff:*)" "Bash(jq:*)" "Bash(cut:*)" "Bash(tr:*)" "Bash(sort:*)" "Bash(uniq:*)" "Bash(cat:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(wc:*)" "Bash(ls:*)" "Bash(tree:*)"
             --disallowedTools "Edit" "Write" "MultiEdit" "NotebookEdit" "Bash(git add:*)" "Bash(git commit:*)" "Bash(git rm:*)" "Bash(git push:*)" "Bash(*git-push.sh*)" "Bash(mkdir:*)" "Bash(touch:*)" "Bash(cp:*)" "Bash(mv:*)" "Bash(rm:*)" "Bash(rmdir:*)" "Bash(sed:*)"
