@@ -465,7 +465,12 @@ import { describe, expect, it, vi } from "vitest";
 
 The module resolves from every program, so Biome keeps it out of the
 extension's code: `style/noRestrictedImports` rejects `vitest` everywhere
-except `src/**/*.test.*`, `test/` and `integration/`. At runtime
+except `src/**/*.test.*`, `test/` and `integration/`. The same rule rejects
+there the testing helpers of React: the `act` named import of `react`,
+`react-dom/test-utils` and `@testing-library/*`. They type-check, build and
+pass the unit tests, which run the development build of React, but `act`
+delegates to `React.act`, which the production build that Freelens runs leaves
+out, so the call throws only in the host. At runtime
 `vitest.config.ts` still sets `globals: true`, because React Testing Library
 registers its automatic cleanup only when `afterEach` is a global.
 
@@ -516,8 +521,8 @@ parameters JSDoc types.
 `biome.jsonc` has the formatter, import groups and rules of Freelens. Two
 overrides are specific to how the extension is laid out:
 
-- `style/noRestrictedImports` keeps `vitest` out of the extension's code (see
-  "Tests and tooling").
+- `style/noRestrictedImports` keeps `vitest` and the testing helpers of React
+  out of the extension's code (see "Tests and tooling").
 - `correctness/noNodejsModules` rejects a Node builtin import in
   `src/renderer/` and `src/common/`, tests left out. It flags the import in the
   editor, before the build does; it does not see Node globals such as `Buffer`
