@@ -537,11 +537,14 @@ apply `vcs.useIgnoreFile`, so the Biome commands in `.trunk/trunk.yaml` pass
 `--vcs-use-ignore-file=false`; Trunk applies `.gitignore` itself before it
 picks the targets.
 
-Biome does not read SCSS; Trunk formats it with Prettier. Renovate updates
-Biome in the `biome` script and in `.trunk/trunk.yaml`; `biome migrate` runs
-from the `postupdate` script, and `biome-migrate.yaml` opens a pull request
-with the migration after a push to `main` that changes `biome.jsonc` or
-`package.json`, and daily.
+Renovate updates Biome, in the `biome` script and in `.trunk/trunk.yaml`, but
+cannot run `biome migrate`. `biome-migrate.yaml` runs it on the Renovate
+branch and commits the migrated `biome.jsonc` there, so that the update and its
+migration are one pull request. The commit is by `github-actions[bot]`, which
+`gitIgnoredAuthors` in `.renovaterc.json` lists, so that Renovate does not take
+it for a manual edit and stop updating the branch.
+
+Biome does not read SCSS; Trunk formats it with Prettier.
 
 ### Knip
 
