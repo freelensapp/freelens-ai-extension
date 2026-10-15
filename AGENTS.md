@@ -465,7 +465,12 @@ import { describe, expect, it, vi } from "vitest";
 
 The module resolves from every program, so Biome keeps it out of the
 extension's code: `style/noRestrictedImports` rejects `vitest` everywhere
-except `src/**/*.test.*`, `test/` and `integration/`. At runtime
+except `src/**/*.test.*`, `test/` and `integration/`. The same rule rejects
+there the testing helpers of React: the `act` named import of `react`,
+`react-dom/test-utils` and `@testing-library/*`. They type-check, build and
+pass the unit tests, which run the development build of React, but `act`
+delegates to `React.act`, which the production build that Freelens runs leaves
+out, so the call throws only in the host. At runtime
 `vitest.config.ts` still sets `globals: true`, because React Testing Library
 registers its automatic cleanup only when `afterEach` is a global.
 
@@ -516,8 +521,8 @@ parameters JSDoc types.
 `biome.jsonc` has the formatter, import groups and rules of Freelens. Two
 overrides are specific to how the extension is laid out:
 
-- `style/noRestrictedImports` keeps `vitest` out of the extension's code (see
-  "Tests and tooling").
+- `style/noRestrictedImports` keeps `vitest` and the testing helpers of React
+  out of the extension's code (see "Tests and tooling").
 - `correctness/noNodejsModules` rejects a Node builtin import in
   `src/renderer/` and `src/common/`, tests left out. It flags the import in the
   editor, before the build does; it does not see Node globals such as `Buffer`
@@ -532,11 +537,14 @@ apply `vcs.useIgnoreFile`, so the Biome commands in `.trunk/trunk.yaml` pass
 `--vcs-use-ignore-file=false`; Trunk applies `.gitignore` itself before it
 picks the targets.
 
-Biome does not read SCSS; Trunk formats it with Prettier. Renovate updates
-Biome in the `biome` script and in `.trunk/trunk.yaml`; `biome migrate` runs
-from the `postupdate` script, and `biome-migrate.yaml` opens a pull request
-with the migration after a push to `main` that changes `biome.jsonc` or
-`package.json`, and daily.
+Renovate updates Biome, in the `biome` script and in `.trunk/trunk.yaml`, but
+cannot run `biome migrate`. `biome-migrate.yaml` runs it on the Renovate
+branch and commits the migrated `biome.jsonc` there, so that the update and its
+migration are one pull request. The commit is by `github-actions[bot]`, which
+`gitIgnoredAuthors` in `.renovaterc.json` lists, so that Renovate does not take
+it for a manual edit and stop updating the branch.
+
+Biome does not read SCSS; Trunk formats it with Prettier.
 
 ### Knip
 
@@ -1000,6 +1008,24 @@ When asked to implement a change on a PR:
    separately. Do not batch multiple independent fixes into a single
    commit. This keeps the history bisectable and makes each change easy
    to revert individually.
+
+### Force-Pushing a Rewritten Branch
+
+When you are asked to rebase a pull request branch, or to rewrite its
+history in another way (amend, squash, drop a commit), push the result with:
+
+```bash
+git push --force-with-lease origin HEAD
+```
+
+The push wrapper the action names in its instructions, `git-push.sh`, accepts
+no flags, so it cannot do this; `git` itself is allowed in this workflow.
+Do not fall back to merging `main` into the branch instead: a merge commit is
+not what was asked for.
+
+Force-push only the pull request branch the run was invoked on, and only when
+the request calls for a rewrite. Never force-push `main` or any other branch,
+and never rewrite a history you were not asked to.
 
 ### Modifying GitHub Actions Workflows
 
