@@ -1,8 +1,8 @@
-import { Interrupt } from "@langchain/langgraph";
+import { MessageType } from "../../../common/objects/message-type";
 import { generateUuid } from "../../../common/utils/uuid";
-import { MessageType } from "./message-type";
 
-import type { MessageObject, RetryContext } from "./message-object";
+import type { ApprovalRequest } from "../../../common/bridge/protocol";
+import type { MessageObject, RetryContext } from "../../../common/objects/message-object";
 
 export function getTextMessage(message: string, sent: boolean): MessageObject {
   return {
@@ -35,16 +35,18 @@ export function getExplainMessage(message: string): MessageObject {
   };
 }
 
-export function getInterruptMessage(chunk: Interrupt, sent: boolean): MessageObject {
+export function getInterruptMessage(request: ApprovalRequest, sent: boolean): MessageObject {
+  const { action } = request.actionToApprove;
   return {
     messageId: generateUuid(),
     type: MessageType.INTERRUPT,
-    action: chunk.value.actionToApprove.action,
-    question: chunk.value.question,
-    text: chunk.value.requestString,
-    actionDetails: chunk.value.actionString,
-    resources: chunk.value.resourcesString,
-    options: chunk.value.options,
+    // The MCP agent names the tools it asks for as a list.
+    action: Array.isArray(action) ? action.join(", ") : action,
+    question: request.question,
+    text: request.requestString,
+    actionDetails: request.actionString,
+    resources: request.resourcesString,
+    options: request.options,
     approved: null,
     sent: sent,
   };

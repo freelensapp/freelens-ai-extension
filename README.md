@@ -25,7 +25,7 @@ automate complex tasks and enhance productivity.
 - [Install](#install)
 - [How to obtain a Google API Key](./docs/GOOGLE_API_KEY.md) (provider
   temporarily disabled)
-- [Build & Run Guide](./docs/BUILD.md)
+- [Build from the source](#build-from-the-source)
 
 ---
 
@@ -34,7 +34,11 @@ automate complex tasks and enhance productivity.
 - [@freelensapp/ai-extension](#freelensappai-extension)
   - [Video Demo](#video-demo)
   - [Index](#index)
+  - [Requirements](#requirements)
   - [Install](#install)
+    - [From the registry](#from-the-registry)
+    - [From a release tarball](#from-a-release-tarball)
+    - [From a directory](#from-a-directory)
   - [How it works](#how-it-works)
     - [What the extension cannot use](#what-the-extension-cannot-use)
   - [Available Models](#available-models)
@@ -45,16 +49,60 @@ automate complex tasks and enhance productivity.
     - [Key Features](#key-features)
     - [Base Agent](#base-agent)
     - [MCP Agent](#mcp-agent)
-      - [Additional Resources](#additional-resources)
+  - [Build from the source](#build-from-the-source)
+    - [Prerequisites](#prerequisites)
+    - [Build the extension](#build-the-extension)
+    - [Development loop](#development-loop)
+    - [Check the code](#check-the-code)
+  - [Additional Resources](#additional-resources)
 
 ---
+
+## Requirements
+
+- Freelens >= 2.0.0
+- An API key of OpenAI, or of an endpoint that implements the OpenAI Chat
+  Completions API (see [How it works](#how-it-works))
+
 ## Install
-Open freelens > file > extensions and add the folowing string to the textbox: **@freelensapp/ai-extension**
 
-or:
+Open Freelens and go to Extensions (`ctrl`+`shift`+`E` or
+`cmd`+`shift`+`E`). The field at the top takes a package name, the URL of a
+tarball, or the path to a tarball or a directory.
 
-Use a following URL in the browser:
+### From the registry
+
+Enter `@freelensapp/ai-extension` and press Install.
+
+Alternatively, open the following URL in the browser to install directly:
+
 [freelens://app/extensions/install/%40freelensapp%2Fai-extension](freelens://app/extensions/install/%40freelensapp%2Fai-extension)
+
+### From a release tarball
+
+Each [release](https://github.com/freelensapp/freelens-ai-extension/releases)
+has the extension as `freelensapp-ai-extension-<version>.tgz`, with its
+checksum in `freelensapp-ai-extension-<version>.tgz.sha256`. Use a release
+whose major version matches your Freelens version: the 1.x releases are for
+Freelens 2, the 0.x releases for Freelens 1.
+
+- Enter the URL of the `.tgz` asset and press Install. Freelens downloads the
+  `.tgz.sha256` next to it and checks the tarball against it.
+- Or download both files into one directory and enter the path to the `.tgz`,
+  or drop the `.tgz` on the Freelens window. Freelens checks it against the
+  `.tgz.sha256` next to it.
+
+### From a directory
+
+[Build the extension](#build-the-extension), then enter the path to your
+checkout, the directory with `package.json`, and press Install. Freelens runs
+the extension from that directory, from the files in `dist/`, and lists it as
+unverified. This is how you work on the extension: see
+[Development loop](#development-loop).
+
+Once installed, set the API key in the extension's preferences, as described
+in [Connecting a model](#connecting-a-model) and, with screenshots, in the
+[set up guide](./docs/SET_UP_EXTENSION.md).
 
 ## How it works
 
@@ -62,7 +110,8 @@ Freelens AI is a **client of a large language model API**. It does not run a
 model itself; instead it sends your prompts and the cluster context to a model
 provider and renders the response. The agent logic (the LangGraph supervisor,
 the cluster tools, structured output, and human-in-the-loop approvals) runs
-inside the extension, and only the model inference is delegated to the provider.
+inside the extension, in the main process of Freelens, and only the model
+inference is delegated to the provider.
 
 - **Talks the OpenAI Chat Completions API.** The extension is built on the
   OpenAI client and the OpenAI-compatible wire format. It works with OpenAI
@@ -127,8 +176,8 @@ many others through a single OpenAI-compatible API.
 
 To do this, set the **Base URL** in the OpenAI section of the preferences to your
 gateway (for example `http://localhost:4000/v1`) and use the model names exposed
-by that gateway. Requests are routed through the extension's local proxy, so the
-custom base URL works without any code changes.
+by that gateway. The requests are sent by the main process of Freelens, so the
+proxy and certificate settings of the Freelens preferences apply to them.
 
 ### DeepSeek and other "thinking" models
 Some models reached through a gateway need extra handling, which the extension
@@ -174,7 +223,8 @@ root certificate to be trusted by Ollama's environment.
 ### Connecting a model
 Open the preferences page and, in the OpenAI section, set your API key and
 (optionally) a custom base URL. You can also provide the key through an
-environment variable instead:
+environment variable of the Freelens process instead, which takes precedence
+over the key of the preferences:
 
 - OPENAI_API_KEY = ...
 
@@ -238,6 +288,8 @@ context of the conversation.
   Markdown tables are supported, and model reasoning is shown in a collapsible
   block.
 - **Retry on errors**: failed messages can be retried with one click.
+- **Explain an event**: the menu of a warning Event has an "Explain" item,
+  which opens the chat with an analysis of the event.
 
 **Models and providers**
 
@@ -250,8 +302,10 @@ context of the conversation.
 
 **Security**
 
-- The API key is injected in the main process rather than the renderer, the
-  local AI proxy requires a per-launch bearer token, and CORS is restricted.
+- The agents and the model client run in the main process of Freelens, and the
+  API key never leaves it. The chat talks to them over a local bridge on
+  `127.0.0.1`, which refuses every request without its per-launch token.
+- Each cluster's chat acts on that cluster only, through Freelens.
 
 ### Base Agent
 
@@ -261,16 +315,114 @@ documentation](docs/BASE_AGENT.md).
 
 ### MCP Agent
 
-We support MCP Agent through a dedicated configuration. Go deeper by reading
-our [MCP Agent documentation](docs/MCP_AGENT.md).
+We support MCP Agent through a dedicated configuration. The MCP servers run in
+the main process of Freelens, one set per cluster, and reach the cluster the
+chat is open for through Freelens. Go deeper by reading our
+[MCP Agent documentation](docs/MCP_AGENT.md).
 
 ---
 
-#### Additional Resources
+## Build from the source
+
+### Prerequisites
+
+Use [NVM](https://github.com/nvm-sh/nvm),
+[mise-en-place](https://mise.jdx.dev/), or
+[windows-nvm](https://github.com/coreybutler/nvm-windows) to install the
+Node.js version in `.nvmrc`.
+
+From the root of this repository:
+
+```sh
+nvm install
+# or
+mise install
+# or
+winget install CoreyButler.NVMforWindows
+nvm install "$(cat .nvmrc)"
+nvm use "$(cat .nvmrc)"
+```
+
+Install pnpm:
+
+```sh
+corepack install
+# or
+curl -fsSL https://get.pnpm.io/install.sh | sh -
+# or
+winget install pnpm.pnpm
+```
+
+### Build the extension
+
+```sh
+pnpm install
+pnpm build
+```
+
+The extension is built into `dist/`. To pack it into a tarball:
+
+```sh
+pnpm pack
+```
+
+One script to bump the prerelease version, build and pack the extension for
+testing:
+
+```sh
+pnpm pack:dev
+```
+
+The tarball is placed in the current directory. Install it as described in
+[From a release tarball](#from-a-release-tarball).
+
+### Development loop
+
+Install the extension from your checkout once, as described in
+[From a directory](#from-a-directory), then run:
+
+```sh
+pnpm dev
+```
+
+It rebuilds the extension whenever a source file changes, and Freelens
+reloads the extension after each rebuild, without a restart and without
+packing. Stop it with `ctrl`+`C`.
+
+Neither `pnpm build` nor `pnpm dev` type-checks; run `pnpm type:check` for
+that. A change to `main` or `renderer` in `package.json` needs Freelens
+restarted once.
+
+### Check the code
+
+```sh
+pnpm type:check
+pnpm test:unit
+pnpm lint:check
+pnpm build
+pnpm knip:check
+```
+
+and, for the formats that Biome does not cover:
+
+```sh
+pnpm trunk:check
+```
+
+How the extension is built, type-checked and tested, and why, is described in
+[AGENTS.md](AGENTS.md).
+
+## Additional Resources
 
 - [***Contribute***](CONTRIBUTING.md)
-- [***Build freelens-ai-extension extension***](./docs/BUILD.md)
-- [***Set up extension on freelens***](./docs/SET_UP_EXTENSION.md)
+- [***Build the extension***](./docs/BUILD.md)
+- [***Set up the extension in Freelens***](./docs/SET_UP_EXTENSION.md)
 
-If you find this project useful, please consider giving it a ⭐️ on
-[***GitHub***](https://github.com/freelensapp/freelens-ai)!
+If you find this project useful, please consider giving it a star on
+[***GitHub***](https://github.com/freelensapp/freelens-ai-extension)!
+
+## License
+
+Copyright (c) 2025-2026 Freelens Authors.
+
+[MIT License](https://opensource.org/licenses/MIT)

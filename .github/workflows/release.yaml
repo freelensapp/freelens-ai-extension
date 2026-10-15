@@ -16,9 +16,6 @@ jobs:
     runs-on: ubuntu-24.04-arm
     environment: publishing
 
-    env:
-      VITE_PRESERVE_MODULES: "false"
-
     steps:
       - name: Checkout plugin
         uses: actions/checkout@v7
@@ -27,7 +24,7 @@ jobs:
         run: test "${GITHUB_REF_NAME}" = "v$(yq -r .version package.json)"
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
@@ -61,18 +58,18 @@ jobs:
         run: timeout 300 pnpm install --color=always --prefer-offline --frozen-lockfile
 
       - name: Build packages
-        id: build
+        id: build-packages
         run: pnpm --color=always --stream build
         continue-on-error: true
 
       - name: Build packages (retry)
-        id: build-2
-        if: steps.build.outcome == 'failure'
+        id: build-packages-2
+        if: steps.build-packages.outcome == 'failure'
         run: pnpm --color=always --stream build
         continue-on-error: true
 
       - name: Build packages (retry 2)
-        if: steps.build-2.outcome == 'failure'
+        if: steps.build-packages-2.outcome == 'failure'
         run: pnpm --color=always --stream build
 
       - name: Pack packages

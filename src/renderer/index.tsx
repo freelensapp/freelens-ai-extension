@@ -4,60 +4,56 @@
  */
 
 import { Renderer } from "@freelensapp/extensions";
-import { AgentStateStore, ChatSessionStore, PreferencesStore } from "../common/store";
-import { ensureRunnableContextStorage } from "./business/agent/runnable-context";
+import { ChatSessionStore, PreferencesStore } from "../common/store";
+import {
+  withMenuItemErrorBoundary,
+  withPageErrorBoundary,
+  withPreferenceErrorBoundary,
+} from "./components/error-boundary";
 import { FreeLensAiIcon } from "./components/freelens-ai-icon";
 import { MenuEntry } from "./components/menu-entry";
-import { setExtensionPreferencesPath } from "./navigation/extension-preferences";
+import { MAIN_PAGE_ID } from "./navigation/pages";
 import { MainPage } from "./pages/main";
 import { PreferencesPage } from "./pages/preferences";
 
-type KubeObject = Renderer.K8sApi.KubeObject;
-type KubeObjectMenuProps<TKubeObject extends KubeObject> = Renderer.Component.KubeObjectMenuProps<TKubeObject>;
-
+// The chat page, the "Explain" menu item and the preferences render inside an
+// error boundary, so that an error they throw stays in their place: the host has
+// none around a menu item or an extension's preferences, and its boundary around
+// a frame would replace the whole cluster view or preferences page. Each
+// registration field is mapped through its wrapper, so an entry added to it is
+// wrapped too.
 export default class FreeLensAIRenderer extends Renderer.LensExtension {
   async onActivate() {
-    // Wire LangChain's AsyncLocalStorage run-context singleton before any agent
-    // graph runs. LangGraph's `interrupt()` (the write-tool approval gate) reads
-    // the run config from this singleton, which the renderer's browser bundle
-    // never initializes; without it the approval prompt cannot reach the UI.
-    ensureRunnableContextStorage();
-    // Resolve the route to this extension's own preferences tab so the chat
-    // "Configure agent" button can link straight to it.
-    setExtensionPreferencesPath(this.sanitizedExtensionId);
-    // @ts-ignore
+    // The bridge's port and token, written by main, are read from here too.
     PreferencesStore.getInstanceOrCreate<PreferencesStore>().loadExtension(this);
-    // Durable, host-managed storage for the agents' LangGraph checkpointer
-    // state, so the conversation context survives an application restart.
-    // @ts-ignore
-    AgentStateStore.getInstanceOrCreate<AgentStateStore>().loadExtension(this);
+    // The agents' checkpointer state (AgentStateStore) is main's alone: the
+    // agents run there.
     // Durable, host-managed storage for the rendered chat transcript and
     // conversation id, so the chat HTML survives an application restart.
-    // @ts-ignore
     ChatSessionStore.getInstanceOrCreate<ChatSessionStore>().loadExtension(this);
   }
 
-  clusterPages = [
+  clusterPages: Renderer.LensExtension["clusterPages"] = [
     {
-      id: "ai-extension-main-page",
+      id: MAIN_PAGE_ID,
       components: {
-        Page: () => <MainPage />,
+        Page: () => <MainPage extension={this} />,
       },
     },
-  ];
+  ].map((registration) => withPageErrorBoundary(this, registration));
 
   clusterPageMenus = [
     {
       id: "ai-extension",
       title: "Freelens AI",
-      target: { pageId: "ai-extension-main-page" },
+      target: { pageId: MAIN_PAGE_ID },
       components: {
         Icon: FreeLensAiIcon,
       },
     },
   ];
 
-  appPreferences = [
+  appPreferences: Renderer.LensExtension["appPreferences"] = [
     {
       title: "Freelens AI Settings",
       components: {
@@ -65,15 +61,11 @@ export default class FreeLensAIRenderer extends Renderer.LensExtension {
         Hint: () => <span></span>,
       },
     },
-  ];
+  ].map((registration) => withPreferenceErrorBoundary(this, registration));
 
-  kubeObjectMenuItems = [
-    {
-      kind: "Event",
-      apiVersions: ["v1"],
-      components: {
-        MenuItem: (props: KubeObjectMenuProps<Renderer.K8sApi.KubeEvent>) => <MenuEntry {...props} />,
-      },
-    },
-  ];
+  kubeObjectMenuItems: Renderer.LensExtension["kubeObjectMenuItems"] = [
+    Renderer.K8sApi.menuItemFor(Renderer.K8sApi.KubeEvent, {
+      MenuItem: (props) => <MenuEntry {...props} extension={this} />,
+    }),
+  ].map((registration) => withMenuItemErrorBoundary(this, registration));
 }

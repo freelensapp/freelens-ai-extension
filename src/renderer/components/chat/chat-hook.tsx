@@ -1,20 +1,12 @@
-import { Main } from "@freelensapp/extensions";
 import * as React from "react";
 
 const { useEffect, useRef } = React;
 
-import useChatService from "../../../common/service/chat-service";
-import { MessageType } from "../../business/objects/message-type";
+import { MessageType } from "../../../common/objects/message-type";
+import useChatService from "../../business/service/chat-service";
 import { useApplicationStatusStore } from "../../context/application-context";
 
-import type { MessageObject } from "../../business/objects/message-object";
-
-export interface ActionToApprove {
-  action: string;
-  name?: string;
-  namespace?: string;
-  data?: Main.K8sApi.KubeObject;
-}
+import type { MessageObject } from "../../../common/objects/message-object";
 
 export const useChatHook = () => {
   const chatService = useChatService();

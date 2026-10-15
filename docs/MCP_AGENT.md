@@ -1,12 +1,28 @@
-# Setting Up an MCP Agent for Freelens-AI 📡 
+# Setting Up an MCP Agent for Freelens-AI
 
-This guide will walk you through setting up an MCP (Model Control Protocol) agent to work with Freelens-AI, enabling you to control and interact with AI agents running on your infrastructure.
+This guide will walk you through setting up an MCP (Model Context Protocol) agent to work with Freelens-AI, enabling you to control and interact with AI agents running on your infrastructure.
 
 ## Prerequisites
 
 - You have Freelens-AI installed.
-- You have Node.js and npx available in your system.
+- You have Node.js and npx available in your system, on the `PATH` of your
+  login shell.
 - You have an OpenAI API Key, at the moment it only works with its models
+
+## Where the servers run
+
+The MCP servers run in the main process of Freelens, one set per cluster,
+started on the first message or tool list of that cluster's chat. A server
+started with a command gets the environment of the cluster's terminal in
+Freelens: commands named without a path, such as `npx`, are found on the
+`PATH` of your login shell, and `KUBECONFIG` points at the cluster the chat is
+open for, through Freelens, rather than at the current context of your
+kubeconfig. The cluster must be connected. Variables set in the `env` of a
+server take precedence.
+
+The servers stop when MCP is turned off or its configuration changes, when the
+cluster disconnects, and when the extension is disabled or Freelens quits. The
+next message starts them again.
 
 ## Configuration
 
@@ -35,15 +51,15 @@ Below is the pre-built configuration for the MCP server for Kubernetes, included
 } 
 ```
 
-✅ This uses npx to launch the mcp-server-kubernetes module. You can replace
+This uses npx to launch the mcp-server-kubernetes module. You can replace
 this with your own agent command.
 
-🚀 Recommended MCP Agent
+Recommended MCP Agent
 
 For a robust setup, especially in Kubernetes environments, we recommend:
 <https://github.com/Flux159/mcp-server-kubernetes>
 
-🖼️ Screenshots
+Screenshots
 
 ![alt text](images/mcpsettings.png)
 ![alt text](images/mcpset.png)
@@ -65,14 +81,16 @@ extension always spawns its own instance of the command you configured.
 
 ### Connection closed right after startup
 
-The developer console shows an error like:
+The chat shows the error, and the main-process log of Freelens (the terminal
+Freelens was started from, or its log file) has an error like:
 
 ```text
 MCPClientError: Failed to connect to stdio server ... MCP error -32000: Connection closed
 ```
 
 This means the spawned server process exited immediately. The first diagnostic
-step is to run the configured command manually in a terminal:
+step is to run the configured command manually in the cluster's terminal in
+Freelens, which has the same environment:
 
 ```bash
 npx mcp-server-kubernetes
@@ -148,7 +166,3 @@ command with the Windows command interpreter:
     }
 }
 ```
-
-Connection failures are currently only visible in the developer console;
-user-facing error reporting is tracked in issue
-[#274](https://github.com/freelensapp/freelens-ai-extension/issues/274).

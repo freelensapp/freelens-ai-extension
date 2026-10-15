@@ -1,10 +1,10 @@
 import { Renderer } from "@freelensapp/extensions";
 import { ChevronDown, ChevronRight, Copy, ListPlus, ListX, Play } from "lucide-react";
 import { useState } from "react";
-import styleInline from "./code-block.scss?inline";
+import styles from "./code-block.module.scss";
 import { useCodeBlockHook } from "./code-block-hook";
 
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 const {
   Component: { MonacoEditor },
@@ -20,7 +20,7 @@ type CodeBlockProps = {
   collapsible?: boolean;
   // Initial folded state when collapsible (default: expanded).
   defaultCollapsed?: boolean;
-  props: React.HTMLAttributes<HTMLElement>;
+  props: HTMLAttributes<HTMLElement>;
 };
 
 export const CodeBlock = ({
@@ -40,10 +40,12 @@ export const CodeBlock = ({
     const bodyHidden = collapsible && collapsed;
     return (
       <>
-        <style>{styleInline}</style>
-        <div className="code-block-container">
-          <div className={`code-block-toolbar${bodyHidden ? " code-block-toolbar-collapsed" : ""}`}>
-            <button onClick={codeBlockHook.executeCommand} className={"code-block-button code-block-run-button"}>
+        <div className={styles.codeBlockContainer}>
+          <div className={`${styles.codeBlockToolbar}${bodyHidden ? ` ${styles.codeBlockToolbarCollapsed}` : ""}`}>
+            <button
+              onClick={codeBlockHook.executeCommand}
+              className={`${styles.codeBlockButton} ${styles.codeBlockRunButton}`}
+            >
               {codeBlockHook.isExecutable(language) && <Play size={16} />}
             </button>
 
@@ -51,29 +53,32 @@ export const CodeBlock = ({
               <button
                 type="button"
                 onClick={() => setCollapsed((value) => !value)}
-                className={"code-block-button code-block-toolbar-language code-block-toggle"}
+                className={`${styles.codeBlockButton} ${styles.codeBlockToolbarLanguage} ${styles.codeBlockToggle}`}
               >
                 {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
                 <span>{label}</span>
               </button>
             ) : (
-              <div className={"code-block-toolbar-language"}>{label}</div>
+              <div className={styles.codeBlockToolbarLanguage}>{label}</div>
             )}
 
-            <div className="code-block-toolbar-actions">
+            <div className={styles.codeBlockToolbarActions}>
               {codeBlockHook.hasManagedFields && (
                 <button
                   type="button"
                   onClick={codeBlockHook.toggleManagedFields}
-                  className={"code-block-button code-block-managed-fields-button"}
+                  className={`${styles.codeBlockButton} ${styles.codeBlockManagedFieldsButton}`}
                   title={codeBlockHook.managedFieldsHidden ? "Show managedFields" : "Hide managedFields"}
                 >
                   {codeBlockHook.managedFieldsHidden ? <ListPlus size={16} /> : <ListX size={16} />}
                 </button>
               )}
 
-              <button onClick={codeBlockHook.handleCopy} className={"code-block-button code-block-copy-button"}>
-                {codeBlockHook.copied && <span className="code-block-copied-text">Copied!</span>}
+              <button
+                onClick={codeBlockHook.handleCopy}
+                className={`${styles.codeBlockButton} ${styles.codeBlockCopyButton}`}
+              >
+                {codeBlockHook.copied && <span className={styles.codeBlockCopiedText}>Copied!</span>}
                 <Copy size={16} />
               </button>
             </div>
@@ -81,7 +86,7 @@ export const CodeBlock = ({
           {!bodyHidden && (
             <MonacoEditor
               readOnly
-              className="code-block-editor"
+              className={styles.codeBlockEditor}
               language={codeBlockHook.getMonacoLanguage(language)}
               value={codeBlockHook.text}
               setInitialHeight
@@ -99,8 +104,7 @@ export const CodeBlock = ({
   } else {
     return (
       <>
-        <style>{styleInline}</style>
-        <code className="code-block-inline-container" {...props}>
+        <code className={styles.codeBlockInlineContainer} {...props}>
           {children}
         </code>
       </>

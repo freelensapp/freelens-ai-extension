@@ -1,23 +1,38 @@
 *.d.ts
 *.gz
 *.lock
+!mise.lock
 *.log
 *.map
 *.out
 *.tgz
+*.tmp
+*~
+?.*
 
 !custom.d.ts
 !env.d.ts
+!*.d.css.ts
+!*.d.scss.ts
 
 /dist/
 
+/freelens/
+
+.turbo
+
 /coverage/
 /node_modules/
-/out/
+
+# Scratch space of the CI agent, which checks out Freelens at tmp/freelens.
+/tmp/
 
 /.nyc_output/
 
-.DS_Store
+# Snapshots, screenshots and console logs written by the Playwright MCP server.
+/.playwright-mcp/
+
+*.DS_Store
 /.idea
 /.vscode
 
