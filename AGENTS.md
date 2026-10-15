@@ -170,10 +170,18 @@ cluster"), and the views use the host's `KubeEvent` only. So
   `mobx-react`, the host's instance.
 - **Props passed to the DOM.** A list child has a `key`. A component that
   renders an element with props it was handed passes only DOM attributes:
-  react-markdown 6 hands a custom renderer `inline` and the syntax tree's `node`
-  next to the element's attributes, so `markdown-viewer.tsx` takes them out.
-  React reports either mistake in DevTools, and the view tests expect no
-  `console.error` (see "Tests and tooling").
+  react-markdown hands a custom renderer the syntax tree's `node` next to the
+  element's attributes, so `markdown-viewer.tsx` takes it out. React reports
+  either mistake in DevTools, and the view tests expect no `console.error`
+  (see "Tests and tooling").
+- **Markdown code.** react-markdown does not tell a `code` renderer whether
+  the code is inline. A fenced block is a `code` inside a `pre`, so the `pre`
+  renderer of `markdown-viewer.tsx` marks its content with a context, and the
+  `code` renderer shows a block in the editor and anything else inline; a
+  guess from the language class or a newline would take a one-line block
+  without a language for inline code. The renderers are defined at module
+  level: a renderer created in the render is a new component type each time,
+  and React would remount every code block, editor included, on each update.
 - A component's stylesheet is a CSS module next to it, `x.module.scss`, imported as `import styles from "./x.module.scss"` and used as `className={styles.someClass}`; there is no `?inline` import and no `<style>` element. The host's own classes and theme markers are matched with `:global(...)`, for example `:global(body.theme-light) .x` and `.x :global(.Select__single-value)`, since every other class name in a module is scoped.
 - CSS modules get TypeScript declarations (`*.module.d.scss.ts`) from `build/vite-plugin-css-module-declarations.mjs`, written by the renderer build (see "CSS module declarations" under "Build").
 

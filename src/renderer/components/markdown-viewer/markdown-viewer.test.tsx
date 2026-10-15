@@ -34,6 +34,21 @@ describe("MarkdownViewer", () => {
     expect(consoleError).not.toHaveBeenCalled();
   });
 
+  it("renders a one-line fenced block without a language in the editor too", () => {
+    render(<MarkdownViewer content={"```\nkubectl get pods\n```"} />);
+
+    expect(screen.getByTestId("monaco-editor").textContent).toBe("kubectl get pods");
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("renders a GitHub table with inline code in its cells", () => {
+    const { container } = render(<MarkdownViewer content={"| Pod | Status |\n| --- | --- |\n| `web-1` | Running |"} />);
+
+    expect(container.querySelector("table td code")?.textContent).toBe("web-1");
+    expect(screen.queryByTestId("monaco-editor")).toBeNull();
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
   it("renders a link that opens outside the app, without react-markdown's node", () => {
     render(<MarkdownViewer content="See [the docs](https://freelens.app/)." />);
 
