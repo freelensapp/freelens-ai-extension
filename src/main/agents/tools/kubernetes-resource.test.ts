@@ -387,7 +387,7 @@ describe("the write tools", () => {
         }),
       ]);
       expect(cluster.objects).not.toHaveProperty(FINALIZER_POD_PATH);
-      expect(result).toBe('Pod "finalizer-pod" deleted and finalizers cleared successfully');
+      expect(result).toBe('Pod "finalizer-pod" deleted and its finalizers removed');
     });
 
     it("reports a pod in Terminating as deleted when it is gone before the force delete", async () => {
@@ -398,7 +398,45 @@ describe("the write tools", () => {
 
       expect(writes().map(({ method }) => method)).toEqual(["patch", "del"]);
       expect(cluster.objects).not.toHaveProperty(FINALIZER_POD_PATH);
-      expect(result).toBe('Pod "finalizer-pod" deleted and finalizers cleared successfully');
+      expect(result).toBe('Pod "finalizer-pod" deleted and its finalizers removed');
+    });
+
+    it("reports the pod still there with its finalizers when the patch fails", async () => {
+      cluster.api.patch.mockRejectedValueOnce({ code: 403, reason: "Forbidden", message: "patch is forbidden" });
+
+      const result = await deleteWithFinalizers();
+
+      expect(writes().map(({ method }) => method)).toEqual(["del"]);
+      expect(result).toBe(
+        `Pod "finalizer-pod" was not deleted: it is terminating since ${DELETED_AT}, ` +
+          "with the finalizers freelens.app/ai-check. " +
+          'Removing its finalizers failed: {"code":403,"reason":"Forbidden","message":"patch is forbidden"}.',
+      );
+    });
+
+    it("tells a new pod with the same name from the deleted one", async () => {
+      cluster.api.del.mockImplementationOnce(async (path: string) => {
+        cluster.objects[path] = {
+          ...FINALIZER_POD,
+          metadata: { ...FINALIZER_POD.metadata, uid: "uid-2", finalizers: [] },
+        };
+        return {};
+      });
+
+      const result = await deleteWithFinalizers();
+
+      expect(result).toBe(
+        'Pod "finalizer-pod" deleted and its finalizers removed; a new pod with the same name has been created in its place',
+      );
+    });
+
+    it("sends nothing for a pod that does not exist", async () => {
+      delete cluster.objects[FINALIZER_POD_PATH];
+
+      const result = await deleteWithFinalizers();
+
+      expect(writes()).toEqual([]);
+      expect(result).toBe('The pod "finalizer-pod" you want to delete does not exist');
     });
   });
 

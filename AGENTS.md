@@ -772,10 +772,10 @@ eviction subresource. One write departs from the host: `delete_with_finalizers`
 of `deletePod` removes the finalizers with a JSON merge patch that sets them to
 `null`, where the host's `PodApi.deleteWithFinalizers` sends a strategic merge
 patch with an empty list, which removes nothing, since `metadata.finalizers`
-merges (freelensapp/freelens#2759). A write tool loads the current object as a
-backup, then
-calls `requestApproval()`, whose `interrupt()` must run inside the tool, that
-is inside the graph run.
+merges (freelensapp/freelens#2759). It then reads the pod back and answers
+whether it is gone, by its uid, rather than with a fixed success text. A write
+tool loads the current object as a backup, then calls `requestApproval()`,
+whose `interrupt()` must run inside the tool, that is inside the graph run.
 
 The checkpointer of each agent is a `PersistentMemorySaver`, which mirrors the
 LangGraph state into `AgentStateStore` under a namespace of the cluster id and
