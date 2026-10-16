@@ -191,6 +191,37 @@ describe("the read tools", () => {
     expect(result).toContain('{"level":"info","msg":"started"}');
   });
 
+  it("reads the running container with the tail lines of the preferences when the model sets no option", async () => {
+    const preferences = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+    preferences.podLogsRequireApproval = false;
+    preferences.podLogsTailLines = 25;
+
+    await getPodLogs.invoke({ name: "web-1", namespace: "default" }, config("cluster-a"));
+
+    // An empty `previous` or `timestamps` would be read as `true` by the API server.
+    expect(cluster.requests.at(-1)).toMatchObject({
+      method: "getResponse",
+      path: "/api/v1/namespaces/default/pods/web-1/log",
+    });
+    expect(cluster.requests.at(-1)?.query).toEqual({ container: "web", tailLines: "25" });
+  });
+
+  it("sends the previous and timestamps options the model sets", async () => {
+    PreferencesStore.getInstanceOrCreate<PreferencesStore>().podLogsRequireApproval = false;
+
+    await getPodLogs.invoke(
+      { name: "web-1", namespace: "default", previous: true, timestamps: false, tailLines: 10 },
+      config("cluster-a"),
+    );
+
+    expect(cluster.requests.at(-1)?.query).toEqual({
+      container: "web",
+      tailLines: "10",
+      timestamps: "false",
+      previous: "true",
+    });
+  });
+
   it("asks for approval before reading the logs when the preference says so", async () => {
     vi.mocked(interrupt).mockReturnValue("no");
 
