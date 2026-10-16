@@ -55,6 +55,8 @@ export const Message = ({ message }: MessageProps) => {
           </button>
         </div>
       );
+    } else if (message.notice) {
+      return <div className={styles.noticeMessage}>{message.text}</div>;
     } else {
       return (
         <div>

@@ -26,6 +26,17 @@ export function getErrorMessage(message: string, retryContext: RetryContext): Me
   };
 }
 
+// A short note of the chat, shown dimmed between the messages.
+export function getNoticeMessage(message: string): MessageObject {
+  return {
+    messageId: generateUuid(),
+    type: MessageType.MESSAGE,
+    text: message,
+    notice: true,
+    sent: false,
+  };
+}
+
 export function getExplainMessage(message: string): MessageObject {
   return {
     messageId: generateUuid(),

@@ -233,8 +233,9 @@ export const ApplicationContextProvider = observer(({ extension, children }: App
       // Start a fresh agent message when the last entry is the user's message or
       // a resolved tool-approval interrupt. An interrupt's text holds the YAML
       // request, so appending the streamed answer to it would glue the response
-      // into the "Show details" box.
-      if (lastMessage.sent || lastMessage.type === MessageType.INTERRUPT) {
+      // into the "Show details" box. A notice is the chat's own note, never the
+      // start of an answer.
+      if (lastMessage.sent || lastMessage.type === MessageType.INTERRUPT || lastMessage.notice) {
         // Agent response does not exist, add a new empty one
         messagesCopy.push(getTextMessage(newText, false));
         chatSessionStore.setMessages(clusterId, messagesCopy);
@@ -258,9 +259,9 @@ export const ApplicationContextProvider = observer(({ extension, children }: App
       const lastMessage = messagesCopy[messagesCopy.length - 1];
 
       // Reasoning streams before the answer text, so the last message is still
-      // the user's sent message, a resolved interrupt, or there is none yet:
-      // start a fresh agent response to hold the reasoning.
-      if (!lastMessage || lastMessage.sent || lastMessage.type === MessageType.INTERRUPT) {
+      // the user's sent message, a resolved interrupt, a notice, or there is
+      // none yet: start a fresh agent response to hold the reasoning.
+      if (!lastMessage || lastMessage.sent || lastMessage.type === MessageType.INTERRUPT || lastMessage.notice) {
         messagesCopy.push({ ...getTextMessage("", false), reasoning: newText });
       } else {
         messagesCopy[messagesCopy.length - 1] = {

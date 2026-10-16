@@ -21,6 +21,13 @@
   gap: 8px;
 }
 
+.notice-message {
+  margin: 8px 0;
+  color: var(--textColorDimmed);
+  font-size: 0.9em;
+  font-style: italic;
+}
+
 .retry-button {
   display: inline-flex;
   align-items: center;

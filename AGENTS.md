@@ -794,6 +794,12 @@ being computed above all. A connection cut in the middle of a chunked body
 would reach the renderer as `net::ERR_INCOMPLETE_CHUNKED_ENCODING` and a
 `TypeError: network error` of the stream.
 
+The renderer takes `cancelled` for an expected end, of a run and of Explain:
+`chat-service.ts` adds a note to the transcript (a message with `notice`,
+after which the next answer starts a message of its own) and logs at info
+level. Any other end of a stream without `done`, a network error above all,
+stays an error, logged with `log.error` and shown with a "Retry" button.
+
 ### MCP servers
 
 With MCP enabled in the preferences, the MCP agent (`mcp-agent.ts`) takes the
