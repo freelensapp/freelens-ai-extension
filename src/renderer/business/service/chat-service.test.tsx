@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BridgeRoute } from "../../../common/bridge/protocol";
 import { encodeSseEvent } from "../../../common/bridge/sse";
 import { ChatSessionStore, PreferencesStore } from "../../../common/store";
+import { Message } from "../../components/message";
 import { ApplicationContextProvider, useApplicationStatusStore } from "../../context/application-context";
 import { IS_CONVERSATION_INTERRUPTED_KEY } from "../../context/chat-session-storage";
 import { getTextMessage } from "../objects/message-object-provider";
@@ -34,7 +35,11 @@ const bridgeFetch = async (input: string | URL | Request, init?: RequestInit) =>
   const { pathname } = new URL(String(input));
   if (pathname === BridgeRoute.run) {
     runRequests.push(JSON.parse(String(init?.body)));
-    const events = [...(runs.shift() ?? []), { type: "done" }];
+    // Main ends a stream with `done`, or with the `error` that ends it early.
+    const events: { type: string }[] = runs.shift() ?? [];
+    if (events.at(-1)?.type !== "error") {
+      events.push({ type: "done" });
+    }
     return new Response(events.map(encodeSseEvent).join(""), { headers: { "content-type": "text/event-stream" } });
   }
   if (pathname === BridgeRoute.clear) {
@@ -58,11 +63,11 @@ const Chat = () => {
       <button type="button" onClick={() => clearChat()}>
         Clear chat
       </button>
-      <ul>
+      <div>
         {chatMessages?.map((message) => (
-          <li key={message.messageId}>{message.text}</li>
+          <Message key={message.messageId} message={message} />
         ))}
-      </ul>
+      </div>
     </>
   );
 };
@@ -89,6 +94,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   window.sessionStorage.clear();
   PreferencesStore.resetInstance();
   ChatSessionStore.resetInstance();
@@ -122,6 +128,41 @@ describe("useChatService", () => {
 
     await screen.findByText(/Hi there/);
     expect(runRequests[1]?.input).toEqual({ kind: "message", text: "hello", summary: null });
+  });
+
+  it("sends the next message as a new prompt when main has no approval to answer", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    runs = [
+      [{ type: "interrupt", value: APPROVAL }],
+      [{ type: "error", error: { message: "There is no pending approval to answer.", code: "no-pending-approval" } }],
+      [{ type: "text", text: "Hi there" }],
+    ];
+    renderChat();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ask for a tool" }));
+    await waitFor(() => expect(isInterrupted()).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
+
+    await screen.findByText(/There is no pending approval to answer/);
+    expect(runRequests[1]?.input).toEqual({ kind: "resume", answer: "hello" });
+    expect(isInterrupted()).toBe(false);
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
+
+    await screen.findByText(/Hi there/);
+    expect(runRequests[2]?.input).toEqual({ kind: "message", text: "hello", summary: null });
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("offers a retry of a run that failed", async () => {
+    runs = [[{ type: "error", error: { message: "The AI endpoint answered with a server error." } }]];
+    renderChat();
+
+    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
+
+    await screen.findByText(/answered with a server error/);
+    expect(screen.getByRole("button", { name: "Retry" })).toBeDefined();
   });
 
   it("resets the approval state even when main cannot clear the conversation", async () => {
