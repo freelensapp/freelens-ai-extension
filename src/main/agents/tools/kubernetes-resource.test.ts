@@ -186,7 +186,7 @@ describe("the read tools", () => {
     expect(cluster.requests.at(-1)).toMatchObject({
       method: "getResponse",
       path: "/api/v1/namespaces/default/pods/web-1/log",
-      query: { container: "web", tailLines: 50 },
+      query: { container: "web", tailLines: "50" },
     });
     expect(result).toContain('{"level":"info","msg":"started"}');
   });

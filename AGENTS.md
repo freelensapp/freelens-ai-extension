@@ -509,7 +509,11 @@ knip does not follow the alias, so the stub is an entry of `knip.jsonc`.
 `test/kube-json-api.ts` is a stand-in `KubeJsonApi` for the Kubernetes tools:
 it answers a GET from a map of paths (the discovery documents included),
 records every request, and `installFakeClusters()` hands one per cluster id to
-the stubbed `forCluster`. The tool tests assert on the recorded requests. The
+the stubbed `forCluster`. The tool tests assert on the recorded requests. It
+records a query as the API server reads it, serialized with `node:querystring`
+as the host's `JsonApi` does, so every value is a string and an `undefined` or
+`null` value is an empty one, which the API server reads as `true` for a
+boolean parameter. The
 approval gate runs inside a real LangGraph graph in `agent-service.test.ts`,
 since `interrupt()` needs one; elsewhere `@langchain/langgraph` is mocked so
 that `interrupt()` answers at once. The bridge is tested over plain HTTP on an
