@@ -739,7 +739,8 @@ answer to a pending approval. A stream is `text/event-stream`, one
   and the largest single call of the run;
 - `interrupt` — a pending approval (`ApprovalRequest`); the run ends after it,
   and the renderer answers with a `resume` run of the same conversation;
-- last, `done`, or `error` with `{ message }`.
+- last, `done`, or `error` with `{ message }`, or `cancelled` when the bridge
+  closed before the run ended (see "Lifecycle").
 
 A new route or event goes into `protocol.ts` first, with the parser in
 `routes.ts` and a test over HTTP in `routes.test.ts`.
@@ -782,6 +783,16 @@ abort reaches LangGraph as the run's `signal`, and a retry backoff resolves at
 once (`wait.ts`). A reload therefore leaves exactly one bridge bound, and the
 chat reaches the new one without reopening the page. Do not keep a server, a
 timer or a run in module state that `onDeactivate` cannot reach.
+
+Main is deactivated before the cluster frames, so the bridge, not the
+renderer, ends a run that is streaming when the extension stops. `close()`
+first ends every open stream itself, with a last `cancelled` event, without
+waiting for the run, which may be waiting for the model and see the abort only
+later. Then it aborts every request, and cuts the connections that have not
+finished after a bound of one second (`closeTimeoutMs`), a JSON answer still
+being computed above all. A connection cut in the middle of a chunked body
+would reach the renderer as `net::ERR_INCOMPLETE_CHUNKED_ENCODING` and a
+`TypeError: network error` of the stream.
 
 ### MCP servers
 

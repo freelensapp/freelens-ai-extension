@@ -68,6 +68,12 @@ const callBridge = (
         text += chunk;
       });
       incoming.on("end", () => resolve({ statusCode: incoming.statusCode, headers: incoming.headers, body: text }));
+      // A body cut before its end, which Chromium reports as a network error.
+      incoming.on("close", () => {
+        if (!incoming.complete) {
+          reject(new Error("The answer was cut before its end."));
+        }
+      });
     });
     clientRequest.on("error", reject);
     clientRequest.end(body === undefined ? undefined : JSON.stringify(body));
@@ -247,5 +253,60 @@ describe("startBridgeServer", () => {
     bridge = undefined;
 
     expect(signal?.aborted).toBe(true);
+  });
+
+  it("ends an open stream with a cancelled event when the bridge closes", async () => {
+    let streaming: () => void = () => undefined;
+    const streamingPromise = new Promise<void>((resolve) => {
+      streaming = resolve;
+    });
+    const port = await start({
+      [BridgeRoute.run]: {
+        method: "POST",
+        kind: "stream",
+        handle: async function* () {
+          yield { type: "text", text: "first" };
+          // Asked for the next event once the first is written; a run waiting
+          // for the model does not see the abort at once.
+          streaming();
+          await new Promise(() => undefined);
+        },
+      },
+    });
+
+    const response = callBridge(port, BridgeRoute.run, { body: {} });
+    await streamingPromise;
+    await bridge?.close();
+    bridge = undefined;
+
+    expect(sseEvents((await response).body)).toEqual([{ type: "text", text: "first" }, { type: "cancelled" }]);
+  });
+
+  it("cuts the connections that do not finish in time when the bridge closes", async () => {
+    let started: () => void = () => undefined;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    bridge = await startBridgeServer({
+      token: TOKEN,
+      closeTimeoutMs: 50,
+      routes: {
+        [BridgeRoute.compact]: {
+          method: "POST",
+          kind: "json",
+          handle: () => {
+            started();
+            return new Promise(() => undefined);
+          },
+        },
+      },
+    });
+
+    const response = callBridge(bridge.port, BridgeRoute.compact, { body: {} });
+    await startedPromise;
+    await bridge.close();
+    bridge = undefined;
+
+    await expect(response).rejects.toThrow();
   });
 });

@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { finished } from "node:stream";
 import { BRIDGE_HOST, BRIDGE_TOKEN_HEADER, type BridgeRoutePath } from "../../common/bridge/protocol";
 import { encodeSseEvent } from "../../common/bridge/sse";
 import type { AddressInfo } from "node:net";
@@ -22,15 +23,27 @@ export type BridgeRouteHandler =
   // Answers with one JSON body.
   | { method: "GET" | "POST"; kind: "json"; handle: (input: BridgeInput) => Promise<unknown> }
   // Answers with an SSE stream of the events the iterable yields, then a
-  // `done` event, or an `error` event when it throws.
+  // `done` event, an `error` event when it throws, or a `cancelled` event when
+  // the bridge closes first.
   | { method: "GET" | "POST"; kind: "stream"; handle: (input: BridgeInput) => AsyncIterable<object> };
 
 export type BridgeRoutes = Partial<Record<BridgeRoutePath, BridgeRouteHandler>>;
 
 export interface BridgeServer {
   port: number;
-  // Cancels every open request and stops listening.
+  // Ends every open stream with a `cancelled` event, cancels every open
+  // request and stops listening.
   close(): Promise<void>;
+}
+
+// How long close() waits for the open answers to reach their callers before it
+// cuts the connections that are still open.
+const CLOSE_TIMEOUT_MS = 1000;
+
+interface OpenRequest {
+  controller: AbortController;
+  response: ServerResponse;
+  stream: boolean;
 }
 
 // Normalize the possibly-array Origin header to a single value.
@@ -72,11 +85,35 @@ const readJsonBody = async (request: IncomingMessage): Promise<unknown> => {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 };
 
-const streamEvents = async (response: ServerResponse, events: AsyncIterable<object>, signal: AbortSignal) => {
+const startStream = (response: ServerResponse) => {
   response.statusCode = 200;
   response.setHeader("content-type", "text/event-stream");
   response.setHeader("cache-control", "no-cache");
   response.flushHeaders();
+};
+
+// Ends a stream with a `cancelled` event when the bridge closes, so that the
+// caller reads a complete body rather than a connection cut in the middle of
+// it, which Chromium reports as a network error.
+const cancelStream = (response: ServerResponse) => {
+  if (response.writableEnded) {
+    return;
+  }
+  if (!response.headersSent) {
+    startStream(response);
+  }
+  response.end(encodeSseEvent({ type: "cancelled" }));
+};
+
+// Resolves when the answer has been handed to the operating system, or the
+// connection is gone.
+const responseFinished = (response: ServerResponse) =>
+  new Promise<void>((resolve) => {
+    finished(response, () => resolve());
+  });
+
+const streamEvents = async (response: ServerResponse, events: AsyncIterable<object>, signal: AbortSignal) => {
+  startStream(response);
 
   try {
     for await (const event of events) {
@@ -103,11 +140,13 @@ const streamEvents = async (response: ServerResponse, events: AsyncIterable<obje
 export const startBridgeServer = async ({
   token,
   routes,
+  closeTimeoutMs = CLOSE_TIMEOUT_MS,
 }: {
   token: string;
   routes: BridgeRoutes;
+  closeTimeoutMs?: number;
 }): Promise<BridgeServer> => {
-  const openRequests = new Set<AbortController>();
+  const openRequests = new Set<OpenRequest>();
 
   const server = createServer(async (request, response) => {
     applyCorsHeaders(response, getRequestOrigin(request));
@@ -134,12 +173,13 @@ export const startBridgeServer = async ({
       return;
     }
 
-    const controller = new AbortController();
-    openRequests.add(controller);
+    const openRequest: OpenRequest = { controller: new AbortController(), response, stream: route.kind === "stream" };
+    const { controller } = openRequest;
+    openRequests.add(openRequest);
     // The caller closing the request before the answer ends cancels the work
     // behind it, a run of the agents above all.
     response.once("close", () => {
-      openRequests.delete(controller);
+      openRequests.delete(openRequest);
       if (!response.writableFinished) {
         controller.abort();
       }
@@ -150,7 +190,11 @@ export const startBridgeServer = async ({
       const input: BridgeInput = { body, query: url.searchParams, signal: controller.signal };
 
       if (route.kind === "stream") {
-        await streamEvents(response, route.handle(input), controller.signal);
+        // Cancelled while its body was read: the answer is already ended, and
+        // the run is not started.
+        if (!controller.signal.aborted) {
+          await streamEvents(response, route.handle(input), controller.signal);
+        }
       } else {
         sendJson(response, 200, await route.handle(input));
       }
@@ -179,13 +223,36 @@ export const startBridgeServer = async ({
 
   return {
     port: (address as AddressInfo).port,
-    close: () =>
-      new Promise<void>((resolve) => {
-        for (const controller of openRequests) {
-          controller.abort();
+    close: async () => {
+      const open = [...openRequests];
+      // The streams end first, with a last event, so that a run cut by the
+      // extension stopping reaches the renderer as a complete answer. The
+      // abort then stops the work behind every request.
+      for (const { response, stream } of open) {
+        if (stream) {
+          cancelStream(response);
         }
-        server.close(() => resolve());
-        server.closeAllConnections();
-      }),
+      }
+      for (const { controller } of open) {
+        controller.abort();
+      }
+
+      // Stops listening and closes the idle connections; it calls back once
+      // every connection is closed.
+      const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+
+      // A JSON answer gets as long as the bound to finish after the abort.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        Promise.all(open.map(({ response }) => responseFinished(response))),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, closeTimeoutMs);
+        }),
+      ]);
+      clearTimeout(timer);
+
+      server.closeAllConnections();
+      await closed;
+    },
   };
 };
