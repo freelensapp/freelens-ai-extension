@@ -662,8 +662,12 @@ export async function deleteKubernetesResource(
  *   PodDisruptionBudget (POST to the pod's `eviction` subresource).
  * - `force_delete`: delete immediately with a zero grace period, useful for pods
  *   stuck on an unreachable node.
- * - `delete_with_finalizers`: clear the pod's finalizers, then force delete it,
- *   so a pod stuck in `Terminating` is removed.
+ * - `delete_with_finalizers`: remove the pod's finalizers with a JSON merge
+ *   patch that sets them to `null`, then force delete it, so a pod stuck in
+ *   `Terminating` is removed. In a strategic merge patch `metadata.finalizers`
+ *   has the patch strategy `merge`, so an empty list there adds nothing and
+ *   removes nothing: that is what the host's `PodApi.deleteWithFinalizers`
+ *   sends, and the pod stays in `Terminating` (freelensapp/freelens#2759).
  */
 export async function deletePod({ name, namespace, mode }: DeletePodInput, config?: RunnableConfig): Promise<string> {
   console.log("[Tool invocation: deletePod] - name:", name, "namespace:", namespace, "mode:", mode);
@@ -693,12 +697,20 @@ export async function deletePod({ name, namespace, mode }: DeletePodInput, confi
         return `Pod "${name}" force-deleted successfully`;
       case "delete_with_finalizers":
         try {
-          await mergePatch(api, path, { metadata: { finalizers: [] } }, STRATEGIC_MERGE_PATCH_CONTENT_TYPE);
+          await mergePatch(api, path, { metadata: { finalizers: null } });
         } catch (error) {
           // As the host does: when the patch fails, force delete anyway.
           console.warn("Failed to remove finalizers, proceeding with force delete", error);
         }
-        await deleteObject(api, path, true);
+        try {
+          await deleteObject(api, path, true);
+        } catch (error) {
+          // A pod already in Terminating is removed by the API server as soon
+          // as its finalizers are gone, and the delete finds nothing.
+          if (!isNotFound(error)) {
+            throw error;
+          }
+        }
         return `Pod "${name}" deleted and finalizers cleared successfully`;
     }
   } catch (error) {
@@ -706,6 +718,22 @@ export async function deletePod({ name, namespace, mode }: DeletePodInput, confi
     return JSON.stringify(error);
   }
 }
+
+// The HTTP status of a failed request. The host's JsonApi throws a
+// `JsonApiErrorParsed`, which keeps the API server's Status as `error`; a GET
+// answered with 403 throws the Status itself.
+function statusCodeOf(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+  const { code, error: status } = error as { code?: unknown; error?: { code?: unknown } };
+  if (typeof code === "number") {
+    return code;
+  }
+  return typeof status?.code === "number" ? status.code : undefined;
+}
+
+const isNotFound = (error: unknown) => statusCodeOf(error) === 404;
 
 /**
  * Restart a workload by triggering a rollout restart, as the host's
