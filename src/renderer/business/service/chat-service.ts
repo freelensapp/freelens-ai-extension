@@ -1,6 +1,7 @@
 import {
   type AgentRunEvent,
   type AgentRunInput,
+  BridgeErrorCode,
   BridgeRoute,
   type ExplainEvent,
 } from "../../../common/bridge/protocol";
@@ -199,6 +200,15 @@ const useChatService = () => {
             break;
           }
           case "error":
+            if (event.error.code === BridgeErrorCode.noPendingApproval) {
+              // Main has no approval to answer, after a clear for one: the
+              // next message is a new prompt, and a retry of this answer would
+              // be refused the same way, so the error offers none.
+              log.warn("No pending approval to answer, the next message is a new prompt");
+              applicationStatusStore.setConversationInterrupted(false);
+              _sendMessage(getErrorMessage(`Error while running Freelens Agent: ${event.error.message}`));
+              return;
+            }
             throw new Error(event.error.message);
           case "done":
             break;

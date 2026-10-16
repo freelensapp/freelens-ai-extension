@@ -739,7 +739,17 @@ answer to a pending approval. A stream is `text/event-stream`, one
   and the largest single call of the run;
 - `interrupt` — a pending approval (`ApprovalRequest`); the run ends after it,
   and the renderer answers with a `resume` run of the same conversation;
-- last, `done`, or `error` with `{ message }`.
+- last, `done`, or `error` with `{ message, code? }`; `code`, one of
+  `BridgeErrorCode`, marks an error the renderer acts on, and main sets it
+  with a `BridgeRequestError` (`src/main/bridge/bridge-error.ts`).
+
+A `resume` of a conversation where no task waits on an `interrupt()` ends with
+the `error` "There is no pending approval to answer." and the code
+`no-pending-approval`, and runs nothing. A clear removes the messages of a
+conversation but not the task that was waiting, and that task would run on a
+resume with no messages. On that error the renderer clears its interrupted
+flag, so that the next message is a new prompt, and shows the error without a
+"Retry", which would be refused the same way.
 
 A new route or event goes into `protocol.ts` first, with the parser in
 `routes.ts` and a test over HTTP in `routes.test.ts`.
