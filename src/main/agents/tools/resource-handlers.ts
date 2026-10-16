@@ -198,8 +198,10 @@ export function isDeleteMode(mode: string): mode is DeleteMode {
  *   honoring any matching PodDisruptionBudget (`podsApi.evict`).
  * - `force_delete`: delete the pod immediately with a zero grace period, useful
  *   for pods stuck on an unreachable node (`podsApi.forceDelete`).
- * - `delete_with_finalizers`: delete the pod and clear its finalizers so a pod
- *   stuck in `Terminating` is removed (`podsApi.deleteWithFinalizers`).
+ * - `delete_with_finalizers`: remove the pod's finalizers, then force delete it,
+ *   so a pod stuck in `Terminating` is removed (`podsApi.deleteWithFinalizers`,
+ *   but with a JSON merge patch, which removes them, where the host sends a
+ *   strategic merge patch, which does not).
  */
 export const POD_DELETE_MODES = ["evict", "force_delete", "delete_with_finalizers"] as const;
 

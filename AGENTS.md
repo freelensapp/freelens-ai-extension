@@ -508,8 +508,13 @@ knip does not follow the alias, so the stub is an entry of `knip.jsonc`.
 
 `test/kube-json-api.ts` is a stand-in `KubeJsonApi` for the Kubernetes tools:
 it answers a GET from a map of paths (the discovery documents included),
-records every request, and `installFakeClusters()` hands one per cluster id to
-the stubbed `forCluster`. The tool tests assert on the recorded requests. The
+applies a JSON merge patch and a delete to those objects as the API server
+does (a delete marks an object with finalizers as terminating, and an object
+being deleted goes once it has none), records every request, and
+`installFakeClusters()` hands one per cluster id to the stubbed `forCluster`.
+A strategic merge patch is only recorded, and a path it does not have fails as
+the host's `JsonApiErrorParsed` with a `404` Status. The tool tests assert on
+the recorded requests and on the objects (`objects`). The
 approval gate runs inside a real LangGraph graph in `agent-service.test.ts`,
 since `interrupt()` needs one; elsewhere `@langchain/langgraph` is mocked so
 that `interrupt()` answers at once. The bridge is tested over plain HTTP on an
@@ -763,9 +768,14 @@ plural and scope from the API server's discovery document of the group version
 host's `KubeApi` sends: the kind, apiVersion, name and namespace set on a
 created or updated manifest, merge patches, a strategic merge patch for a
 subresource or a restart, delete options with background propagation, the
-eviction subresource. A write tool loads the current object as a backup, then
-calls `requestApproval()`, whose `interrupt()` must run inside the tool, that
-is inside the graph run.
+eviction subresource. One write departs from the host: `delete_with_finalizers`
+of `deletePod` removes the finalizers with a JSON merge patch that sets them to
+`null`, where the host's `PodApi.deleteWithFinalizers` sends a strategic merge
+patch with an empty list, which removes nothing, since `metadata.finalizers`
+merges (freelensapp/freelens#2759). It then reads the pod back and answers
+whether it is gone, by its uid, rather than with a fixed success text. A write
+tool loads the current object as a backup, then calls `requestApproval()`,
+whose `interrupt()` must run inside the tool, that is inside the graph run.
 
 The checkpointer of each agent is a `PersistentMemorySaver`, which mirrors the
 LangGraph state into `AgentStateStore` under a namespace of the cluster id and
