@@ -17,7 +17,11 @@ import type { AgentServiceEvent } from "./agent-service";
 vi.mock("./freelens-agent-system", () => {
   const buildAgentSystem = vi.fn((clusterId: string) => ({
     name: `freelens:${clusterId}`,
-    getState: async () => ({ values: { messages: [] } }),
+    // The conversation "pending" waits on an approval.
+    getState: async ({ configurable }: { configurable: { thread_id: string } }) => ({
+      values: { messages: [] },
+      tasks: configurable.thread_id === "pending" ? [{ name: "tools", interrupts: [{ value: "approve?" }] }] : [],
+    }),
     updateState: async () => undefined,
   }));
   return {
@@ -28,7 +32,7 @@ vi.mock("./freelens-agent-system", () => {
 vi.mock("./mcp-agent", () => {
   const buildAgentSystem = vi.fn((clusterId: string, tools: StructuredToolInterface[]) => ({
     name: `mcp:${clusterId}:${tools.map(({ name }) => name).join(",")}`,
-    getState: async () => ({ values: { messages: [] } }),
+    getState: async () => ({ values: { messages: [] }, tasks: [] }),
     updateState: async () => undefined,
   }));
   return { useMcpAgent: () => ({ buildAgentSystem }) };
@@ -134,6 +138,33 @@ describe("AgentRuntime", () => {
     await expect(collect(runtime.run(request("cluster-a", "failing"), new AbortController().signal))).rejects.toThrow(
       "The AI endpoint http://litellm.local:4000 answered with a server error.",
     );
+  });
+
+  it("resumes a conversation that waits on an approval", async () => {
+    const runtime = createRuntime();
+    const resume: AgentRunRequest = {
+      clusterId: "cluster-a",
+      conversationId: "pending",
+      input: { kind: "resume", answer: "yes" },
+    };
+
+    expect(await collect(runtime.run(resume, new AbortController().signal))).toEqual([
+      { type: "text", text: "freelens:cluster-a ran cluster-a/pending" },
+    ]);
+  });
+
+  it("refuses a resume of a conversation with no pending approval, and runs nothing", async () => {
+    const runtime = createRuntime();
+    const resume: AgentRunRequest = {
+      clusterId: "cluster-a",
+      conversationId: "t1",
+      input: { kind: "resume", answer: "yes" },
+    };
+
+    const refused = collect(runtime.run(resume, new AbortController().signal));
+
+    await expect(refused).rejects.toThrow("There is no pending approval to answer.");
+    await expect(refused).rejects.toMatchObject({ code: "no-pending-approval" });
   });
 
   it("clears the stored memory of the cluster only", async () => {
