@@ -65,7 +65,7 @@
     "clean:all": "pnpm \"/^clean:(dist|dts|node_modules|tgz)\\$/\""
   },
   "devDependencies": {
-    "@freelensapp/extensions": "2.0.0-0-nightly-2026-10-15",
+    "@freelensapp/extensions": "2.0.0-0-nightly-2026-10-17",
     "@langchain/core": "^1.2.17",
     "@langchain/langgraph": "^1.5.0",
     "@langchain/mcp-adapters": "^1.1.4",
@@ -76,9 +76,9 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",
-    "electron": "43.7.11",
+    "electron": "43.8.0",
     "esbuild": "0.28.2",
-    "jsdom": "30.1.2",
+    "jsdom": "30.1.3",
     "loglevel": "^1.9.2",
     "lucide-react": "^1.57.0",
     "mobx": "7.0.6",
@@ -88,10 +88,10 @@
     "react-dom": "19.3.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "sass-embedded": "1.105.1",
+    "sass-embedded": "1.105.2",
     "typescript": "7.0.2",
     "vite": "8.3.4",
-    "vitest": "5.0.4",
+    "vitest": "5.0.5",
     "yaml": "^2.9.1",
     "zod": "4.6.7"
   },
