@@ -173,11 +173,11 @@ importers:
         specifier: ^1.2.17
         version: 1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0)
       '@langchain/langgraph':
-        specifier: ^1.5.0
-        version: 1.5.0(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)
+        specifier: ^1.5.1
+        version: 1.5.1(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)
       '@langchain/mcp-adapters':
         specifier: ^1.1.4
-        version: 1.1.4(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(@langchain/langgraph@1.5.0(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7))(supports-color@8.1.1)
+        version: 1.1.4(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(@langchain/langgraph@1.5.1(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7))(supports-color@8.1.1)
       '@langchain/openai':
         specifier: ^1.6.2
         version: 1.6.2(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(undici@8.11.2)(ws@8.21.0)
@@ -645,8 +645,8 @@ packages:
     peerDependencies:
       '@langchain/core': ^1.1.48
 
-  '@langchain/langgraph-sdk@1.12.4':
-    resolution: {integrity: sha512-DuYk7HbajphOzBBtZYm+4LpCZuHj1/Csqepej5Ro1PJvchotA+bjg9XLh9LRsbz5j49Tl3owNoUp9ezj0lMCXA==}
+  '@langchain/langgraph-sdk@1.12.5':
+    resolution: {integrity: sha512-zVaUOzduWHXtxOaI6w95m+JzUQN+2zyf3dKqaqrMVhIFO6rGVe7UvA14NBhBLizK1GsZIlEO3cHQfIAYQamUAg==}
     peerDependencies:
       '@langchain/core': ^1.1.48
       react: ^18 || ^19
@@ -657,8 +657,8 @@ packages:
       react-dom:
         optional: true
 
-  '@langchain/langgraph@1.5.0':
-    resolution: {integrity: sha512-nYBV1vkWtAdU9GFDzdnPKiEMZVXerqCadRcyRtjTnd6Z4nIPmyB4SGSKioQFjSWBZK6nd/RIoyQVhjnLpw9oxQ==}
+  '@langchain/langgraph@1.5.1':
+    resolution: {integrity: sha512-3eGahcGgqlzHhG9FxEMFjfSPvI7As0APmd47HQdF1og2vLjMA1PQpTrmCnlLWcgLCrRflUvYqzS/FDMMh2saFA==}
     engines: {node: '>=18'}
     peerDependencies:
       '@langchain/core': ^1.1.48
@@ -3164,7 +3164,7 @@ snapshots:
     dependencies:
       '@langchain/core': 1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0)
 
-  '@langchain/langgraph-sdk@1.12.4(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+  '@langchain/langgraph-sdk@1.12.5(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
       '@langchain/core': 1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0)
       '@langchain/protocol': 0.0.19
@@ -3175,11 +3175,11 @@ snapshots:
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
 
-  '@langchain/langgraph@1.5.0(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)':
+  '@langchain/langgraph@1.5.1(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)':
     dependencies:
       '@langchain/core': 1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0)
       '@langchain/langgraph-checkpoint': 1.2.0(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))
-      '@langchain/langgraph-sdk': 1.12.4(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@langchain/langgraph-sdk': 1.12.5(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@langchain/protocol': 0.0.19
       '@standard-schema/spec': 1.1.0
       zod: 4.6.7
@@ -3187,10 +3187,10 @@ snapshots:
       - react
       - react-dom
 
-  '@langchain/mcp-adapters@1.1.4(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(@langchain/langgraph@1.5.0(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7))(supports-color@8.1.1)':
+  '@langchain/mcp-adapters@1.1.4(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(@langchain/langgraph@1.5.1(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7))(supports-color@8.1.1)':
     dependencies:
       '@langchain/core': 1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0)
-      '@langchain/langgraph': 1.5.0(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)
+      '@langchain/langgraph': 1.5.1(@langchain/core@1.2.17(openai@7.34.0(undici@8.11.2)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)
       '@modelcontextprotocol/sdk': 1.32.1(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.7)
       debug: 4.4.3(supports-color@8.1.1)
       zod: 4.6.7
