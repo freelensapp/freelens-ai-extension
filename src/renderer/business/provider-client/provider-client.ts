@@ -1,4 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
+import { errorText, failureResponse } from "../../../common/agent-protocol";
 import {
   PROVIDER_COMMAND_CHANNEL,
   PROVIDER_ENVELOPE_CHANNEL,
@@ -38,17 +39,12 @@ export function stopProviderClient(): void {
 
 export async function sendProviderCommand(command: ProviderCommand): Promise<ProviderResponse> {
   if (!connection.connected) {
-    return { type: "response", command: command.type, success: false, error: "The provider settings are not ready." };
+    return failureResponse(command.type, "The provider settings are not ready.");
   }
   try {
     return (await connection.invoke(PROVIDER_COMMAND_CHANNEL, command)) as ProviderResponse;
   } catch (error) {
-    return {
-      type: "response",
-      command: command.type,
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
+    return failureResponse(command.type, errorText(error));
   }
 }
 

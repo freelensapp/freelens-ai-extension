@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { errorText, failureResponse, successResponse } from "../../common/agent-protocol";
 import { addCustomProvider, readCustomProviders, removeCustomProvider } from "./custom-providers";
 
 import type { AuthEvent, AuthPrompt, Provider } from "@earendil-works/pi-ai";
@@ -43,15 +44,6 @@ interface PendingPrompt {
   resolve: (value: string) => void;
   reject: (error: Error) => void;
 }
-
-const ok = (command: string, data?: unknown): ProviderResponse => ({ type: "response", command, success: true, data });
-const fail = (command: string, error: string): ProviderResponse => ({
-  type: "response",
-  command,
-  success: false,
-  error,
-});
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 const authMethods = (provider: Provider): AuthMethod[] => {
   const methods: AuthMethod[] = [];
@@ -131,9 +123,9 @@ export class ProviderService {
     try {
       switch (command.type) {
         case "list_providers":
-          return ok(command.type, await this.listProviders());
+          return successResponse(command.type, await this.listProviders());
         case "list_models":
-          return ok(command.type, await this.listModels(command.providerId));
+          return successResponse(command.type, await this.listModels(command.providerId));
         case "login":
           return await this.runLogin(command.loginId, command.providerId, command.method);
         case "cancel_login":
@@ -141,7 +133,7 @@ export class ProviderService {
           if (this.login?.loginId === command.loginId) {
             this.cancelLogin();
           }
-          return ok(command.type);
+          return successResponse(command.type);
         case "ui_response":
           return this.answerPrompt(command.id, command.value, command.cancelled === true);
         case "logout":
@@ -150,19 +142,19 @@ export class ProviderService {
           const { modelRuntime, modelsPath } = this.options;
           const provider = await addCustomProvider(modelRuntime, modelsPath, command.provider);
           this.credentialsChanged();
-          return ok(command.type, { providerId: provider.id });
+          return successResponse(command.type, { providerId: provider.id });
         }
         case "remove_custom_provider":
           await removeCustomProvider(this.options.modelRuntime, this.options.modelsPath, command.providerId);
           this.credentialsChanged();
-          return ok(command.type);
+          return successResponse(command.type);
         case "get_models_path":
-          return ok(command.type, { path: this.options.modelsPath });
+          return successResponse(command.type, { path: this.options.modelsPath });
         default:
-          return fail((command as { type?: string }).type ?? "unknown", "Unknown command");
+          return failureResponse((command as { type?: string }).type ?? "unknown", "Unknown command");
       }
     } catch (error) {
-      return fail(command.type, errorText(error));
+      return failureResponse(command.type, errorText(error));
     }
   }
 
@@ -229,10 +221,10 @@ export class ProviderService {
     const { modelRuntime, broadcast } = this.options;
     const provider = modelRuntime.getProvider(providerId);
     if (!provider) {
-      return fail("login", `Unknown provider ${providerId}.`);
+      return failureResponse("login", `Unknown provider ${providerId}.`);
     }
     if (!authMethods(provider).some((m) => m.type === method)) {
-      return fail("login", `${provider.name} has no ${method === "oauth" ? "sign-in" : "API key login"}.`);
+      return failureResponse("login", `${provider.name} has no ${method === "oauth" ? "sign-in" : "API key login"}.`);
     }
 
     // The page that started an older login is gone or moved on.
@@ -282,9 +274,9 @@ export class ProviderService {
         { signal: controller.signal, prompt, notify },
         this.options.getDeviceId ? { getDeviceId: this.options.getDeviceId } : undefined,
       );
-      response = ok("login");
+      response = successResponse("login");
     } catch (error) {
-      response = fail("login", controller.signal.aborted ? LOGIN_CANCELLED : errorText(error));
+      response = failureResponse("login", controller.signal.aborted ? LOGIN_CANCELLED : errorText(error));
     } finally {
       if (this.login === login) {
         this.login = undefined;
@@ -323,26 +315,26 @@ export class ProviderService {
   private answerPrompt(id: string, value: string | undefined, cancelled: boolean): ProviderResponse {
     const pending = this.pendingPrompts.get(id);
     if (!pending) {
-      return fail("ui_response", "The login is not waiting on this prompt.");
+      return failureResponse("ui_response", "The login is not waiting on this prompt.");
     }
     if (cancelled) {
       // Cancelling a question ends the whole login, as in pi's own dialogs.
       this.cancelLogin();
-      return ok("ui_response");
+      return successResponse("ui_response");
     }
     pending.resolve(value ?? "");
-    return ok("ui_response");
+    return successResponse("ui_response");
   }
 
   private async logout(providerId: string): Promise<ProviderResponse> {
     const { modelRuntime } = this.options;
     const provider = modelRuntime.getProvider(providerId);
     if (!provider) {
-      return fail("logout", `Unknown provider ${providerId}.`);
+      return failureResponse("logout", `Unknown provider ${providerId}.`);
     }
     if (!(await this.storedIds()).has(providerId)) {
       const check = await modelRuntime.checkAuth(providerId).catch(() => undefined);
-      return fail(
+      return failureResponse(
         "logout",
         check?.source
           ? `${provider.name} uses ${check.source}. Remove the environment variable to disconnect it.`
@@ -351,7 +343,7 @@ export class ProviderService {
     }
     await modelRuntime.logout(providerId);
     this.credentialsChanged();
-    return ok("logout");
+    return successResponse("logout");
   }
 
   private credentialsChanged(): void {

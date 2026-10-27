@@ -719,6 +719,13 @@ turns them into manual test cases with steps and expected results.
   now exported by the renderer's logger service; the application context logs
   as `ApplicationContextProvider` instead of `useChatService`. Upstream: none.
 
+- **One helper for the command responses (review).** The agent host and the
+  provider service each had their own `ok`, `fail` and `errorText`, and the
+  agent and provider clients built their failed responses by hand. They all
+  use `successResponse`, `failureResponse` and `errorText` of
+  `src/common/agent-protocol.ts` now, next to `AgentResponse`, which the
+  provider protocol's `ProviderResponse` is. Upstream: none.
+
 ## Upstream work items
 
 - freelensapp/freelens: none. The two gaps the `main` branch found for this

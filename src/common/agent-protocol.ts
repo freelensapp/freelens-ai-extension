@@ -275,3 +275,22 @@ export type AgentCommand =
 export type AgentResponse =
   | { type: "response"; command: string; success: true; data?: unknown }
   | { type: "response"; command: string; success: false; error: string };
+
+/** The answer to a command that succeeded; the provider protocol answers the same way. */
+export const successResponse = (command: string, data?: unknown): AgentResponse => ({
+  type: "response",
+  command,
+  success: true,
+  data,
+});
+
+/** The answer to a command that failed. */
+export const failureResponse = (command: string, error: string): AgentResponse => ({
+  type: "response",
+  command,
+  success: false,
+  error,
+});
+
+/** The text of a thrown value for a failed response. */
+export const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));

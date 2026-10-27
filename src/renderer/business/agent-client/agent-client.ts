@@ -6,6 +6,8 @@ import {
   type AgentEnvelope,
   type AgentResponse,
   type AgentSnapshot,
+  errorText,
+  failureResponse,
 } from "../../../common/agent-protocol";
 import { createLogger } from "../../../common/utils/logger";
 import { IS_LOADING_KEY } from "../../context/chat-session-storage";
@@ -36,13 +38,6 @@ const connection = new IpcConnection<AgentEnvelope>(
 let chat: ChatViewState | undefined;
 // Envelopes that arrive while a snapshot is on its way; undefined when none is.
 let buffered: AgentEnvelope[] | undefined;
-
-const failure = (command: AgentCommand, error: string): AgentResponse => ({
-  type: "response",
-  command: command.type,
-  success: false,
-  error,
-});
 
 /**
  * Starts listening for main's envelopes and loads the chat from main's
@@ -109,12 +104,12 @@ export function onAgentChat(listener: ChatListener): () => void {
 /** Sends nothing without a cluster id: only a cluster frame has a chat. */
 export async function sendAgentCommand(clusterId: string | undefined, command: AgentCommand): Promise<AgentResponse> {
   if (!clusterId || !connection.connected) {
-    return failure(command, "The Freelens AI agent is only available in a cluster window.");
+    return failureResponse(command.type, "The Freelens AI agent is only available in a cluster window.");
   }
   try {
     return (await connection.invoke(AGENT_COMMAND_CHANNEL, clusterId, command)) as AgentResponse;
   } catch (error) {
-    return failure(command, `Could not reach the Freelens AI agent: ${error instanceof Error ? error.message : error}`);
+    return failureResponse(command.type, `Could not reach the Freelens AI agent: ${errorText(error)}`);
   }
 }
 

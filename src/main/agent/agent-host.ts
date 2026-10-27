@@ -12,7 +12,7 @@ import {
   type ToolCallEvent,
   type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_CHAT_RETENTION_DAYS } from "../../common/agent-protocol";
+import { DEFAULT_CHAT_RETENTION_DAYS, errorText, failureResponse, successResponse } from "../../common/agent-protocol";
 import { prepareApproval } from "../../common/agent-tools/approval";
 import { requiresApproval, type ToolApprovalOverrides } from "../../common/agent-tools/approval-settings";
 import { DEFAULT_THINKING_LEVEL, type ThinkingLevel } from "../../common/thinking-level";
@@ -135,10 +135,6 @@ interface PendingApproval {
   settle: (confirmed: boolean) => void;
 }
 
-const ok = (command: string, data?: unknown): AgentResponse => ({ type: "response", command, success: true, data });
-const fail = (command: string, error: string): AgentResponse => ({ type: "response", command, success: false, error });
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
 // The chat shows only these, the tool results under their calls; pi's system
 // prompt and custom entries stay in main.
 const isChatMessage = (message: { role: string }): message is ChatMessage =>
@@ -199,7 +195,7 @@ export class AgentHost {
       case "set_auto_approve":
         return this.turnOffAutoApprove(clusterId);
       default:
-        return fail((command as { type?: string }).type ?? "unknown", "Unknown command");
+        return failureResponse((command as { type?: string }).type ?? "unknown", "Unknown command");
     }
   }
 
@@ -222,14 +218,14 @@ export class AgentHost {
   private async selectedModel(command: string): Promise<Model<any> | AgentResponse> {
     const ref = this.options.getModelRef();
     if (!ref) {
-      return fail(command, "No model is selected. Choose a model for the chat first.");
+      return failureResponse(command, "No model is selected. Choose a model for the chat first.");
     }
     const model = this.options.modelRuntime.getModel(ref.provider, ref.id);
     if (!model) {
-      return fail(command, `The model ${ref.provider}/${ref.id} is not available.`);
+      return failureResponse(command, `The model ${ref.provider}/${ref.id} is not available.`);
     }
     if (!(await this.options.modelRuntime.checkAuth(model.provider))) {
-      return fail(
+      return failureResponse(
         command,
         `No credentials for ${model.provider}. Add an API key or sign in to ${model.provider} in the Freelens AI settings.`,
       );
@@ -241,7 +237,7 @@ export class AgentHost {
     const model = await this.selectedModel("prompt");
     if ("success" in model) return model;
     if (this.explains.has(clusterId)) {
-      return fail("prompt", "Wait for the explanation to finish, or stop it, before sending a message.");
+      return failureResponse("prompt", "Wait for the explanation to finish, or stop it, before sending a message.");
     }
 
     // A prompt sent during New chat goes to the new chat.
@@ -274,7 +270,7 @@ export class AgentHost {
       agent.session.setThinkingLevel(this.thinkingLevel());
     } catch (error) {
       prepared();
-      return fail("prompt", errorText(error));
+      return failureResponse("prompt", errorText(error));
     }
 
     // Answer as soon as pi accepted the prompt; the run itself streams as
@@ -289,14 +285,14 @@ export class AgentHost {
         }
       };
       agent.session
-        .prompt(message, { preflightResult: (disposition) => answer(ok("prompt", { disposition })) })
-        .then(() => answer(ok("prompt")))
+        .prompt(message, { preflightResult: (disposition) => answer(successResponse("prompt", { disposition })) })
+        .then(() => answer(successResponse("prompt")))
         .catch((error) => {
           if (answered) {
             // Run errors normally arrive as events; this one escaped them.
             log.error(`The agent run for cluster ${clusterId} failed:`, error);
           }
-          answer(fail("prompt", errorText(error)));
+          answer(failureResponse("prompt", errorText(error)));
         });
     });
   }
@@ -305,9 +301,9 @@ export class AgentHost {
   // and no tools, so the answer never grows the chat's context or its file.
   // Its events go out like the chat's, under the explain session's id.
   private async explain(clusterId: string, message: string): Promise<AgentResponse> {
-    if (!message.trim()) return fail("explain", "Nothing to explain.");
+    if (!message.trim()) return failureResponse("explain", "Nothing to explain.");
     if (this.explains.has(clusterId)) {
-      return fail("explain", "An explanation is already running. Wait for it to finish, or stop it.");
+      return failureResponse("explain", "An explanation is already running. Wait for it to finish, or stop it.");
     }
 
     // Registered before any await, so a second explanation is refused and Stop
@@ -338,7 +334,10 @@ export class AgentHost {
     const chat = await this.clusters.get(clusterId)?.catch(() => undefined);
     if (chat?.session.isStreaming || this.preparing.has(clusterId) || this.resets.has(clusterId)) {
       finish();
-      return fail("explain", "Wait for the current answer to finish, or stop it, before asking for an explanation.");
+      return failureResponse(
+        "explain",
+        "Wait for the current answer to finish, or stop it, before asking for an explanation.",
+      );
     }
 
     let session: AgentSession;
@@ -370,14 +369,14 @@ export class AgentHost {
       }));
     } catch (error) {
       finish();
-      return fail("explain", errorText(error));
+      return failureResponse("explain", errorText(error));
     }
     this.useInjectedFetch(session);
     run.session = session;
     // Stop or New chat while the session was being created: nothing ran.
     if (run.cancelled) {
       finish();
-      return ok("explain", { disposition: "cancelled" });
+      return successResponse("explain", { disposition: "cancelled" });
     }
 
     session.subscribe((event) => {
@@ -406,13 +405,13 @@ export class AgentHost {
         }
       };
       session
-        .prompt(message, { preflightResult: (disposition) => answer(ok("explain", { disposition })) })
-        .then(() => answer(ok("explain")))
+        .prompt(message, { preflightResult: (disposition) => answer(successResponse("explain", { disposition })) })
+        .then(() => answer(successResponse("explain")))
         .catch((error) => {
           if (answered) {
             log.error(`The explanation for cluster ${clusterId} failed:`, error);
           }
-          answer(fail("explain", errorText(error)));
+          answer(failureResponse("explain", errorText(error)));
         })
         .finally(finish);
     });
@@ -434,18 +433,18 @@ export class AgentHost {
     try {
       await this.stopExplain(clusterId);
     } catch (error) {
-      return fail("abort", errorText(error));
+      return failureResponse("abort", errorText(error));
     }
     const agent = this.clusters.get(clusterId);
-    if (!agent) return ok("abort");
+    if (!agent) return successResponse("abort");
     for (const pending of [...this.pendingApprovals.values()]) {
       if (pending.clusterId === clusterId) pending.settle(false);
     }
     try {
       await (await agent).session.abort();
-      return ok("abort");
+      return successResponse("abort");
     } catch (error) {
-      return fail("abort", errorText(error));
+      return failureResponse("abort", errorText(error));
     }
   }
 
@@ -544,7 +543,7 @@ export class AgentHost {
         writeFileSync(join(dir, NEW_CHAT_MARKER), "");
       }
     } catch (error) {
-      return fail(command, errorText(error));
+      return failureResponse(command, errorText(error));
     }
     if (command === "new_session") {
       try {
@@ -554,7 +553,7 @@ export class AgentHost {
       }
     }
     const snapshot = await this.snapshot(clusterId);
-    return snapshot.success ? ok(command, snapshot.data) : fail(command, snapshot.error);
+    return snapshot.success ? successResponse(command, snapshot.data) : failureResponse(command, snapshot.error);
   }
 
   private async closeClusterAgent(clusterId: string): Promise<void> {
@@ -583,7 +582,7 @@ export class AgentHost {
     };
     // Opening a session for a cluster that never chatted would create files.
     if (!this.clusters.has(clusterId) && !this.hasSessionFile(clusterId)) {
-      return ok("get_snapshot", empty);
+      return successResponse("get_snapshot", empty);
     }
     try {
       const { session, autoApprove } = await this.getClusterAgent(clusterId);
@@ -601,22 +600,22 @@ export class AgentHost {
         autoApprove,
         stats: session.getSessionStats(),
       };
-      return ok("get_snapshot", snapshot);
+      return successResponse("get_snapshot", snapshot);
     } catch (error) {
-      return fail("get_snapshot", errorText(error));
+      return failureResponse("get_snapshot", errorText(error));
     }
   }
 
   private async sessionStats(clusterId: string): Promise<AgentResponse> {
     // Opening a session for a cluster that never chatted would create files.
     if (!this.clusters.has(clusterId) && !this.hasSessionFile(clusterId)) {
-      return ok("get_session_stats");
+      return successResponse("get_session_stats");
     }
     try {
       const { session } = await this.getClusterAgent(clusterId);
-      return ok("get_session_stats", session.getSessionStats());
+      return successResponse("get_session_stats", session.getSessionStats());
     } catch (error) {
-      return fail("get_session_stats", errorText(error));
+      return failureResponse("get_session_stats", errorText(error));
     }
   }
 
@@ -637,23 +636,23 @@ export class AgentHost {
   ): Promise<AgentResponse> {
     const pending = this.pendingApprovals.get(id);
     if (!pending || pending.clusterId !== clusterId) {
-      return fail("ui_response", `No pending approval ${id}`);
+      return failureResponse("ui_response", `No pending approval ${id}`);
     }
     if (confirmed === true && approveAll) {
       const agent = await this.clusters.get(clusterId)?.catch(() => undefined);
       // Turned on before the call is released, so the next gated call already
       // skips the card. Stop may have denied the approval meanwhile.
-      if (!agent || !this.pendingApprovals.has(id)) return fail("ui_response", `No pending approval ${id}`);
+      if (!agent || !this.pendingApprovals.has(id)) return failureResponse("ui_response", `No pending approval ${id}`);
       this.setAutoApprove(clusterId, agent, true);
     }
     pending.settle(confirmed === true);
-    return ok("ui_response");
+    return successResponse("ui_response");
   }
 
   private async turnOffAutoApprove(clusterId: string): Promise<AgentResponse> {
     const agent = await this.clusters.get(clusterId)?.catch(() => undefined);
     if (agent) this.setAutoApprove(clusterId, agent, false);
-    return ok("set_auto_approve");
+    return successResponse("set_auto_approve");
   }
 
   private setAutoApprove(clusterId: string, agent: ClusterAgent, enabled: boolean): void {
