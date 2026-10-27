@@ -591,12 +591,15 @@ stay the real declaration's. knip does not follow the alias, so the stub is an
 entry of `knip.jsonc`.
 
 `test/kube-json-api.ts` is a stand-in `KubeJsonApi` of one cluster for the
-cluster tools and the agent host: `createFakeKubeJsonApi(objects, { logs,
-hang, answers })` answers a GET from a map of paths (the discovery documents
-included) and records every request with its method, path, query, data,
-headers and signal (`requests`; `actions()` leaves out the discovery GETs). A
-GET of an unknown path rejects with `ParsedApiErrorStandIn`, the shape of the
-host's parsed API error; `hang` leaves the requests of the given paths
+cluster tools and the agent host: `createFakeKubeJsonApi(objects, {
+responses, hang, answers })` answers a GET, `get` or `getResponse`, from a
+map of paths (the discovery documents included) and records every request
+with its method, path, query, data, headers and signal (`requests`;
+`actions()` leaves out the discovery reads). A `get` of an unknown path
+rejects with `ParsedApiErrorStandIn`, the shape of the host's parsed API
+error, and a `getResponse` answers it 404; `responses` sets what a
+`getResponse` answers by path (a pod log, a failed discovery request), or the
+`Error` it rejects with; `hang` leaves the requests of the given paths
 unanswered until their signal aborts, so a test can stop a run while a request
 is in progress; `answers` sets what a write answers, or the error it rejects
 with, by `"<method> <path>"`. The tool tests assert on the recorded requests.
@@ -834,8 +837,11 @@ resource, version summary) are shared and tested on their own.
   (`resolveResource` in `cluster-api.ts`, `resource-paths.ts`), fetched on
   every call with no cache; subresources in the document are skipped. Built-in
   kinds, custom resources, irregular plurals, subresources and `/version` are
-  reached the same way. A group version the server does not serve answers the
-  model "Could not resolve a Kubernetes API".
+  reached the same way. The document is read with `getResponse`, whose status
+  the host's error for a failed `get` would keep private: a group version the
+  server does not serve (404) answers the model "Could not resolve a
+  Kubernetes API", and any other failure (403, 5xx, a request that failed on
+  the way) is an error result described as below.
 - **Abort.** Every request carries pi's signal, so Stop cancels a request in
   progress. There is no timeout.
 - **What the writes send**, as the host's `KubeApi` does: create (POST) and

@@ -1,7 +1,7 @@
 // A stand-in for the host's `KubeJsonApi` of one cluster, for the tests of the
-// cluster tools and the agent host. It answers a GET from a map of paths to
-// objects (the discovery documents included) and records every request, so a
-// test asserts what the tools would put on the wire.
+// cluster tools and the agent host. It answers a GET (`get` and `getResponse`)
+// from a map of paths to objects (the discovery documents included) and records
+// every request, so a test asserts what the tools would put on the wire.
 
 import type { KubeJsonApi } from "../src/main/agent/tools/cluster-api";
 
@@ -82,12 +82,15 @@ const DISCOVERY = {
 const abortError = () => new DOMException("This operation was aborted", "AbortError");
 
 interface FakeKubeJsonApiOptions {
-  logs?: Record<string, { status: number; text: string }>;
+  responses?: Record<string, { status: number; text: string } | Error>;
   hang?: readonly string[];
   answers?: Record<string, unknown>;
 }
 
 /**
+ * `responses` sets what `getResponse` answers, by path, or the `Error` it
+ * rejects with, as a request that fails on the way does; without one it
+ * answers a known path with its object as JSON and any other with a 404.
  * `hang` lists paths whose requests never answer: they reject only when their
  * signal aborts, so a test can stop a run while a request is in progress.
  * `answers` sets what a write answers, by `"<method> <path>"` (for example
@@ -97,7 +100,7 @@ interface FakeKubeJsonApiOptions {
  */
 export const createFakeKubeJsonApi = (
   objects: Record<string, unknown> = {},
-  { logs = {}, hang = [], answers = {} }: FakeKubeJsonApiOptions = {},
+  { responses = {}, hang = [], answers = {} }: FakeKubeJsonApiOptions = {},
 ) => {
   const requests: RecordedKubeRequest[] = [];
   const known: Record<string, unknown> = { ...DISCOVERY, ...objects };
@@ -147,7 +150,13 @@ export const createFakeKubeJsonApi = (
     getResponse: async (path: string, params?: Params, init?: Init) => {
       record("getResponse", path, params, init);
       if (hang.includes(path)) return hangUntilAborted(init?.signal);
-      const answer = logs[path] ?? { status: 404, text: JSON.stringify({ code: 404, message: `${path} not found` }) };
+      const given = responses[path];
+      if (given instanceof Error) throw given;
+      const answer =
+        given ??
+        (path in known
+          ? { status: 200, text: JSON.stringify(known[path]) }
+          : { status: 404, text: JSON.stringify({ code: 404, message: `${path} not found` }) });
       return {
         ok: answer.status >= 200 && answer.status < 300,
         status: answer.status,
@@ -157,7 +166,7 @@ export const createFakeKubeJsonApi = (
   };
 
   // The requests other than the discovery reads, which every tool makes first.
-  const actions = () => requests.filter((entry) => !(entry.method === "get" && entry.path in DISCOVERY));
+  const actions = () => requests.filter((entry) => !(entry.path in DISCOVERY));
 
   // The host's client is generic in its answers; the stand-in answers plain objects.
   return { api: fake as unknown as KubeJsonApi, requests, actions };

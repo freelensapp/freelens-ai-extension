@@ -28,6 +28,7 @@ import { type KubernetesVersionInfo, summarizeClusterVersion } from "../../../co
 import {
   type ClusterToolContext,
   type ClusterToolRunner,
+  failedResponseError,
   POD_RESOURCE,
   type RawObject,
   resolveResource,
@@ -148,16 +149,6 @@ async function getKubernetesResource(
   return JSON.stringify(select ? select(projected) : projected);
 }
 
-// A failed log read: the API server's Status, whose `message` the pod logs
-// helpers match on.
-const logReadError = (status: number, text: string): unknown => {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { code: status, message: text };
-  }
-};
-
 /** Reads a capped, optionally filtered snapshot of a container's logs. */
 async function getPodLogs(
   { api, signal, podLogsTailLines }: ClusterToolContext,
@@ -187,7 +178,7 @@ async function getPodLogs(
   const response = await api.getResponse(`${path}/log`, { query }, { signal });
   const logs = await response.text();
   if (!response.ok) {
-    const error = logReadError(response.status, logs);
+    const error = failedResponseError(response.status, logs);
     // Expected when previous: true is asked for a container that never terminated.
     if (isPreviousContainerNotFoundError(error)) return emptyLogsMessage(selected, name, previous);
     throw error;

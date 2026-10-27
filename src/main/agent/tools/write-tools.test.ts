@@ -314,7 +314,9 @@ describe("write tools", () => {
         namespace: "shop",
       }),
     ).toBe('Could not resolve a Kubernetes API for kind "Widget" and apiVersion "example.com/v1".');
-    expect(cluster.requests.map(({ method, path }) => `${method} ${path}`)).toEqual(["get /apis/example.com/v1"]);
+    expect(cluster.requests.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      "getResponse /apis/example.com/v1",
+    ]);
   });
 
   it("rejects with the cluster's error when a write fails", async () => {

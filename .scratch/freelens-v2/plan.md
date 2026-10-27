@@ -663,6 +663,19 @@ turns them into manual test cases with steps and expected results.
   tool calls, so there was no pattern to copy. Manual case B4 now describes
   it, and K1 is marked fixed. Upstream: none.
 
+- **A failed discovery request is described as what it is (review, story
+  27).** `resolveResource` swallowed every rejection of the discovery
+  request, so a 403, a 5xx or a network error became "Could not resolve a
+  Kubernetes API" for every get, list and write. It now reads the document
+  with the client's public `getResponse`, as the pod logs read does, because
+  the host's error for a failed `get` keeps the status private (see the 09
+  finding and "Upstream work items"): only a 404 answers that text; any other
+  answer rejects with the server's `Status` and a failed request with its
+  error, which `describeRequestError` turns into `<tool> failed: <message>`.
+  The stand-in client's `logs` option became `responses`, which also sets a
+  failed discovery answer or an `Error` to reject with, and its `getResponse`
+  answers the known paths. Upstream: none.
+
 ## Upstream work items
 
 - freelensapp/freelens: none. The two gaps the `main` branch found for this

@@ -66,7 +66,7 @@ describe("AgentHost", () => {
         "/apis/apps/v1/namespaces/default/deployments/api": { ...WEB, metadata: { name: "api", namespace: "default" } },
       },
       {
-        logs: { "/api/v1/namespaces/default/pods/web-1/log": { status: 200, text: "started\n" } },
+        responses: { "/api/v1/namespaces/default/pods/web-1/log": { status: 200, text: "started\n" } },
         ...options,
       },
     );

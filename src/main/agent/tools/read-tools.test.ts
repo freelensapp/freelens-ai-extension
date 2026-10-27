@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createFakeKubeJsonApi } from "../../../../test/kube-json-api";
+import { describeRequestError } from "./describe-request-error";
 import { READ_TOOL_RUNNERS } from "./read-tools";
 
 const WEB = {
@@ -186,6 +187,46 @@ describe("read tools", () => {
     );
   });
 
+  it.each([
+    [
+      "forbidden",
+      403,
+      { kind: "Status", code: 403, reason: "Forbidden", message: 'deployments.apps is forbidden: User "dev"' },
+      'deployments.apps is forbidden: User "dev"',
+    ],
+    [
+      "unavailable",
+      503,
+      {
+        kind: "Status",
+        code: 503,
+        reason: "ServiceUnavailable",
+        message: "the server is currently unable to handle the request",
+      },
+      "the server is currently unable to handle the request",
+    ],
+  ])(
+    "describes a discovery request answered %s as what the server said, not as an unknown API",
+    async (_case, status, body, text) => {
+      cluster = createFakeKubeJsonApi({}, { responses: { "/apis/apps/v1": { status, text: JSON.stringify(body) } } });
+
+      const error = await run("listKubernetesResources", { kind: "Deployment", namespace: "shop" }).catch((e) => e);
+
+      expect(describeRequestError(error)).toBe(text);
+      expect(cluster.actions()).toEqual([]);
+    },
+  );
+
+  it("describes a discovery request that failed on the way as its error", async () => {
+    cluster = createFakeKubeJsonApi({}, { responses: { "/apis/apps/v1": new TypeError("fetch failed") } });
+
+    const error = await run("getKubernetesResource", { kind: "Deployment", name: "web", namespace: "shop" }).catch(
+      (e) => e,
+    );
+
+    expect(describeRequestError(error)).toBe("fetch failed");
+  });
+
   it("listKubernetesResources rejects a malformed field selector", async () => {
     expect(await run("listKubernetesResources", { kind: "Pod", fields: ["spec[oops"] })).toBe(
       'Invalid field selector "spec[oops": unterminated "[".',
@@ -235,7 +276,7 @@ describe("read tools", () => {
       cluster = createFakeKubeJsonApi(
         { "/api/v1/namespaces/shop/pods/web-1": POD, ...objects },
         {
-          logs: { [LOG_PATH]: answer },
+          responses: { [LOG_PATH]: answer },
         },
       );
     };
