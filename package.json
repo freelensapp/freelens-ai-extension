@@ -28,7 +28,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "biome": "pnpm dlx @biomejs/biome@2.5.1",
+    "biome": "pnpm dlx @biomejs/biome@2.5.15",
     "biome:check": "pnpm biome check",
     "biome:fix": "pnpm biome check --fix",
     "biome:migrate": "pnpm biome migrate --write",
@@ -40,10 +40,11 @@
     "lint": "pnpm lint:check",
     "lint:check": "pnpm biome:check",
     "lint:fix": "pnpm biome:fix",
-    "knip": "pnpm dlx knip@6.21.0 --dependencies --no-gitignore",
+    "knip": "pnpm dlx knip@6.41.0 --dependencies --files --no-gitignore --no-config-hints",
     "knip:check": "pnpm \"/^knip:(development|production)\\$/\"",
     "knip:development": "pnpm knip",
     "knip:production": "pnpm knip --production --strict",
+    "test": "pnpm test:unit",
     "test:unit": "vitest run",
     "type:check": "pnpm type:check:sources && pnpm type:check:tests && pnpm type:check:tooling && pnpm type:check:environments",
     "type:check:sources": "tsc -p src/main && tsc -p src/renderer",
@@ -56,15 +57,14 @@
     "dev": "pnpm \"/^dev:(renderer|main)\\$/\"",
     "dev:main": "vite build --watch --mode main",
     "dev:renderer": "vite build --watch --no-emptyOutDir",
-    "bump-version": "pnpm version --no-commit-hooks --no-git-tag-version",
+    "bump-version": "pnpm version --no-commit-hooks --no-git-checks --no-git-tag-version",
     "pack:dev": "pnpm bump-version prerelease && pnpm build && pnpm clean:tgz && pnpm pack && pnpm dlx shx@0.4.0 ls \"$PWD/*.tgz\"",
-    "clean": "pnpm clean:out",
+    "clean": "pnpm clean:dist",
+    "clean:dist": "pnpm dlx shx@0.4.0 rm -rf dist",
     "clean:dts": "pnpm dlx shx@0.4.0 rm -f \"src/**/*.d.scss.ts\"",
     "clean:node_modules": "pnpm dlx shx@0.4.0 rm -rf node_modules",
-    "clean:out": "pnpm dlx shx@0.4.0 rm -rf out",
     "clean:tgz": "pnpm dlx shx@0.4.0 rm -f \"*.tgz\"",
-    "clean:all": "pnpm \"/^clean:(dts|node_modules|out|tgz)\\$/\"",
-    "postupdate": "pnpm biome:migrate"
+    "clean:all": "pnpm \"/^clean:(dist|dts|node_modules|tgz)\\$/\""
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.4.0",

@@ -143,7 +143,7 @@ Open: none.
 - [x] **Step 4. Source migration (06).**
 - [x] **Step 5. Unit tests on Vitest 5, tree green again (07).** Steps 1 to 5
       are pushed here.
-- [ ] **Step 6. Tooling and CI from the `main` branch (08).**
+- [x] **Step 6. Tooling and CI from the `main` branch (08).**
 - [ ] **F1. Read tools in main (09), write tools and the backup in main (10).**
 - [ ] **F2. Model requests through the Freelens HTTP client (11).**
 - [ ] **Step 7. AGENTS.md and README (12).**
@@ -438,6 +438,36 @@ turns them into manual test cases with steps and expected results.
   `application-context` and `preferences-page` tests, whose components differ
   entirely here. Unit tests: 346 to 367 in 30 files, none removed.
   Upstream: none.
+
+- **The tooling and the workflows are the `main` branch's (step 6).** Copied
+  unchanged: `biome.jsonc`, `mise.toml`, `mise.lock`, `.nvmrc`,
+  `.editorconfig`, `.gitattributes`, `.gitignore`, `.markdownlint.yaml`,
+  `.claude/settings.json` (the `.gitignore` names it) and every workflow,
+  `claude-task.yaml`, `mise-lock-check.yaml` and `type-check.yaml` added,
+  `osv-scanner.yaml` deleted as on the `main` branch; `.renovaterc.json5`
+  became `.renovaterc.json`. The scripts take the `main` branch's Biome
+  2.5.15, Knip 6.41.0 (`--files --no-config-hints`), `test`, `bump-version`
+  and the `clean:dist` family; `postupdate` and `clean:out` went. What
+  differs, and why: `package.json` keeps `postbuild` and `check:dist` (step
+  2) and its own packages; `knip.jsonc` lists pi and `typebox` instead of
+  LangChain and `zod` among the bundled libraries the production pass would
+  report as unlisted; `.renovaterc.json` excludes `@earendil-works/**` and
+  `typebox` instead of `@langchain/**` from the Freelens catalog rule (the
+  Freelens catalog has neither; it has `react-select`); `.trunk/trunk.yaml`
+  ignores `.claude/skills/**`, the agent skills vendored as they are, which
+  failed Trunk Check on this branch before; the integration helper waits for
+  the "Thinking level" heading instead of the `main` branch's "API key" label,
+  which this preferences page does not have. `pnpm-workspace.yaml`
+  (step 1), `vite.config.mjs` (step 2) and `test/freelens-extensions.ts`
+  (step 5) keep their differences. Upstream: none.
+- **The new linters reformat three files (step 6).** Biome 2.5.15 formats
+  one `it.each` of `src/main/agent/agent-host.test.ts` differently; Trunk's
+  Prettier, which the `main` branch runs on SCSS, splits one `transition` of
+  `text-input.module.scss`; the `main` branch's markdownlint rules (MD045,
+  MD049) needed the four image alt texts and the emphasis style of the
+  `main` branch's `docs/SET_UP_EXTENSION.md`, and one `<base URL>` in an
+  old `.scratch` ticket went into backticks. Nothing else in the source
+  changed; Knip found nothing to remove. Upstream: none.
 
 ## Upstream work items
 

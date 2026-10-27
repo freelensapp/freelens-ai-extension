@@ -48,7 +48,7 @@ the ids from the old `models` list.
   `get_models_path`, and `ProviderSummary.custom: { baseUrl }`. Both changes
   broadcast `credentials_changed`, so open chat pickers reload.
 - Settings page: "Add custom endpoint" next to "Add provider"; custom cards
-  show "Custom endpoint - <base URL>" and a Remove button instead of Log out;
+  show `Custom endpoint - <base URL>` and a Remove button instead of Log out;
   the `models.json` path is shown under the cards and in the form.
 - Import (`importLegacyCustomProvider`): a custom `openAIBaseUrl` with a key
   becomes a provider named after the URL's host (`llm.example.com`, id
