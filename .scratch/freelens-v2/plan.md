@@ -145,7 +145,7 @@ Open: none.
       are pushed here.
 - [x] **Step 6. Tooling and CI from the `main` branch (08).**
 - [ ] **F1. Read tools in main (09), write tools and the backup in main (10).**
-- [ ] **F2. Model requests through the Freelens HTTP client (11).**
+- [x] **F2. Model requests through the Freelens HTTP client (11).**
 - [ ] **Step 7. AGENTS.md and README (12).**
 - [ ] **Manual test cases for Freelens v2 (13).**
 - [ ] **Final merge of the `main` branch (14).**
@@ -210,7 +210,7 @@ turns them into manual test cases with steps and expected results.
 - [ ] providers connect with an API key and with an OAuth login whose page
       opens in the browser; custom endpoints and environment keys show
 - [ ] the chat follows the Freelens proxy and CA preferences, except the
-      Google providers
+      Google and Bedrock providers and Codex's WebSocket transport (F2)
 - [ ] "Explain" on a warning event opens the chat with the explanation
 - [ ] every preference is shown, saved and followed; an error in the chat
       page, the menu item or the preferences stays inside it
@@ -400,6 +400,37 @@ turns them into manual test cases with steps and expected results.
   device-code links of a provider login open with `window.open(url)`, still
   only for `http:` and `https:` URLs. Upstream: none.
 
+- **pi's model requests carry the host's fetch, with gaps (F2).** The agent
+  host takes a `fetch` option, which the main entry sets to a function that
+  calls `Main.Util.fetch`, read when each request is sent.
+  After each session is created, the chat's and AI Explain's alike, its
+  `agent.streamFunction` (public and writable in pi) is wrapped to add that
+  `fetch` to the options of every model request. The chat's runs, its
+  compaction summaries (pi passes `agent.streamFunction` to `compact()`) and
+  pi's prompt-cache warmer (which reuses the options the stream function
+  built) all go through it. Nothing replaces the global `fetch` or the global
+  undici dispatcher of the main process. Requests that stay on Node's own HTTP,
+  without the Freelens proxy and CA settings:
+  - models on the `google-generative-ai` and `google-vertex` APIs: pi's two
+    adapters throw "Custom fetch is not supported" when given a `fetch` other
+    than `globalThis.fetch` (`pi-ai/dist/api/google-generative-ai.js`,
+    `google-vertex.js`), so the wrapper leaves those requests alone;
+  - models on `bedrock-converse-stream`: the AWS SDK sends them through its
+    own Node HTTP handler, ignoring `fetch`; pi gives it a proxy agent only
+    from the `HTTPS_PROXY`/`HTTP_PROXY` environment variables;
+  - the WebSocket transport of `openai-codex-responses`, which pi tries first
+    under its default `transport: "auto"` before falling back to SSE over
+    `fetch`; it too takes its proxy only from the environment;
+  - OAuth logins and token refreshes (`pi-ai/dist/auth/oauth/*.js`) and
+    model-list refreshes (for example `providers/openrouter.js`), which call
+    the global `fetch` directly and do not go through the stream function.
+  The tests check that the injected `fetch` reaches the faux provider's
+  request options in a chat run, an explanation and a compaction, that a model
+  on either Google API gets none, and that a request of the entry's chat goes to
+  `Main.Util.fetch`.
+  Upstream: pi (see "Upstream work items" for the request text; not filed
+  yet, the link goes here once it is).
+
 - **The tests run on the `main` branch's Vitest setup (step 5).**
   `vitest.config.ts` is the `main` branch's verbatim: the standard decorators
   plugin and `@vitejs/plugin-react` as in the build, `globals` on for Testing
@@ -519,8 +550,35 @@ turns them into manual test cases with steps and expected results.
   code, `navigateToPreferences()` and the removed `openExternal`, are
   documented at the pin ("Node and Electron in the renderer" and
   "openExternal, openBrowser" in the guide).
-- pi: a session-level `fetch` option, so that OAuth logins and model-list
-  refreshes can use the host's client too (ticket 11 files it).
+- pi: a runtime-level `fetch` option (F2). Not filed yet; the maintainer files
+  it and links it in the F2 finding. Proposed text:
+
+  > **Title:** A `fetch` option for everything a `ModelRuntime` and its
+  > sessions send over HTTP
+  >
+  > pi runs inside an Electron app (Freelens) whose main process has its own
+  > HTTP client: a `fetch` that applies the user's HTTPS proxy and custom CA
+  > certificates. Node's global `fetch` applies neither, so behind a
+  > corporate proxy pi fails where the app works. Replacing the global `fetch`
+  > or undici's global dispatcher is not an option inside a host process.
+  >
+  > Today the only way in is to wrap `session.agent.streamFunction` and add
+  > `fetch` to each request's options. That covers model requests, compaction
+  > and the cache warmer, but not:
+  >
+  > - OAuth logins and token refreshes (`auth/oauth/*`), which call the
+  >   global `fetch`;
+  > - model-list refreshes (for example `providers/openrouter.js`);
+  > - the Google Generative AI and Google Vertex adapters, which throw
+  >   "Custom fetch is not supported" for any `fetch` but `globalThis.fetch`;
+  > - Bedrock (the AWS SDK's Node handler) and the Codex WebSocket transport,
+  >   which take a proxy only from `HTTPS_PROXY`/`HTTP_PROXY`.
+  >
+  > Request: a `fetch` option on `ModelRuntime.create()` (or on
+  > `createAgentSession()`), used by default for every request the runtime and
+  > its sessions make, OAuth flows and model listing included; and, where an
+  > SDK cannot take a `fetch`, a documented hook for the HTTP agent or
+  > dispatcher instead of the environment variables only.
 - pi: an entry point for its message, event and session-stats types that does
   not reach Node's types, so that browser code (here the renderer and common
   programs) can import them instead of declaring them (step 3).

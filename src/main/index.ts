@@ -92,6 +92,10 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       getClusterStatus: (clusterId) => Main.Catalog.getClusterById(clusterId)?.status,
       getClusterApi: (clusterId) => Main.K8sApi.KubeJsonApi.forCluster(clusterId),
       getPodLogsTailLines: () => preferencesStore.podLogsTailLines,
+      // The host's client applies the Freelens proxy and CA settings to the model
+      // requests; Node's global fetch, pi's default, ignores them. Read when
+      // each request is sent.
+      fetch: (input, init) => Main.Util.fetch(input, init),
       // Read before every call, so a changed preference applies to the next one.
       getApprovalOverrides: () => preferencesStore.toolApprovalOverrides,
       // The chat's model picker remembers the last model used here.
