@@ -21,7 +21,7 @@ import type { MessageObject } from "../../../common/objects/message-object";
 // The cluster frame's side of the agent protocol: it sends commands to the pi
 // agent host in main and keeps this cluster's chat in step with main's
 // snapshot and envelopes. The cluster tools run in main; the frame only shows
-// their calls and the approval cards.
+// their calls with their results and the approval cards.
 
 class AgentRendererIpc extends Renderer.Ipc {}
 

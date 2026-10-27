@@ -633,10 +633,7 @@ turns them into manual test cases with steps and expected results.
   branch's install steps, and its "Setup API key" step becomes "Connect a
   provider". Its old screenshot of the API key fields,
   `docs/images/preferences_freelens_ai.png`, is no longer referenced and is
-  left in place. The pi agent core ticket 08 links ADR 0002. Left for a code
-  ticket: two comments still describe the frame-side tools,
-  `src/renderer/index.tsx` ("this frame answers its tool calls") and
-  `src/main/index.ts` ("The read tools run here"). Upstream: none.
+  left in place. The pi agent core ticket 08 links ADR 0002. Upstream: none.
 - **What the manual test cases found in the code (13).** Writing the expected
   results against the code turned up behaviour the cases mark as known gaps
   (`manual-test-cases.md`, "Known gaps"): the chat shows no tool calls or tool
@@ -741,6 +738,14 @@ turns them into manual test cases with steps and expected results.
   keys, so it stayed in the store file of an upgraded install. It is in
   `LEGACY_PREFERENCE_KEYS` now and written back as `null` with the others;
   nothing reads it. A5 checks it. Upstream: none.
+
+- **Comments that described the frame-side tools (review).** Three comments
+  were left from before ticket 10: `src/renderer/index.tsx` said the frame
+  answers the tool calls, `src/main/index.ts` that the read tools run in main
+  (all of them do), and `agent-client.ts` that the frame shows the tool
+  calls, which it does only since the first review fix. They say what the
+  code does now, and the step 7 finding no longer lists the first two as
+  left over. Upstream: none.
 
 ## Upstream work items
 

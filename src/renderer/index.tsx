@@ -27,7 +27,8 @@ import { PreferencesPage } from "./pages/preferences";
 export default class FreeLensAIRenderer extends Renderer.LensExtension {
   async onActivate() {
     PreferencesStore.getInstanceOrCreate<PreferencesStore>().loadExtension(this);
-    // The chat runs on the pi agent in main; this frame answers its tool calls.
+    // The chat runs on the pi agent in main, which also runs the cluster tools;
+    // this frame shows the chat and the approval cards.
     startAgentClient(this);
     // Provider status, models and logins in main: for the settings page and the chat's model picker.
     startProviderClient(this);
