@@ -62,7 +62,7 @@ export interface ApplicationContextProviderProps {
 }
 
 export const ApplicationContextProvider = observer(({ extension, children }: ApplicationContextProviderProps) => {
-  const { log } = useLog("useChatService");
+  const { log } = useLog("ApplicationContextProvider");
   const [preferencesStore] = useState<PreferencesStore>(PreferencesStore.getInstanceOrCreate<PreferencesStore>());
   // Resolved once: this cluster frame belongs to exactly one cluster for its
   // whole lifetime, and main keeps one pi session per cluster.

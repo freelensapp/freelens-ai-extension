@@ -4,6 +4,7 @@ import { PreferencesStore } from "../../../common/store";
 import { groupModels, modelRef, resolvePickedModel } from "../../business/provider-client/model-picker";
 import { onProviderEnvelope, sendProviderCommand } from "../../business/provider-client/provider-client";
 import { useApplicationStatusStore } from "../../context/application-context";
+import useLog from "../../utils/logger/logger-service";
 
 import type { SingleValue } from "react-select";
 
@@ -22,6 +23,7 @@ const MAX_ROWS = 5;
 const DRAFT_STORAGE_KEY = "chatInputDraft";
 
 export const useTextInput = ({ onSend }: TextInputHookProps) => {
+  const { log } = useLog("useTextInput");
   const [message, _setMessage] = useState(() => window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? "");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -46,7 +48,7 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
       if (response.success) {
         setModels(response.data as ProviderModelSummary[]);
       } else {
-        console.error("[freelens-ai] Listing the models of the connected providers failed:", response.error);
+        log.error("Listing the models of the connected providers failed:", response.error);
       }
     };
     void load();

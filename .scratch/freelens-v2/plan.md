@@ -711,6 +711,14 @@ turns them into manual test cases with steps and expected results.
   lucide-react icons now (`TriangleAlert` in the theme's warning colour,
   `Wrench`), as the other icons of the chat are. Upstream: none.
 
+- **The renderer logs through its logger (review).** The model picker's
+  failed model list went to `console.error` and the agent client's failed
+  snapshot load to `console.warn`, each with a hand-written "[freelens-ai]"
+  prefix. The first uses `useLog("useTextInput")`, the second
+  `createLogger("agentClient", RENDERER_LOG_LEVEL)`, the level `useLog` uses,
+  now exported by the renderer's logger service; the application context logs
+  as `ApplicationContextProvider` instead of `useChatService`. Upstream: none.
+
 ## Upstream work items
 
 - freelensapp/freelens: none. The two gaps the `main` branch found for this

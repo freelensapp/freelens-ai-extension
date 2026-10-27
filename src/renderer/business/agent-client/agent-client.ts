@@ -7,7 +7,9 @@ import {
   type AgentResponse,
   type AgentSnapshot,
 } from "../../../common/agent-protocol";
+import { createLogger } from "../../../common/utils/logger";
 import { IS_LOADING_KEY } from "../../context/chat-session-storage";
+import { RENDERER_LOG_LEVEL } from "../../utils/logger/logger-service";
 import { getFrameClusterId } from "../cluster/frame-cluster-id";
 import { IpcConnection } from "../ipc-connection";
 import { type ChatViewState, chatFromSnapshot, reconcileApprovals, reduceEnvelope } from "./chat-reducer";
@@ -20,6 +22,8 @@ import type { MessageObject } from "../../../common/objects/message-object";
 // their calls and the approval cards.
 
 class AgentRendererIpc extends Renderer.Ipc {}
+
+const log = createLogger("agentClient", RENDERER_LOG_LEVEL);
 
 /** Called with the chat after every change. */
 type ChatListener = (chat: ChatViewState) => void;
@@ -125,7 +129,7 @@ async function loadSnapshot(clusterId: string): Promise<void> {
   if (buffered !== pending) return;
   buffered = undefined;
   if (!response.success) {
-    console.warn("[freelens-ai] Loading the chat from the agent failed:", response.error);
+    log.warn("Loading the chat from the agent failed:", response.error);
     update(pending.reduce(reduceEnvelope, { ...getAgentChat()!, stale: undefined }));
     return;
   }

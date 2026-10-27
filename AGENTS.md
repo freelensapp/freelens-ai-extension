@@ -979,8 +979,9 @@ envelopes; stopped, it connects again and loads a new snapshot.
 
 The main process logs through loglevel, `const { log } = useLog("freelens-ai")`
 of `src/main/utils/logger.ts`, which prefixes the scope; it does not call
-`console.*` itself. The renderer's views use the `useLog` hook of
-`src/renderer/utils/logger/`.
+`console.*` itself. Neither does the renderer: its views use the `useLog`
+hook of `src/renderer/utils/logger/`, and code outside a component
+`createLogger` of `src/common/utils/logger.ts` with `RENDERER_LOG_LEVEL`.
 
 ## Checking the Extension in Freelens Dev
 
