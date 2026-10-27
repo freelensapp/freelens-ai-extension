@@ -156,7 +156,7 @@ const approvalCard = (request: ApprovalRequest): MessageObject => ({
   options: ["yes", "no", APPROVE_ALL_OPTION],
   approved: null,
   approvalId: request.id,
-  approvalTarget: request.approval,
+  resources: request.backup,
   sent: false,
 });
 
@@ -181,36 +181,17 @@ function reduceMessages(messages: MessageObject[], envelope: AgentEnvelope): Mes
   }
 }
 
-/** Shows the current YAML of the resource an approval would change, once the frame has loaded it. */
-export function withApprovalBackup(state: ChatViewState, approvalId: string, yaml: string): ChatViewState {
-  const messages = updateApproval(state.messages, approvalId, { resources: yaml });
-  return messages === state.messages ? state : { ...state, messages };
-}
-
 /**
- * Brings the approval cards in line with main after a snapshot: a card main
- * still waits on keeps the backup the frame already loaded, and any other
- * card still pending (left from before a restart or a missed `ui_resolved`)
- * is closed as denied, since main no longer waits on it.
+ * Brings the approval cards in line with main after a snapshot: any card still
+ * pending other than the one main waits on (left from before a restart or a
+ * missed `ui_resolved`) is closed as denied, since main no longer waits on it.
  */
-export function reconcileApprovals(
-  state: ChatViewState,
-  previous: MessageObject[],
-  pendingId: string | undefined,
-): ChatViewState {
-  const backups = new Map(previous.flatMap((m) => (m.approvalId && m.resources ? [[m.approvalId, m.resources]] : [])));
+export function reconcileApprovals(state: ChatViewState, pendingId: string | undefined): ChatViewState {
   let changed = false;
   const messages = state.messages.map((message) => {
-    if (!message.approvalId) return message;
-    if (message.approvalId !== pendingId) {
-      if (message.approved !== null) return message;
-      changed = true;
-      return { ...message, approved: false };
-    }
-    const resources = message.resources ?? backups.get(message.approvalId);
-    if (resources === message.resources) return message;
+    if (!message.approvalId || message.approvalId === pendingId || message.approved !== null) return message;
     changed = true;
-    return { ...message, resources };
+    return { ...message, approved: false };
   });
   return changed ? { ...state, messages } : state;
 }

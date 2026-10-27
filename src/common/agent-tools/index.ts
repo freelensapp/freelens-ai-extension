@@ -16,9 +16,8 @@ import type { TSchema } from "typebox";
 
 /**
  * One cluster tool, shared by main and the cluster frame. Main turns it into a
- * pi tool and runs a read tool itself (src/main/agent/tools/read-tools.ts); a
- * write tool's call goes to the frame, which maps the name to the
- * implementation that talks to the cluster.
+ * pi tool and runs it (src/main/agent/tools/read-tools.ts and write-tools.ts);
+ * the renderer reads the definitions for the tool list and the approval settings.
  */
 export interface AgentToolDefinition<TParams extends TSchema = TSchema> {
   name: string;

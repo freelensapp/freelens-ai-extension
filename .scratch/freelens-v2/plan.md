@@ -144,7 +144,7 @@ Open: none.
 - [x] **Step 5. Unit tests on Vitest 5, tree green again (07).** Steps 1 to 5
       are pushed here.
 - [x] **Step 6. Tooling and CI from the `main` branch (08).**
-- [ ] **F1. Read tools in main (09), write tools and the backup in main (10).**
+- [x] **F1. Read tools in main (09), write tools and the backup in main (10).**
 - [x] **F2. Model requests through the Freelens HTTP client (11).**
 - [ ] **Step 7. AGENTS.md and README (12).**
 - [ ] **Manual test cases for Freelens v2 (13).**
@@ -543,6 +543,65 @@ turns them into manual test cases with steps and expected results.
   documents add `nodes` and `networking.k8s.io/v1` (`ingresses`, an irregular
   plural with a subresource). The agent host tests, the tool tests and the
   extension entry test use it. Upstream: none.
+- **The write tools run in main (F1, 10).** The agent host runs every tool
+  itself now (`src/main/agent/tools/write-tools.ts`, `WRITE_TOOL_RUNNERS`),
+  after the approval gate has validated and prepared the input, with pi's
+  signal on each request. What they send, as the host's `KubeApi` does: a
+  create POSTs the manifest with the kind, apiVersion, name and (for a
+  namespaced kind) namespace set; an update PUTs it with the same four set
+  (the host's `update` sets only the name and namespace; the ticket asks for
+  all four, and the API server needs the kind and apiVersion in a PUT anyway);
+  a patch is a JSON merge patch, a subresource patch a strategic merge patch;
+  a delete sends `propagationPolicy=Background`, a force delete adds
+  `DeleteOptions` with `gracePeriodSeconds: 0`; "force finalize" is a JSON
+  merge patch with `finalizers: []`, as the host's store does it; an eviction
+  POSTs an `Eviction` to the pod's `eviction` subresource; a restart is a
+  strategic merge patch of the pod template's
+  `kubectl.kubernetes.io/restartedAt` annotation, on the plural that
+  discovery gives for the kind in `apps/v1`. The tools no longer read the
+  object before changing it: the frame did, to answer "The Deployment "x" you
+  want to update does not exist", but in main a GET answered 404 rejects like
+  the write itself would (09), so a missing object is the error result
+  `<tool> failed: <the server's message>` either way, with one request less.
+  The stand-in client gains an `answers` option (what a write answers, by
+  method and path, or the error it rejects with), `hang` covers writes too,
+  and its `/api/v1` discovery lists `services`. Unit tests: 398 to 410 in 32
+  files: 25 write tool tests on the stand-in added, the frame's 11 tool tests
+  and 6 runner tests removed with their code, the agent host tests 94 to 99
+  and the chat reducer tests 36 to 35. Upstream: none.
+- **Deleting a pod with its finalizers reports what the cluster did (10).**
+  The pod is patched with a JSON merge patch setting `metadata.finalizers` to
+  `null`, then force deleted. The host's `PodApi.deleteWithFinalizers` at the
+  pin sends a strategic merge patch with `finalizers: []`, which merges the
+  list and leaves it in place (#309; the frame called it until now). The
+  result is built from the two answers: the finalizers the patched pod still
+  lists, a failed patch (the delete still runs, as in the host), the
+  finalizers the delete's answer still lists ("marked for deletion but still
+  has the finalizers ..."), and a failed delete after the patch, which
+  becomes an error result that still says whether the finalizers were
+  cleared (a pod already terminating can be gone once they are, so the delete
+  then answers "not found"). Only when both steps went through is it "deleted
+  and finalizers cleared successfully". Upstream: none (the Freelens tree
+  after the pin sends a JSON merge patch).
+- **The backup is loaded by the approval gate (10).** Before it asks, the
+  gate loads the object an update, patch, delete, pod delete or restart would
+  change (`src/main/agent/tools/approval-backup.ts`, kind resolved through
+  discovery, with pi's signal) and puts its YAML (apiVersion, kind, metadata,
+  spec, status) on the approval request as `backup`; the snapshot's pending
+  request carries it too, so a remounted frame shows it. A create, a read
+  (pod logs), a cluster that is not connected or a failed load leave it out,
+  and the card is shown anyway; a failed load is logged as a warning. Stop
+  during the load aborts it and nothing is asked. "Approve all in this chat"
+  and a tool whose approval is turned off load nothing. Upstream: none.
+- **The frame takes no part in tool calls (10).** Gone: the `tool_request`
+  envelope, the `tool_result` command, the snapshot's `pendingToolRequests`,
+  the agent host's pending tool requests, its 30-second tool timeout
+  (`DEFAULT_TOOL_TIMEOUT_MS`, the `toolTimeoutMs` option) and the "window did
+  not answer" and "reloaded while pending, outcome unknown" results; in the
+  frame `tool-runner.ts`, `cluster-tools.ts` (the `Cluster` interface),
+  `freelens-cluster.ts`, the backup loader, `withApprovalBackup` and the
+  message object's `approvalTarget`. The approval request keeps its
+  `approval` target, which main reads to load the backup. Upstream: none.
 
 ## Upstream work items
 

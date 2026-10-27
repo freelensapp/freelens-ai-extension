@@ -56,6 +56,7 @@ const DISCOVERY = {
       { name: "namespaces", kind: "Namespace", namespaced: false },
       { name: "nodes", kind: "Node", namespaced: false },
       { name: "events", kind: "Event", namespaced: true },
+      { name: "services", kind: "Service", namespaced: true },
     ],
   },
   "/apis/apps/v1": {
@@ -80,13 +81,23 @@ const DISCOVERY = {
 // Rejects as the host's fetch does when the request's signal aborts.
 const abortError = () => new DOMException("This operation was aborted", "AbortError");
 
+interface FakeKubeJsonApiOptions {
+  logs?: Record<string, { status: number; text: string }>;
+  hang?: readonly string[];
+  answers?: Record<string, unknown>;
+}
+
 /**
  * `hang` lists paths whose requests never answer: they reject only when their
  * signal aborts, so a test can stop a run while a request is in progress.
+ * `answers` sets what a write answers, by `"<method> <path>"` (for example
+ * `"del /api/v1/namespaces/shop/pods/web-1"`); a `ParsedApiErrorStandIn` or an
+ * `Error` there rejects. Without one, a delete answers `{}` and any other write
+ * its own `data`.
  */
 export const createFakeKubeJsonApi = (
   objects: Record<string, unknown> = {},
-  { logs = {}, hang = [] }: { logs?: Record<string, { status: number; text: string }>; hang?: readonly string[] } = {},
+  { logs = {}, hang = [], answers = {} }: FakeKubeJsonApiOptions = {},
 ) => {
   const requests: RecordedKubeRequest[] = [];
   const known: Record<string, unknown> = { ...DISCOVERY, ...objects };
@@ -108,6 +119,16 @@ export const createFakeKubeJsonApi = (
       signal?.addEventListener("abort", () => reject(abortError()), { once: true });
     });
 
+  const answer = async (method: "post" | "put" | "patch" | "del", path: string, params?: Params, init?: Init) => {
+    record(method, path, params, init);
+    if (hang.includes(path)) return hangUntilAborted(init?.signal);
+    const key = `${method} ${path}`;
+    if (!(key in answers)) return method === "del" ? {} : (params?.data ?? {});
+    const given = answers[key];
+    if (given instanceof ParsedApiErrorStandIn || given instanceof Error) throw given;
+    return structuredClone(given);
+  };
+
   const fake = {
     get: async (path: string, params?: Params, init?: Init) => {
       record("get", path, params, init);
@@ -119,22 +140,10 @@ export const createFakeKubeJsonApi = (
       }
       return structuredClone(known[path]);
     },
-    post: async (path: string, params?: Params, init?: Init) => {
-      record("post", path, params, init);
-      return params?.data ?? {};
-    },
-    put: async (path: string, params?: Params, init?: Init) => {
-      record("put", path, params, init);
-      return params?.data ?? {};
-    },
-    patch: async (path: string, params?: Params, init?: Init) => {
-      record("patch", path, params, init);
-      return params?.data ?? {};
-    },
-    del: async (path: string, params?: Params, init?: Init) => {
-      record("del", path, params, init);
-      return {};
-    },
+    post: (path: string, params?: Params, init?: Init) => answer("post", path, params, init),
+    put: (path: string, params?: Params, init?: Init) => answer("put", path, params, init),
+    patch: (path: string, params?: Params, init?: Init) => answer("patch", path, params, init),
+    del: (path: string, params?: Params, init?: Init) => answer("del", path, params, init),
     getResponse: async (path: string, params?: Params, init?: Init) => {
       record("getResponse", path, params, init);
       if (hang.includes(path)) return hangUntilAborted(init?.signal);

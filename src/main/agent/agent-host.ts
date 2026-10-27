@@ -19,8 +19,10 @@ import { DEFAULT_THINKING_LEVEL, type ThinkingLevel } from "../../common/thinkin
 import useLog from "../utils/logger";
 import { toJsonEvent } from "./json-event";
 import { EXPLAIN_PROMPT, SYSTEM_PROMPT, withUserRules } from "./system-prompt";
+import { hasApprovalBackup, loadApprovalBackup } from "./tools/approval-backup";
 import { describeRequestError } from "./tools/describe-request-error";
 import { READ_TOOL_RUNNERS } from "./tools/read-tools";
+import { WRITE_TOOL_RUNNERS } from "./tools/write-tools";
 
 import type { Model } from "@earendil-works/pi-ai";
 
@@ -30,8 +32,8 @@ import type {
   AgentResponse,
   AgentSnapshot,
   ApprovalRequest,
+  ApprovalTarget,
   ChatMessage,
-  ToolRequest,
   TranscriptEntry,
 } from "../../common/agent-protocol";
 import type { AgentToolDefinition } from "../../common/agent-tools";
@@ -39,7 +41,6 @@ import type { ClusterToolRunner, KubeJsonApi } from "./tools/cluster-api";
 
 const { log } = useLog("freelens-ai");
 
-export const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 export const DENIED_REASON = "The user denied the action";
 const CLUSTER_NOT_CONNECTED = "Cluster not connected";
 // `ClusterConnectionStatus.CONNECTED` of the host's catalog.
@@ -51,6 +52,11 @@ const NEW_CHAT_MARKER = ".new-chat";
 // pi's adapters for these APIs throw "Custom fetch is not supported", so their
 // requests keep pi's default fetch.
 const APIS_WITHOUT_CUSTOM_FETCH: ReadonlySet<string> = new Set(["google-generative-ai", "google-vertex"]);
+// Every cluster tool runs here in main, by its shared name.
+const CLUSTER_TOOL_RUNNERS: Readonly<Record<string, ClusterToolRunner>> = {
+  ...READ_TOOL_RUNNERS,
+  ...WRITE_TOOL_RUNNERS,
+};
 
 export interface ModelRef {
   provider: string;
@@ -65,10 +71,10 @@ export interface AgentHostOptions {
   tools: readonly AgentToolDefinition[];
   /**
    * The cluster's connection status in the Freelens catalog, undefined for a
-   * cluster Freelens does not know; read before every tool call that runs in main.
+   * cluster Freelens does not know; read before every tool call and backup load.
    */
   getClusterStatus: (clusterId: string) => string | undefined;
-  /** The host's JSON client of a cluster, which the tools that run in main send their requests with. */
+  /** The host's JSON client of a cluster, which the tools and the approval backups send their requests with. */
   getClusterApi: (clusterId: string) => KubeJsonApi;
   /** The "pod logs tail lines" preference; read before every pod logs call. */
   getPodLogsTailLines: () => number;
@@ -89,7 +95,6 @@ export interface AgentHostOptions {
    */
   fetch?: typeof fetch;
   systemPrompt?: string;
-  toolTimeoutMs?: number;
   /** pi retries temporary provider errors; tests turn that off. */
   retry?: boolean;
   /** pi's compaction thresholds for the chats; tests lower them to make pi compact. */
@@ -122,13 +127,6 @@ interface ExplainRun {
   running: boolean;
   /** Settles once pi started the run or the explanation ended without one. */
   started: Promise<void>;
-}
-
-interface PendingToolRequest {
-  clusterId: string;
-  request: ToolRequest;
-  resolve: (text: string) => void;
-  reject: (error: Error) => void;
 }
 
 interface PendingApproval {
@@ -167,7 +165,6 @@ const safeFolderName = (clusterId: string) => clusterId.replace(/[^A-Za-z0-9._-]
  */
 export class AgentHost {
   private readonly clusters = new Map<string, Promise<ClusterAgent>>();
-  private readonly pendingTools = new Map<string, PendingToolRequest>();
   // No timeout: an approval waits until the user answers or stops the run.
   private readonly pendingApprovals = new Map<string, PendingApproval>();
   // Per cluster rather than per session, so a snapshot taken before the first
@@ -197,8 +194,6 @@ export class AgentHost {
       case "new_session":
       case "delete_sessions":
         return this.resetChat(clusterId, command.type);
-      case "tool_result":
-        return this.toolResult(clusterId, command.requestId, command.text, command.isError ?? false);
       case "ui_response":
         return this.uiResponse(clusterId, command.id, command.confirmed, command.approveAll === true);
       case "set_auto_approve":
@@ -211,10 +206,6 @@ export class AgentHost {
   dispose(): void {
     for (const pending of [...this.pendingApprovals.values()]) {
       pending.settle(false);
-    }
-    for (const [requestId, pending] of this.pendingTools) {
-      pending.reject(new Error("The agent was stopped."));
-      this.pendingTools.delete(requestId);
     }
     for (const cluster of this.clusters.values()) {
       cluster.then((agent) => agent.session.dispose()).catch(() => undefined);
@@ -437,8 +428,8 @@ export class AgentHost {
     await run.session?.abort();
   }
 
-  // Stop first denies a pending approval and fails the tool calls still waiting
-  // on the frame: pi's abort waits for them, and they may never be answered.
+  // Stop first denies a pending approval, which pi's abort would wait on. The
+  // abort then cancels the cluster request in progress through pi's signal.
   private async abort(clusterId: string): Promise<AgentResponse> {
     try {
       await this.stopExplain(clusterId);
@@ -449,9 +440,6 @@ export class AgentHost {
     if (!agent) return ok("abort");
     for (const pending of [...this.pendingApprovals.values()]) {
       if (pending.clusterId === clusterId) pending.settle(false);
-    }
-    for (const pending of [...this.pendingTools.values()]) {
-      if (pending.clusterId === clusterId) pending.reject(new Error("The user stopped the run."));
     }
     try {
       await (await agent).session.abort();
@@ -590,7 +578,6 @@ export class AgentHost {
     const empty: AgentSnapshot = {
       messages: [],
       isStreaming: explaining(),
-      pendingToolRequests: [],
       autoApprove: false,
       seq: this.seqs.get(clusterId) ?? 0,
     };
@@ -609,9 +596,6 @@ export class AgentHost {
         messages: transcript(session),
         streamingMessage: streaming?.role === "assistant" ? streaming : undefined,
         isStreaming: session.isStreaming || explaining(),
-        pendingToolRequests: [...this.pendingTools.values()]
-          .filter((pending) => pending.clusterId === clusterId)
-          .map((pending) => pending.request),
         pendingUiRequest: [...this.pendingApprovals.values()].find((pending) => pending.clusterId === clusterId)
           ?.request,
         autoApprove,
@@ -643,20 +627,6 @@ export class AgentHost {
   private hasSessionFile(clusterId: string): boolean {
     const dir = this.sessionDir(clusterId);
     return existsSync(dir) && readdirSync(dir).some((file) => file.endsWith(".jsonl"));
-  }
-
-  private toolResult(clusterId: string, requestId: string, text: string, isError: boolean): AgentResponse {
-    const pending = this.pendingTools.get(requestId);
-    if (!pending || pending.clusterId !== clusterId) {
-      return fail("tool_result", `No pending tool request ${requestId}`);
-    }
-    this.pendingTools.delete(requestId);
-    if (isError) {
-      pending.reject(new Error(text));
-    } else {
-      pending.resolve(text);
-    }
-    return ok("tool_result");
   }
 
   private async uiResponse(
@@ -694,10 +664,10 @@ export class AgentHost {
 
   // pi's `tool_call` hook: a call that needs approval, and every write call,
   // is validated and prepared, and the prepared input replaces the model's in
-  // place: the frame applies a write tool's input as it comes. A call that
-  // needs approval then waits for the user. pi asks for one call at a time. A
-  // run aborted some other way than our Stop denies the approval too, so the
-  // hook never hangs.
+  // place: the write tools apply their input as it comes. A call that needs
+  // approval then waits for the user, with the backup of the object it would
+  // change on the card. pi asks for one call at a time. A run aborted some
+  // other way than our Stop denies the approval too, so the hook never hangs.
   private async gate(
     clusterId: string,
     event: ToolCallEvent,
@@ -723,6 +693,7 @@ export class AgentHost {
     if (!agent) return { block: true, reason: "The cluster session is not available." };
     // "Approve all in this chat": validated and prepared as above, but not asked.
     if (agent.autoApprove) return undefined;
+    const backup = await this.approvalBackup(clusterId, prepared.approval, signal);
     const request: ApprovalRequest = {
       id: randomUUID(),
       toolCallId: event.toolCallId,
@@ -730,6 +701,7 @@ export class AgentHost {
       title: prepared.title,
       message: prepared.message,
       approval: prepared.approval,
+      ...(backup ? { backup } : {}),
     };
     if (signal?.aborted) return { block: true, reason: DENIED_REASON };
     const confirmed = await new Promise<boolean>((resolve) => {
@@ -748,6 +720,24 @@ export class AgentHost {
       this.send(clusterId, agent.session.sessionId, { kind: "ui_request", payload: request });
     });
     return confirmed ? undefined : { block: true, reason: DENIED_REASON };
+  }
+
+  // Best effort: a cluster that is not connected, or an object that cannot be
+  // loaded, leaves the card without a backup and still asks.
+  private async approvalBackup(
+    clusterId: string,
+    target: ApprovalTarget,
+    signal: AbortSignal | undefined,
+  ): Promise<string | undefined> {
+    if (!hasApprovalBackup(target.tool) || this.options.getClusterStatus(clusterId) !== CONNECTED) return undefined;
+    try {
+      return await loadApprovalBackup({ api: this.options.getClusterApi(clusterId), signal }, target);
+    } catch (error) {
+      if (!signal?.aborted) {
+        log.warn(`Loading the backup for the ${target.tool} approval failed: ${describeRequestError(error)}`);
+      }
+      return undefined;
+    }
   }
 
   private thinkingLevel(): ThinkingLevel {
@@ -882,10 +872,9 @@ export class AgentHost {
     }
   }
 
-  // The read tools run here in main; every other tool still goes to the
-  // cluster frame.
+  // Every tool runs here in main, on the host's client of the chat's cluster.
   private toPiTool(clusterId: string, tool: AgentToolDefinition) {
-    const runner = Object.hasOwn(READ_TOOL_RUNNERS, tool.name) ? READ_TOOL_RUNNERS[tool.name] : undefined;
+    const runner = Object.hasOwn(CLUSTER_TOOL_RUNNERS, tool.name) ? CLUSTER_TOOL_RUNNERS[tool.name] : undefined;
     return defineTool({
       name: tool.name,
       label: tool.label,
@@ -893,10 +882,8 @@ export class AgentHost {
       parameters: tool.parameters,
       executionMode: tool.mutating ? "sequential" : undefined,
       execute: async (_toolCallId, params, signal) => {
-        const args = params as Record<string, unknown>;
-        const text = runner
-          ? await this.runInMain(clusterId, tool.name, runner, args, signal)
-          : await this.requestTool(clusterId, tool.name, args, signal);
+        if (!runner) throw new Error(`Unknown tool: ${tool.name}`);
+        const text = await this.runClusterTool(clusterId, tool.name, runner, params as Record<string, unknown>, signal);
         return { content: [{ type: "text", text }], details: undefined };
       },
     });
@@ -904,7 +891,7 @@ export class AgentHost {
 
   // Runs the call on the host's client of the chat's cluster. A throw becomes
   // an error result for the model; pi's signal aborts the request on Stop.
-  private async runInMain(
+  private async runClusterTool(
     clusterId: string,
     toolName: string,
     runner: ClusterToolRunner,
@@ -924,58 +911,5 @@ export class AgentHost {
     } catch (error) {
       throw new Error(`${toolName} failed: ${describeRequestError(error)}`);
     }
-  }
-
-  // Sends the call to the cluster frame and waits for its `tool_result`. A
-  // closed frame or a disconnected cluster must not stall the run, so the wait
-  // times out into an error the model sees.
-  private async requestTool(
-    clusterId: string,
-    toolName: string,
-    args: Record<string, unknown>,
-    signal: AbortSignal | undefined,
-  ): Promise<string> {
-    const agent = await this.clusters.get(clusterId);
-    if (!agent) throw new Error("The cluster session is not available.");
-    const timeoutMs = this.options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
-    const requestId = randomUUID();
-
-    return new Promise<string>((resolve, reject) => {
-      const cleanup = () => {
-        clearTimeout(timer);
-        signal?.removeEventListener("abort", onAbort);
-        this.pendingTools.delete(requestId);
-      };
-      const onAbort = () => {
-        cleanup();
-        reject(new Error("The tool call was aborted."));
-      };
-      const timer = setTimeout(() => {
-        cleanup();
-        reject(
-          new Error(
-            `The cluster window did not answer the ${toolName} call within ${Math.round(timeoutMs / 1000)} seconds. ` +
-              "The cluster may be disconnected or its window closed. If the call changes the cluster, it may still " +
-              "have been applied: check the resource's current state before trying again.",
-          ),
-        );
-      }, timeoutMs);
-      signal?.addEventListener("abort", onAbort, { once: true });
-      const request: ToolRequest = { requestId, toolName, args };
-      this.pendingTools.set(requestId, {
-        clusterId,
-        request,
-        resolve: (text) => {
-          cleanup();
-          resolve(text);
-        },
-        reject: (error) => {
-          cleanup();
-          reject(error);
-        },
-      });
-
-      this.send(clusterId, agent.session.sessionId, { kind: "tool_request", payload: request });
-    });
   }
 }

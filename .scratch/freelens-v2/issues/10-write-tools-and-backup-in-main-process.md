@@ -34,16 +34,16 @@ frame-side cluster tools and the `Cluster` interface.
 
 **Status:** ready-for-agent
 
-- [ ] Tool tests on the stand-in assert the method, path, query, body and
+- [x] Tool tests on the stand-in assert the method, path, query, body and
       content type of every write operation above.
-- [ ] A test proves that deleting a pod with its finalizers sends a merge
+- [x] A test proves that deleting a pod with its finalizers sends a merge
       patch with `finalizers: null` and reports the cluster's answer.
-- [ ] Agent host test: an approval request carries the backup YAML, and a
+- [x] Agent host test: an approval request carries the backup YAML, and a
       failed load leaves it out without blocking the approval.
-- [ ] Agent host test: a write runs only after approval, and a denied or
+- [x] Agent host test: a write runs only after approval, and a denied or
       stopped approval sends no request.
-- [ ] Chat reducer tests: snapshots and envelopes without tool requests; the
+- [x] Chat reducer tests: snapshots and envelopes without tool requests; the
       approval card shows the backup from the request.
-- [ ] The protocol, the frame client and the snapshot hold no tool request
+- [x] The protocol, the frame client and the snapshot hold no tool request
       bookkeeping; no frame code calls the cluster for a tool.
 - [ ] Every check passes, Knip included; one commit, pushed.

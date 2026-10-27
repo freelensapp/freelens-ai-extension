@@ -6,7 +6,6 @@ import {
   chatFromSnapshot,
   reconcileApprovals,
   reduceEnvelope,
-  withApprovalBackup,
 } from "./chat-reducer";
 
 import type {
@@ -162,20 +161,6 @@ describe("reduceEnvelope", () => {
 
     expect(state.messages[2]).toMatchObject({ error: true, retryContext: { kind: "explain", text: "explain this" } });
   });
-
-  it("drops tool requests: the tool runner handles those", () => {
-    const before = initial();
-    const after = reduceEnvelope(before, {
-      clusterId: "c1",
-      sessionId: "s1",
-      seq: 1,
-      kind: "tool_request",
-      payload: { requestId: "r1", toolName: "getClusterVersion", args: {} },
-    });
-
-    expect(after.messages).toBe(before.messages);
-    expect(after.seq).toBe(1);
-  });
 });
 
 describe("run state", () => {
@@ -257,7 +242,6 @@ describe("chatFromSnapshot", () => {
   const snapshot = (overrides: Partial<AgentSnapshot> = {}): AgentSnapshot => ({
     messages: [],
     isStreaming: false,
-    pendingToolRequests: [],
     autoApprove: false,
     seq: 0,
     ...overrides,
@@ -363,10 +347,16 @@ describe("approvals", () => {
       action: "PATCH DEPLOYMENT",
       actionDetails: "action: PATCH DEPLOYMENT\nname: web\n",
       approved: null,
-      approvalTarget: request.approval,
       sent: false,
     });
+    expect(card(state)?.resources).toBeUndefined();
     expect(state.seq).toBe(1);
+  });
+
+  it("shows the backup that came with the request", () => {
+    const state = reduceEnvelope(initial(), envelope(1, "ui_request", { ...request, backup: "kind: Deployment\n" }));
+
+    expect(card(state)?.resources).toBe("kind: Deployment\n");
   });
 
   it("marks the card approved or denied when main settles it", () => {
@@ -378,54 +368,31 @@ describe("approvals", () => {
     expect(settle(false)).toBe(false);
   });
 
-  it("brings a pending approval back from the snapshot", () => {
+  it("brings a pending approval back from the snapshot, with its backup", () => {
     const state = chatFromSnapshot("c1", {
       messages: [{ role: "user", content: "scale web", timestamp: 1 } as ChatMessage],
       isStreaming: true,
-      pendingToolRequests: [],
-      pendingUiRequest: request,
+      pendingUiRequest: { ...request, backup: "kind: Deployment\n" },
       autoApprove: false,
       seq: 7,
     });
 
     expect(state.messages).toHaveLength(2);
     expect(state.messages[0]?.text).toBe("scale web");
-    expect(card(state)?.approved).toBeNull();
+    expect(card(state)).toMatchObject({ approved: null, resources: "kind: Deployment\n" });
   });
 
-  it("adds the current resource as a backup once the frame has loaded it", () => {
-    const pending = reduceEnvelope(initial(), envelope(1, "ui_request", request));
-    const state = withApprovalBackup(pending, "a1", "kind: Deployment\n");
-
-    expect(card(state)?.resources).toBe("kind: Deployment\n");
-    expect(withApprovalBackup(state, "other", "x")).toBe(state);
-  });
-
-  it("after a snapshot, keeps the loaded backup and closes cards main no longer waits on", () => {
-    const before = withApprovalBackup(
-      reduceEnvelope(
-        reduceEnvelope(initial(), envelope(1, "ui_request", { ...request, id: "old" })),
-        envelope(2, "ui_request", request),
-      ),
-      "a1",
-      "kind: Deployment\n",
+  it("after a snapshot, closes the cards main no longer waits on and keeps the pending one", () => {
+    const before = reduceEnvelope(
+      reduceEnvelope(initial(), envelope(1, "ui_request", { ...request, id: "old" })),
+      envelope(2, "ui_request", request),
     );
-    const rebuilt = chatFromSnapshot("c1", {
-      messages: [{ role: "user", content: "scale web", timestamp: 1 } as ChatMessage],
-      isStreaming: true,
-      pendingToolRequests: [],
-      pendingUiRequest: request,
-      autoApprove: false,
-      seq: 9,
+
+    expect(reconcileApprovals(before, "a1").messages.find((m) => m.approvalId === "old")).toMatchObject({
+      approved: false,
     });
-
-    const state = reconcileApprovals(rebuilt, before.messages, "a1");
-
-    expect(card(state)).toMatchObject({ resources: "kind: Deployment\n", approved: null });
-    expect(
-      reconcileApprovals(before, before.messages, "a1").messages.find((m) => m.approvalId === "old"),
-    ).toMatchObject({ approved: false });
-    expect(card(reconcileApprovals(before, before.messages, undefined))?.approved).toBe(false);
+    expect(card(reconcileApprovals(before, "a1"))?.approved).toBeNull();
+    expect(card(reconcileApprovals(before, undefined))?.approved).toBe(false);
   });
 
   it("offers approving all in this chat as a third answer", () => {
@@ -453,7 +420,6 @@ describe("approve all in this chat", () => {
     const snapshot: AgentSnapshot = {
       messages: [],
       isStreaming: false,
-      pendingToolRequests: [],
       autoApprove: true,
       seq: 3,
     };
@@ -495,7 +461,6 @@ describe("session stats", () => {
     const snapshot: AgentSnapshot = {
       messages: [],
       isStreaming: false,
-      pendingToolRequests: [],
       autoApprove: false,
       stats: stats(40),
       seq: 3,
@@ -549,7 +514,6 @@ describe("compaction", () => {
         { role: "user", content: "again", timestamp: 4 },
       ],
       isStreaming: false,
-      pendingToolRequests: [],
       autoApprove: false,
       seq: 9,
     };

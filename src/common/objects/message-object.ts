@@ -1,7 +1,5 @@
 import { MessageType } from "./message-type";
 
-import type { ApprovalTarget } from "../agent-protocol";
-
 // Describes how to re-run a query that failed, so an error message can offer a
 // "Retry" button.
 //   - "message": a normal user prompt -> send the same prompt again.
@@ -25,13 +23,12 @@ export interface MessageObject {
   actionDetails?: string;
   // The current full YAML of the resource(s) the action will change, shown as a
   // folded "Resources that will be changed" backup so the change can be undone.
+  // Main loads it before asking and sends it with the approval request.
   resources?: string;
   options?: string[];
   approved?: boolean | null;
-  // Set on a pi agent approval card: the id main answers with `ui_response`,
-  // and the resource it is about, from which the frame loads the backup.
+  // Set on a pi agent approval card: the id main answers with `ui_response`.
   approvalId?: string;
-  approvalTarget?: ApprovalTarget;
   // Marks an agent error message that should render a "Retry" button. The
   // `retryContext` carries everything needed to re-run the failed query.
   error?: boolean;

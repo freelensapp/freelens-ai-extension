@@ -24,26 +24,15 @@ import {
   resolveContainer,
 } from "../../../common/agent-tools/pod-logs";
 import { stripManagedFields } from "../../../common/agent-tools/project-resource";
-import { resolveApiVersion } from "../../../common/agent-tools/resource-handlers";
 import { type KubernetesVersionInfo, summarizeClusterVersion } from "../../../common/agent-tools/version-summary";
 import {
-  type ApiResourceList,
-  findApiResource,
-  groupVersionPath,
-  type ResolvedResource,
-  resourcePath,
-} from "./resource-paths";
-
-import type { ClusterToolContext, ClusterToolRunner } from "./cluster-api";
-
-// A Kubernetes object as the API server returns it.
-interface RawObject {
-  apiVersion?: string;
-  kind?: string;
-  metadata?: { name?: string; namespace?: string; [key: string]: unknown };
-  spec?: unknown;
-  status?: unknown;
-}
+  type ClusterToolContext,
+  type ClusterToolRunner,
+  POD_RESOURCE,
+  type RawObject,
+  resolveResource,
+} from "./cluster-api";
+import { resourcePath } from "./resource-paths";
 
 interface RawList<T = RawObject> {
   items?: T[];
@@ -73,33 +62,6 @@ interface GetResourceInput {
   namespace?: string;
   includeManagedFields?: boolean;
   fields?: string[];
-}
-
-/**
- * The resource of a kind at an apiVersion, from the discovery document fetched
- * now (no cache), or the text for the model when the cluster does not serve it.
- */
-async function resolveResource(
-  { api, signal }: ClusterToolContext,
-  kind: string,
-  apiVersion?: string,
-): Promise<ResolvedResource | string> {
-  const version = resolveApiVersion(kind, apiVersion);
-  if (!version) {
-    return `Could not resolve the apiVersion for kind "${kind}". Provide an explicit apiVersion (for example "apps/v1").`;
-  }
-  let resource: ResolvedResource | undefined;
-  try {
-    resource = findApiResource(
-      await api.get<ApiResourceList>(groupVersionPath(version), undefined, { signal }),
-      kind,
-      version,
-    );
-  } catch (error) {
-    // A group version the server does not serve answers 404; Stop must still end the call.
-    if (signal?.aborted) throw error;
-  }
-  return resource ?? `Could not resolve a Kubernetes API for kind "${kind}" and apiVersion "${version}".`;
 }
 
 function projectObject(object: RawObject, includeManagedFields = false) {
@@ -186,8 +148,6 @@ async function getKubernetesResource(
   return JSON.stringify(select ? select(projected) : projected);
 }
 
-const POD: ResolvedResource = { kind: "Pod", apiVersion: "v1", plural: "pods", namespaced: true };
-
 // A failed log read: the API server's Status, whose `message` the pod logs
 // helpers match on.
 const logReadError = (status: number, text: string): unknown => {
@@ -208,7 +168,7 @@ async function getPodLogs(
   const filter = compileLogFilter(input.filter);
   if (filter.kind === "error") return filter.message;
 
-  const path = resourcePath(POD, { name, namespace });
+  const path = resourcePath(POD_RESOURCE, { name, namespace });
   const pod = await api.get<RawObject>(path, undefined, { signal });
   const resolution = resolveContainer(container, collectContainerNames(pod.spec));
   if (resolution.kind !== "resolved") return resolution.message;

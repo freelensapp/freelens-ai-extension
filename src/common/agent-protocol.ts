@@ -146,14 +146,7 @@ export const AGENT_ENVELOPE_CHANNEL = "agent:envelope";
 /** Chats not changed for this many days are deleted unless the user sets otherwise; 0 keeps them forever. */
 export const DEFAULT_CHAT_RETENTION_DAYS = 30;
 
-/** A tool call that main asks the cluster frame to run. */
-export interface ToolRequest {
-  requestId: string;
-  toolName: string;
-  args: Record<string, unknown>;
-}
-
-/** What an approval is about; the frame uses it to load the current resource as a backup. */
+/** What an approval is about; main loads the backup of the object it names. */
 export interface ApprovalTarget {
   tool: string;
   kind?: string;
@@ -164,7 +157,7 @@ export interface ApprovalTarget {
 
 /**
  * Main asks the user to approve a tool call: pi's `confirm` UI request, with
- * the action as YAML in `message` and the target the frame needs for the card.
+ * the action as YAML in `message` and the object it is about.
  */
 export interface ApprovalRequest {
   id: string;
@@ -173,6 +166,11 @@ export interface ApprovalRequest {
   title: string;
   message: string;
   approval: ApprovalTarget;
+  /**
+   * The current YAML of the object the call would change, loaded before
+   * asking; absent for a create, a read, or when the object could not be loaded.
+   */
+  backup?: string;
 }
 
 /** An approval was answered, or denied by Stop. */
@@ -190,7 +188,6 @@ interface EnvelopeBase {
 
 export type AgentEnvelope =
   | (EnvelopeBase & { kind: "event"; payload: JsonAgentSessionEvent })
-  | (EnvelopeBase & { kind: "tool_request"; payload: ToolRequest })
   | (EnvelopeBase & { kind: "ui_request"; payload: ApprovalRequest })
   | (EnvelopeBase & { kind: "ui_resolved"; payload: ApprovalResolution })
   /** "Approve all in this chat" was turned on or off. */
@@ -227,8 +224,6 @@ export interface AgentSnapshot {
   /** The assistant answer being streamed right now, if any. */
   streamingMessage?: AssistantMessage;
   isStreaming: boolean;
-  /** Tool calls main is still waiting on; a remounted frame answers them. */
-  pendingToolRequests: ToolRequest[];
   /** The approval main is waiting on; the card comes back on remount. */
   pendingUiRequest?: ApprovalRequest;
   /** "Approve all in this chat" is on: gated calls run without asking. */
@@ -254,7 +249,6 @@ export type AgentCommand =
   | { type: "new_session" }
   /** Stops a run, deletes every chat of the cluster and starts a new one; answers with its snapshot. */
   | { type: "delete_sessions" }
-  | { type: "tool_result"; requestId: string; text: string; isError?: boolean }
   /** `approveAll` with `confirmed` also stops asking for the rest of the chat. */
   | { type: "ui_response"; id: string; confirmed: boolean; approveAll?: boolean }
   /** Turns "Approve all in this chat" off; only an approval answer turns it on. */

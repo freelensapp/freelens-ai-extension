@@ -42,7 +42,7 @@ function validated(kind: string, data: unknown): { manifest: Manifest } | { erro
 /**
  * Validates and prepares a call that needs approval. It runs in main before
  * the user is asked, so an invalid manifest is rejected without asking and the
- * user approves exactly the input that the frame will run.
+ * user approves exactly the input that the write tool will run.
  */
 export function prepareApproval(toolName: string, input: Record<string, unknown>): PreparedApproval {
   const kind = str(input.kind) ?? "";

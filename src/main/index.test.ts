@@ -152,7 +152,7 @@ describe("LensExtensionAiMain", () => {
 
     expect(Main.K8sApi.KubeJsonApi.forCluster).toHaveBeenCalledWith("c1");
     expect(cluster.requests).toEqual([expect.objectContaining({ method: "get", path: "/version" })]);
-    expect(agentEnvelopes().some((envelope) => envelope.kind === "tool_request")).toBe(false);
+    expect(agentEnvelopes().every((envelope) => envelope.kind === "event" || envelope.kind === "stats")).toBe(true);
   });
 
   it("sends the chat's model requests with the host's fetch", async () => {
