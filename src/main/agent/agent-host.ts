@@ -19,6 +19,8 @@ import { DEFAULT_THINKING_LEVEL, type ThinkingLevel } from "../../common/thinkin
 import useLog from "../utils/logger";
 import { toJsonEvent } from "./json-event";
 import { EXPLAIN_PROMPT, SYSTEM_PROMPT, withUserRules } from "./system-prompt";
+import { describeRequestError } from "./tools/describe-request-error";
+import { READ_TOOL_RUNNERS } from "./tools/read-tools";
 
 import type { Model } from "@earendil-works/pi-ai";
 
@@ -33,11 +35,15 @@ import type {
   TranscriptEntry,
 } from "../../common/agent-protocol";
 import type { AgentToolDefinition } from "../../common/agent-tools";
+import type { ClusterToolRunner, KubeJsonApi } from "./tools/cluster-api";
 
 const { log } = useLog("freelens-ai");
 
 export const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 export const DENIED_REASON = "The user denied the action";
+const CLUSTER_NOT_CONNECTED = "Cluster not connected";
+// `ClusterConnectionStatus.CONNECTED` of the host's catalog.
+const CONNECTED = "connected";
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Left in a cluster's session folder by New chat until the new chat has a
 // file, so a restart in between does not reopen the chat the user left.
@@ -54,6 +60,15 @@ export interface AgentHostOptions {
   modelRuntime: ModelRuntime;
   broadcast: (envelope: AgentEnvelope) => void;
   tools: readonly AgentToolDefinition[];
+  /**
+   * The cluster's connection status in the Freelens catalog, undefined for a
+   * cluster Freelens does not know; read before every tool call that runs in main.
+   */
+  getClusterStatus: (clusterId: string) => string | undefined;
+  /** The host's JSON client of a cluster, which the tools that run in main send their requests with. */
+  getClusterApi: (clusterId: string) => KubeJsonApi;
+  /** The "pod logs tail lines" preference; read before every pod logs call. */
+  getPodLogsTailLines: () => number;
   /** The model the next prompt runs on, or undefined when none is selected. */
   getModelRef: () => ModelRef | undefined;
   /** The global thinking level; read before every prompt, and pi clamps it to what the model supports. */
@@ -844,7 +859,10 @@ export class AgentHost {
     }
   }
 
+  // The read tools run here in main; every other tool still goes to the
+  // cluster frame.
   private toPiTool(clusterId: string, tool: AgentToolDefinition) {
+    const runner = Object.hasOwn(READ_TOOL_RUNNERS, tool.name) ? READ_TOOL_RUNNERS[tool.name] : undefined;
     return defineTool({
       name: tool.name,
       label: tool.label,
@@ -852,10 +870,37 @@ export class AgentHost {
       parameters: tool.parameters,
       executionMode: tool.mutating ? "sequential" : undefined,
       execute: async (_toolCallId, params, signal) => {
-        const text = await this.requestTool(clusterId, tool.name, params as Record<string, unknown>, signal);
+        const args = params as Record<string, unknown>;
+        const text = runner
+          ? await this.runInMain(clusterId, tool.name, runner, args, signal)
+          : await this.requestTool(clusterId, tool.name, args, signal);
         return { content: [{ type: "text", text }], details: undefined };
       },
     });
+  }
+
+  // Runs the call on the host's client of the chat's cluster. A throw becomes
+  // an error result for the model; pi's signal aborts the request on Stop.
+  private async runInMain(
+    clusterId: string,
+    toolName: string,
+    runner: ClusterToolRunner,
+    args: Record<string, unknown>,
+    signal: AbortSignal | undefined,
+  ): Promise<string> {
+    if (this.options.getClusterStatus(clusterId) !== CONNECTED) {
+      throw new Error(CLUSTER_NOT_CONNECTED);
+    }
+    const context = {
+      api: this.options.getClusterApi(clusterId),
+      signal,
+      podLogsTailLines: this.options.getPodLogsTailLines(),
+    };
+    try {
+      return await runner(args, context);
+    } catch (error) {
+      throw new Error(`${toolName} failed: ${describeRequestError(error)}`);
+    }
   }
 
   // Sends the call to the cluster frame and waits for its `tool_result`. A

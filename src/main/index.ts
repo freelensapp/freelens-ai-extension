@@ -88,6 +88,10 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       modelRuntime,
       broadcast: (envelope) => ipc.broadcast(AGENT_ENVELOPE_CHANNEL, envelope),
       tools: AGENT_TOOLS,
+      // The read tools run here, on the host's client of the chat's cluster.
+      getClusterStatus: (clusterId) => Main.Catalog.getClusterById(clusterId)?.status,
+      getClusterApi: (clusterId) => Main.K8sApi.KubeJsonApi.forCluster(clusterId),
+      getPodLogsTailLines: () => preferencesStore.podLogsTailLines,
       // Read before every call, so a changed preference applies to the next one.
       getApprovalOverrides: () => preferencesStore.toolApprovalOverrides,
       // The chat's model picker remembers the last model used here.

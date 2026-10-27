@@ -9,7 +9,9 @@ import {
   fauxToolCall,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createFakeKubeJsonApi } from "../../../test/kube-json-api";
 import {
   createKubernetesResourceTool,
   getClusterVersionTool,
@@ -21,8 +23,27 @@ import { loadApprovalOverrides } from "../../common/agent-tools/approval-setting
 import { AgentHost, type AgentHostOptions } from "./agent-host";
 
 import type { AgentEnvelope, AgentSnapshot } from "../../common/agent-protocol";
+import type { AgentToolDefinition } from "../../common/agent-tools";
 
 type Faux = ReturnType<typeof fauxProvider>;
+
+// A tool main has no runner for: its calls go to the cluster frame, as the
+// write tools' calls do until they run in main too.
+const frameTool: AgentToolDefinition = {
+  name: "frameTool",
+  label: "Frame tool",
+  description: "A tool that runs in the cluster frame.",
+  parameters: Type.Object({}),
+  mutating: false,
+  requiresApprovalByDefault: false,
+};
+
+const WEB_1 = {
+  apiVersion: "v1",
+  kind: "Pod",
+  metadata: { name: "web-1", namespace: "default" },
+  spec: { containers: [{ name: "app" }] },
+};
 
 describe("AgentHost", () => {
   let dataDir: string;
@@ -30,8 +51,24 @@ describe("AgentHost", () => {
   let faux: Faux;
   let envelopes: AgentEnvelope[];
   let host: AgentHost | undefined;
+  // The cluster of every chat: "c1" and "c2" are connected, "gone" is not.
+  let cluster: ReturnType<typeof createFakeKubeJsonApi>;
+  const clusterStatus: Record<string, string> = { c1: "connected", c2: "connected", gone: "disconnected" };
+
+  const standInCluster = (options: Parameters<typeof createFakeKubeJsonApi>[1] = {}) =>
+    createFakeKubeJsonApi(
+      {
+        "/version": { major: "1", minor: "31", gitVersion: "v1.31.2" },
+        "/api/v1/namespaces/default/pods/web-1": WEB_1,
+      },
+      {
+        logs: { "/api/v1/namespaces/default/pods/web-1/log": { status: 200, text: "started\n" } },
+        ...options,
+      },
+    );
 
   beforeEach(async () => {
+    cluster = standInCluster();
     dataDir = mkdtempSync(join(tmpdir(), "agent-host-"));
     modelRuntime = await ModelRuntime.create({
       authPath: join(dataDir, "pi", "auth.json"),
@@ -54,8 +91,11 @@ describe("AgentHost", () => {
       dataDir,
       modelRuntime,
       broadcast: (envelope) => envelopes.push(envelope),
-      tools: [getClusterVersionTool],
+      tools: [getClusterVersionTool, frameTool],
       getModelRef: () => ({ provider: model.provider, id: model.id }),
+      getClusterStatus: (clusterId) => clusterStatus[clusterId],
+      getClusterApi: () => cluster.api,
+      getPodLogsTailLines: () => 500,
       retry: false,
       ...overrides,
     });
@@ -110,9 +150,99 @@ describe("AgentHost", () => {
     }
   });
 
-  it("sends a tool call to the frame as a tool_request and resolves it from tool_result", async () => {
+  // The model calls `toolName` once, then answers with the text of the tool result it got.
+  const callThenEcho = (toolName: string, args: Parameters<typeof fauxToolCall>[1]) => [
+    fauxAssistantMessage([fauxToolCall(toolName, args)], { stopReason: "toolUse" }),
+    (context: { messages: Array<{ role: string; content?: unknown }> }) => {
+      const last = context.messages[context.messages.length - 1];
+      const parts = last?.role === "toolResult" ? (last.content as Array<{ type: string; text?: string }>) : [];
+      return fauxAssistantMessage([fauxText(`Result: ${parts.map((part) => part.text ?? "").join("")}`)]);
+    },
+  ];
+  const answerText = () =>
+    envelopes
+      .flatMap((e) => (e.kind === "event" && e.payload.type === "message_update" ? [e.payload] : []))
+      .map((p) => (p.assistantMessageEvent.type === "text_delta" ? p.assistantMessageEvent.delta : ""))
+      .join("");
+  const toolEnd = () =>
+    envelopes.flatMap((e) => (e.kind === "event" && e.payload.type === "tool_execution_end" ? [e.payload] : []));
+
+  describe("read tools", () => {
+    it("runs a read in main on the chat's cluster: its result reaches the model and the frame gets no request", async () => {
+      faux.setResponses(callThenEcho("getClusterVersion", {}));
+      const clients: string[] = [];
+      const host = createHost({
+        getClusterApi: (clusterId) => {
+          clients.push(clusterId);
+          return cluster.api;
+        },
+      });
+
+      await host.handleCommand("c1", { type: "prompt", message: "which version?" });
+      await waitFor(settled);
+
+      expect(answerText()).toBe('Result: {"version":"v1.31.2","major":"1","minor":"31"}');
+      expect(clients).toEqual(["c1"]);
+      expect(cluster.requests).toEqual([expect.objectContaining({ method: "get", path: "/version" })]);
+      expect(envelopes.some((e) => e.kind === "tool_request")).toBe(false);
+    });
+
+    it.each([
+      ["a cluster Freelens does not know", "nowhere"],
+      ["a disconnected cluster", "gone"],
+    ])("answers a read on %s with 'Cluster not connected' and sends no request", async (_case, clusterId) => {
+      faux.setResponses(callThenEcho("getClusterVersion", {}));
+      let clients = 0;
+      const host = createHost({
+        getClusterApi: () => {
+          clients += 1;
+          return cluster.api;
+        },
+      });
+
+      await host.handleCommand(clusterId, { type: "prompt", message: "which version?" });
+      await waitFor(settled);
+
+      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "getClusterVersion", isError: true })]);
+      expect(answerText()).toBe("Result: Cluster not connected");
+      expect(clients).toBe(0);
+      expect(cluster.requests).toEqual([]);
+      expect(envelopes.some((e) => e.kind === "tool_request")).toBe(false);
+    });
+
+    it("describes a failed request for the model as an error result", async () => {
+      faux.setResponses(callThenEcho("getPodLogs", { name: "gone", namespace: "default" }));
+      const host = createHost({ tools: [getPodLogsTool], getApprovalOverrides: () => ({ getPodLogs: false }) });
+
+      await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
+      await waitFor(settled);
+
+      expect(toolEnd()).toEqual([expect.objectContaining({ isError: true })]);
+      expect(answerText()).toBe("Result: getPodLogs failed: /api/v1/namespaces/default/pods/gone not found");
+    });
+
+    it("aborts the request in progress on Stop", async () => {
+      cluster = standInCluster({ hang: ["/version"] });
+      faux.setResponses(callThenEcho("getClusterVersion", {}));
+      const host = createHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "which version?" });
+      await waitFor(() => cluster.requests.length > 0);
+      const [request] = cluster.requests;
+      expect(request?.signal?.aborted).toBe(false);
+
+      expect(await host.handleCommand("c1", { type: "abort" })).toMatchObject({ success: true });
+
+      await waitFor(settled);
+      expect(request?.signal?.aborted).toBe(true);
+      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "getClusterVersion", isError: true })]);
+      expect((await snapshotOf(host)).isStreaming).toBe(false);
+    });
+  });
+
+  it("sends a call of a tool without a runner in main to the frame and resolves it from tool_result", async () => {
     faux.setResponses([
-      fauxAssistantMessage([fauxToolCall("getClusterVersion", {})], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("frameTool", {})], { stopReason: "toolUse" }),
       (context) => {
         const last = context.messages[context.messages.length - 1];
         const result = last?.role === "toolResult" ? last.content.map((c) => (c.type === "text" ? c.text : "")) : [];
@@ -128,7 +258,7 @@ describe("AgentHost", () => {
     expect(request).toMatchObject({
       clusterId: "c1",
       kind: "tool_request",
-      payload: { toolName: "getClusterVersion" },
+      payload: { toolName: "frameTool" },
     });
     if (request?.kind !== "tool_request") throw new Error("no tool request");
 
@@ -149,7 +279,7 @@ describe("AgentHost", () => {
 
   it("turns a tool request that the frame never answers into an error result", async () => {
     faux.setResponses([
-      fauxAssistantMessage([fauxToolCall("getClusterVersion", {})], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("frameTool", {})], { stopReason: "toolUse" }),
       fauxAssistantMessage([fauxText("done")]),
     ]);
     const host = createHost({ toolTimeoutMs: 20 });
@@ -213,8 +343,9 @@ describe("AgentHost", () => {
     expect(c2[0]?.sessionId).not.toBe(envelopes[0]?.sessionId);
   });
 
+  // A run that waits on the frame until it answers or the run stops.
   const toolCallThenText = () => [
-    fauxAssistantMessage([fauxToolCall("getClusterVersion", {})], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("frameTool", {})], { stopReason: "toolUse" }),
     fauxAssistantMessage([fauxText("done")]),
   ];
   const snapshotOf = async (host: AgentHost, clusterId = "c1") => {
@@ -339,7 +470,7 @@ describe("AgentHost", () => {
     await host.handleCommand("c1", { type: "prompt", message: "hi" });
     await waitFor(settled);
 
-    expect(seenTools).toEqual(["getClusterVersion"]);
+    expect(seenTools).toEqual(["getClusterVersion", "frameTool"]);
     expect(seenPrompt).toContain("You are the Freelens AI test assistant.");
     expect(seenPrompt).not.toMatch(/\bbash\b/i);
   });
@@ -403,10 +534,6 @@ describe("AgentHost", () => {
       });
 
       await host.handleCommand("c1", { type: "prompt", message: "which version?" });
-      await waitFor(() => envelopes.some((e) => e.kind === "tool_request"));
-      const request = envelopes.find((e) => e.kind === "tool_request");
-      if (request?.kind !== "tool_request") throw new Error("no tool request");
-      await host.handleCommand("c1", { type: "tool_result", requestId: request.payload.requestId, text: "v1.31.2" });
       await waitFor(settled);
 
       expect(sectionsSeen).toHaveLength(2);
@@ -751,7 +878,7 @@ describe("AgentHost", () => {
           (context) => {
             const text = JSON.stringify(context.messages);
             if (resetDone && text.includes("warm up")) hiddenCalls += 1;
-            return fauxAssistantMessage([fauxToolCall("getClusterVersion", {})], { stopReason: "toolUse" });
+            return fauxAssistantMessage([fauxToolCall("frameTool", {})], { stopReason: "toolUse" });
           },
           fauxAssistantMessage([fauxText("done")]),
         ]);
@@ -794,25 +921,11 @@ describe("AgentHost", () => {
       patchKubernetesResourceTool,
     ];
 
-    // The model calls `toolName` once, then answers with the text of the tool result it got.
-    const callThenEcho = (toolName: string, args: Parameters<typeof fauxToolCall>[1]) => [
-      fauxAssistantMessage([fauxToolCall(toolName, args)], { stopReason: "toolUse" }),
-      (context: { messages: Array<{ role: string; content?: unknown }> }) => {
-        const last = context.messages[context.messages.length - 1];
-        const parts = last?.role === "toolResult" ? (last.content as Array<{ type: string; text?: string }>) : [];
-        return fauxAssistantMessage([fauxText(`Result: ${parts.map((part) => part.text ?? "").join("")}`)]);
-      },
-    ];
     const scaleWeb = { kind: "Deployment", name: "web", namespace: "default", data: { spec: { replicas: 3 } } };
 
     const uiRequests = () => envelopes.flatMap((e) => (e.kind === "ui_request" ? [e.payload] : []));
     const uiResolved = () => envelopes.flatMap((e) => (e.kind === "ui_resolved" ? [e.payload] : []));
     const toolRequests = () => envelopes.flatMap((e) => (e.kind === "tool_request" ? [e.payload] : []));
-    const answerText = () =>
-      envelopes
-        .flatMap((e) => (e.kind === "event" && e.payload.type === "message_update" ? [e.payload] : []))
-        .map((p) => (p.assistantMessageEvent.type === "text_delta" ? p.assistantMessageEvent.delta : ""))
-        .join("");
 
     it("asks before a mutating call and runs it in the frame once approved", async () => {
       faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
@@ -1028,11 +1141,11 @@ describe("AgentHost", () => {
         const host = createHost({ tools: gatedTools, toolTimeoutMs: 60_000, getApprovalOverrides: () => imported });
 
         await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
-        await waitFor(() => toolRequests().length > 0);
+        await waitFor(settled);
 
         expect(imported).toEqual({ getPodLogs: false });
         expect(uiRequests()).toEqual([]);
-        expect(toolRequests()[0]).toMatchObject({ toolName: "getPodLogs" });
+        expect(answerText()).toBe("Result: started\n");
       });
 
       it("asks for pod logs by default", async () => {
@@ -1048,16 +1161,33 @@ describe("AgentHost", () => {
 
       // Pod logs, restart and delete pod are approved with their input unchanged.
       it("sends an approved call's arguments to the frame when they need no preparation", async () => {
-        const logsOfWeb = { name: "web-1", namespace: "default" };
-        faux.setResponses(callThenEcho("getPodLogs", logsOfWeb));
-        const host = createHost({ tools: gatedTools, toolTimeoutMs: 60_000 });
+        faux.setResponses(callThenEcho("restartKubernetesResource", restartWeb));
+        const host = createHost({ tools: [...gatedTools, restartKubernetesResourceTool], toolTimeoutMs: 60_000 });
 
-        await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
+        await host.handleCommand("c1", { type: "prompt", message: "restart web" });
         await waitFor(() => uiRequests().length > 0);
         await host.handleCommand("c1", { type: "ui_response", id: uiRequests()[0]!.id, confirmed: true });
         await waitFor(() => toolRequests().length > 0);
 
-        expect(toolRequests()[0]).toMatchObject({ toolName: "getPodLogs", args: logsOfWeb });
+        expect(toolRequests()[0]).toMatchObject({ toolName: "restartKubernetesResource", args: restartWeb });
+      });
+
+      it("runs an approved read in main with the arguments the user approved", async () => {
+        faux.setResponses(callThenEcho("getPodLogs", { name: "web-1", namespace: "default" }));
+        const host = createHost({ tools: gatedTools });
+
+        await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
+        await waitFor(() => uiRequests().length > 0);
+        expect(cluster.requests).toEqual([]);
+        await host.handleCommand("c1", { type: "ui_response", id: uiRequests()[0]!.id, confirmed: true });
+        await waitFor(settled);
+
+        expect(cluster.actions()).toEqual([
+          expect.objectContaining({ method: "get", path: "/api/v1/namespaces/default/pods/web-1" }),
+          expect.objectContaining({ method: "getResponse", path: "/api/v1/namespaces/default/pods/web-1/log" }),
+        ]);
+        expect(toolRequests()).toEqual([]);
+        expect(answerText()).toBe("Result: started\n");
       });
     });
 
@@ -1499,14 +1629,10 @@ describe("AgentHost", () => {
     });
 
     it("adds up the tokens of every turn of a run with tool calls", async () => {
-      faux.setResponses(toolCallThenText());
+      faux.setResponses(callThenEcho("getClusterVersion", {}));
       const host = createHost();
 
       await host.handleCommand("c1", { type: "prompt", message: "which version?" });
-      await waitFor(() => envelopes.some((e) => e.kind === "tool_request"));
-      const request = envelopes.find((e) => e.kind === "tool_request");
-      if (request?.kind !== "tool_request") throw new Error("no tool request");
-      await host.handleCommand("c1", { type: "tool_result", requestId: request.payload.requestId, text: "v1.31" });
       await waitFor(settled);
 
       const stats = statsEnvelopes();
