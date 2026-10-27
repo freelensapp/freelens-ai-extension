@@ -1,9 +1,9 @@
 /**
  * Redaction of credentials carried by the objects the extension logs.
  *
- * Every value logged through the logger service is passed through here first,
- * so an object that happens to carry an API key never prints it in cleartext
- * into the DevTools console.
+ * Every value logged through the logger is passed through here first, so an
+ * object that happens to carry an API key never prints it in cleartext into the
+ * DevTools console or the terminal Freelens runs in.
  */
 
 export const REDACTED = "<redacted>";

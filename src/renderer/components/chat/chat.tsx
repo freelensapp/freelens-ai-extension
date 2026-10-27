@@ -6,7 +6,7 @@ import { TextInput } from "../text-input";
 import styleInline from "./chat.scss?inline";
 import { useChatHook } from "./chat-hook";
 
-import type { MessageObject } from "../../business/objects/message-object";
+import type { MessageObject } from "../../../common/objects/message-object";
 
 export const Chat = () => {
   const applicationStatusStore = useApplicationStatusStore();

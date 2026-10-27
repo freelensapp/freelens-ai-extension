@@ -1,5 +1,5 @@
+import { MessageType } from "../../../common/objects/message-type";
 import { generateUuid } from "../../../common/utils/uuid";
-import { MessageType } from "../objects/message-type";
 
 import type {
   AgentEnvelope,
@@ -8,7 +8,7 @@ import type {
   ChatMessage,
   SessionStats,
 } from "../../../common/agent-protocol";
-import type { MessageObject, RetryContext } from "../objects/message-object";
+import type { MessageObject, RetryContext } from "../../../common/objects/message-object";
 
 /** What the chat of one cluster frame shows, rebuilt from main's snapshot and envelopes. */
 export interface ChatViewState {

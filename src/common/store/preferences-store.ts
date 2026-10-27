@@ -10,7 +10,7 @@ import {
   mergeLegacyPreferences,
 } from "./legacy-preferences";
 
-import type { MessageObject } from "../../renderer/business/objects/message-object";
+import type { MessageObject } from "../objects/message-object";
 
 /** A whole number of days, 0 or more; anything else falls back to the default. */
 export const parseRetentionDays = (value: unknown): number =>

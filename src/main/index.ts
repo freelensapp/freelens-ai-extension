@@ -12,6 +12,9 @@ import { migrateAzureCredential, renameAzureModelRef } from "./agent/azure-renam
 import { importLegacyCredentials, importLegacyCustomProvider } from "./agent/credentials-import";
 import { loadDeviceId } from "./agent/device-id";
 import { ProviderService } from "./agent/provider-service";
+import useLog from "./utils/logger";
+
+const { log } = useLog("freelens-ai");
 
 class AgentMainIpc extends Main.Ipc {}
 
@@ -34,7 +37,7 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     try {
       await this.startAgentHost(preferencesStore);
     } catch (error) {
-      console.error("[freelens-ai] Starting the pi agent failed:", error);
+      log.error("Starting the pi agent failed:", error);
     }
   }
 
@@ -108,7 +111,7 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     // taken as removed; New chat prunes the folders of removed clusters.
     agentHost
       .pruneSessions({ dropRemovedClusters: false })
-      .catch((error) => console.error("[freelens-ai] Deleting old chats failed:", error));
+      .catch((error) => log.error("Deleting old chats failed:", error));
   }
 
   // One-time moves of the old LangChain OpenAI settings into pi, each with its
@@ -133,7 +136,7 @@ export default class LensExtensionAiMain extends Main.LensExtension {
           .seededModel,
       );
     } catch (error) {
-      console.error("[freelens-ai] Importing the old OpenAI settings into pi failed:", error);
+      log.error("Importing the old OpenAI settings into pi failed:", error);
       return;
     }
     preferencesStore.clearLegacy();

@@ -2,9 +2,12 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { customProviderId, validateCustomProvider } from "../../common/custom-provider";
 import { isDefaultOpenAIBaseUrl } from "../../common/openai-base-url";
+import useLog from "../utils/logger";
 import { addCustomProvider, takenProviderIds } from "./custom-providers";
 
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+
+const { log } = useLog("freelens-ai");
 
 export interface LegacyCredentials {
   openAIKey: string;
@@ -90,7 +93,7 @@ export async function importLegacyCustomProvider(
     // user can still add the endpoint on the settings page.
     const validation = validateCustomProvider(input, taken);
     if (!validation.ok) {
-      console.warn(`[freelens-ai] The old base URL ${baseUrl} was not imported: ${validation.error}`);
+      log.warn(`The old base URL ${baseUrl} was not imported: ${validation.error}`);
       markDone(markerPath);
       return {};
     }

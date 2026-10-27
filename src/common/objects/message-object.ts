@@ -1,6 +1,6 @@
 import { MessageType } from "./message-type";
 
-import type { ApprovalTarget } from "../../../common/agent-protocol";
+import type { ApprovalTarget } from "../agent-protocol";
 
 // Describes how to re-run a query that failed, so an error message can offer a
 // "Retry" button.
