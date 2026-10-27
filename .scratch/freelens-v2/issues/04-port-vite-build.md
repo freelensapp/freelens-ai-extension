@@ -29,10 +29,10 @@ bundle should build and load already.
 
 **Status:** ready-for-agent
 
-- [ ] The build configuration and plugins match the `main` branch, apart from
+- [x] The build configuration and plugins match the `main` branch, apart from
       what the pi agent needs (one-file main bundle).
-- [ ] The main bundle builds as one ES module file and loads in plain Node with
+- [x] The main bundle builds as one ES module file and loads in plain Node with
       the stand-in host API, exporting the extension class.
-- [ ] The checks of the built output exist and run; the report says which fail
+- [x] The checks of the built output exist and run; the report says which fail
       and why.
-- [ ] One commit.
+- [x] One commit.

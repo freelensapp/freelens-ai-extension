@@ -138,7 +138,7 @@ Open: none.
 - [x] **02. Common code is process-neutral.**
 - [x] **Step 0. Plan record (03).** This file.
 - [x] **Step 1. Manifest and toolchain (03).**
-- [ ] **Step 2. Vite build (04).**
+- [x] **Step 2. Vite build (04).**
 - [ ] **Step 3. TypeScript layout and environment tests (05).**
 - [ ] **Step 4. Source migration (06).**
 - [ ] **Step 5. Unit tests on Vitest 5, tree green again (07).** Steps 1 to 5
@@ -163,7 +163,7 @@ pnpm knip:check   # from step 6 on, after the build
 
 Steps 1 to 4 build only together: their reports say which checks fail and
 why. From step 2 on, every build is followed by the checks of the built
-output:
+output (`pnpm check:dist`, which `pnpm build` runs as its `postbuild`):
 
 - [ ] `dist/main.js` loads in plain Node with a stand-in
       `globalThis.FreelensExtensionApi`, and its default export is the
@@ -174,6 +174,7 @@ output:
       `react/jsx-runtime`, `mobx`, `mobx-react`, `monaco-editor`) and no second
       copy of React or mobx
 - [ ] no Node builtin in the renderer bundle
+- [ ] the main bundle imports nothing but Node builtins and Electron
 - [ ] no unlowered decorator in the output
 - [ ] one stylesheet, `dist/renderer.css`; `dist/` holds only the main entry,
       the renderer entry and the stylesheet, with their source maps
@@ -273,6 +274,43 @@ turns them into manual test cases with steps and expected results.
   component tests, are not added: no test here renders a component; ticket 07
   adds them if one does.
 
+- **The main bundle is one 13.5 MB file (step 2).** `vite.config.mjs` and the
+  three `build/vite-plugin-*.mjs` are the `main` branch's; the one difference
+  is `output.codeSplitting: false` for the main run (Rolldown's replacement of
+  the deprecated `inlineDynamicImports`). With code splitting the main run
+  wrote 63 chunks next to `main.js`, most of them pi's providers and the
+  libraries pi-coding-agent loads with `import()` (jiti, Babel, TypeScript,
+  photon). pi's OAuth login modules are in the bundle through the static
+  `registerBunOAuthFlows` import. Upstream: none.
+- **The build reads the root `tsconfig.json` (step 2).** Vite's oxc transform
+  loads the nearest `tsconfig.json`, and its `extends` of the removed
+  `@electron-toolkit/tsconfig` failed every build and every test file. Step 2
+  deletes only that `extends` line; ticket 05 replaces the file. With it gone,
+  `pnpm test:unit` passes again (25 files, 349 tests); `pnpm type:check` still
+  fails on `moduleResolution: node10` and `electron-vite/node`. Upstream: none.
+- **The checks of the built output are a script (step 2).** The `main` branch
+  ran them by hand for its PR. Here `build/check-built-output.mjs`
+  (`pnpm check:dist`) runs them after every `pnpm build`, as its `postbuild`
+  script, which pnpm 12 runs. It reads the bundles with Vite's `parseAst`
+  rather than searching the text, since the main bundle has `require(` and
+  decorators in comments and strings of the libraries it inlines, and it finds
+  an inlined copy of a host module through the source maps. One check is added
+  to the list in "Validation per step": the main bundle imports only Node
+  builtins and Electron, because the load in plain Node runs inside the
+  checkout, where a bare import resolves from `node_modules` but Freelens
+  installs none. The stand-in `FreelensExtensionApi` has only what the bundle
+  reads when it loads (`Main.LensExtension`, `Main.Ipc`,
+  `Common.Store.ExtensionStore` and the installed mobx). Upstream: the
+  template, which runs the checks by hand (see "Upstream work items").
+- **The renderer build fails on Electron, as it should (step 2).** The
+  `no-node-in-renderer` plugin rejects the `require("electron")` of
+  `src/renderer/navigation/navigate-to-extension-preferences.ts`; ticket 06
+  replaces it with `navigateToPreferences()`. With that call stubbed out (a
+  throwaway, not committed) the renderer builds and the checks pass except for
+  the missing `dist/renderer.css`: the seven `?inline` stylesheets emit no CSS
+  file. No `*.module.scss` exists yet, so the build writes no declaration;
+  ticket 06's CSS modules bring both. Upstream: none.
+
 ## Upstream work items
 
 - freelensapp/freelens: none. The two gaps the `main` branch found for this
@@ -281,4 +319,6 @@ turns them into manual test cases with steps and expected results.
   "openExternal, openBrowser" in the guide).
 - pi: a session-level `fetch` option, so that OAuth logins and model-list
   refreshes can use the host's client too (ticket 11 files it).
-- freelensapp/freelens-example-extension: none yet.
+- freelensapp/freelens-example-extension: a script for the checks of the
+  built output, such as `build/check-built-output.mjs` (step 2); the template
+  and its ports run them by hand.
