@@ -1,8 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
-import { PreferencesStore } from "../../../common/store";
 import { getActiveClusterId } from "../cluster/active-cluster";
 
-import type { KubernetesVersionInfo } from "../../../common/agent-tools/version-summary";
 import type { Cluster, ClusterResource, ResourceApi } from "./cluster-tools";
 
 type KubeObject = Renderer.K8sApi.KubeObject;
@@ -18,8 +16,8 @@ type DeleteOptions = Parameters<KubeObjectStore["removeWithOptions"]>[1];
 // their `name` key, which needs a strategic merge patch.
 const STRATEGIC_MERGE_PATCH_CONTENT_TYPE = "application/strategic-merge-patch+json";
 
-// The host's JSON client of this frame's cluster, for requests by path that no
-// KubeApi or store method makes: `/version` and subresource patches.
+// The host's JSON client of this frame's cluster, for the requests by path that
+// no KubeApi or store method makes: subresource patches.
 const clusterJsonApi = () => Renderer.K8sApi.KubeJsonApi.forCluster(getActiveClusterId());
 
 // A failed request rejects with the host's JsonApiErrorParsed, which keeps the
@@ -49,26 +47,6 @@ function toResource(object: KubeObject): ClusterResource {
  * irregular plurals resolve to the paths the cluster really serves.
  */
 export const freelensCluster: Cluster = {
-  async getVersionInfo() {
-    return clusterJsonApi().get<KubernetesVersionInfo>("/version");
-  },
-
-  getNamespaceNames() {
-    const store = Renderer.K8sApi.apiManager.getStore(Renderer.K8sApi.namespacesApi);
-    return store ? store.items.map((namespace) => namespace.getName()) : [];
-  },
-
-  async getEvents(namespace) {
-    const store = Renderer.K8sApi.apiManager.getStore(Renderer.K8sApi.eventApi);
-    if (!store) {
-      // An empty list would read as "no warnings".
-      throw new Error("The event store is not available in this cluster window.");
-    }
-    // The store holds only what the UI has loaded so far; fetch the namespace first.
-    const loaded = await store.loadAll({ namespaces: [namespace] });
-    return loaded ?? store.getAllByNs(namespace);
-  },
-
   getResourceApi(kind, apiVersion): ResourceApi | string {
     const api = Renderer.K8sApi.apiManager.getApiByKind(kind, apiVersion);
     if (!api) {
@@ -85,11 +63,6 @@ export const freelensCluster: Cluster = {
     };
     return {
       namespaced: api.isNamespaced,
-      async list(namespace) {
-        const loaded = await store.loadAll(namespace ? { namespaces: [namespace] } : {});
-        const items = loaded ?? (namespace ? store.getAllByNs(namespace) : store.items.toJSON());
-        return items.map(toResource);
-      },
       // store.load rejects for a missing resource instead of resolving undefined.
       async get(name, namespace) {
         try {
@@ -150,13 +123,5 @@ export const freelensCluster: Cluster = {
       StatefulSet: Renderer.K8sApi.statefulSetApi,
     }[kind];
     await api.restart({ name, namespace });
-  },
-
-  async getPodLogs(name, namespace, { container, tailLines, timestamps, previous }) {
-    return Renderer.K8sApi.podsApi.getLogs({ name, namespace }, { container, tailLines, timestamps, previous });
-  },
-
-  podLogsTailLines() {
-    return PreferencesStore.getInstanceOrCreate<PreferencesStore>().podLogsTailLines;
   },
 };

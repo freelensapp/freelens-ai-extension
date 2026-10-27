@@ -36,15 +36,15 @@ added beside the frame path, and ticket 10 removes the frame path.
 
 **Status:** ready-for-agent
 
-- [ ] Agent host test: a read tool call runs in the main process, its result
+- [x] Agent host test: a read tool call runs in the main process, its result
       reaches the model, and no `tool_request` envelope is broadcast.
-- [ ] Agent host test: a read on an unknown or disconnected cluster returns
+- [x] Agent host test: a read on an unknown or disconnected cluster returns
       "cluster not connected" and sends no request.
-- [ ] Agent host test: Stop during a read aborts the request in progress.
-- [ ] Tool tests on the stand-in assert the path and query of each read,
+- [x] Agent host test: Stop during a read aborts the request in progress.
+- [x] Tool tests on the stand-in assert the path and query of each read,
       including built-in kinds, a custom resource and an irregular plural.
-- [ ] A pod logs test proves that no empty value goes into the query.
-- [ ] Error description tests cover the three rejection shapes.
-- [ ] The pure tool helpers keep their tests; the read tests no longer use the
+- [x] A pod logs test proves that no empty value goes into the query.
+- [x] Error description tests cover the three rejection shapes.
+- [x] The pure tool helpers keep their tests; the read tests no longer use the
       fake `Cluster`.
 - [ ] Every check passes; one commit, pushed.

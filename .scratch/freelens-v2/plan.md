@@ -439,6 +439,51 @@ turns them into manual test cases with steps and expected results.
   entirely here. Unit tests: 346 to 367 in 30 files, none removed.
   Upstream: none.
 
+- **The read tools run in main (F1, 09).** The agent host runs
+  `getClusterVersion`, `getNamespaces`, `getWarningEventsByNamespace`,
+  `listKubernetesResources`, `getKubernetesResource` and `getPodLogs` itself
+  (`src/main/agent/tools/read-tools.ts`); every other tool still goes to the
+  frame as a `tool_request` until ticket 10. The host gets three new options:
+  `getClusterStatus` (the catalog's `status`, undefined for a cluster Freelens
+  does not know), `getClusterApi` (`Main.K8sApi.KubeJsonApi.forCluster`) and
+  `getPodLogsTailLines` (the preference, read per call). A status other than
+  `connected` is the error result "Cluster not connected" and no client is
+  asked for. A rejection becomes the error result `<tool> failed: <text>`, as
+  the frame's runner wrote it, with the text from `describeRequestError`
+  (`Error`, Kubernetes `Status`, the host's parsed error by its string form).
+  Each request carries pi's signal for the call and there is no timeout. The
+  path helpers (`resource-paths.ts`) and their tests are the `main` branch's;
+  a failed discovery request answers "Could not resolve a Kubernetes API" as
+  there, unless the call was aborted. The frame's read implementations and
+  their 24 tests on the fake `Cluster` are gone (main never sends a read to
+  the frame any more), replaced there by one test that the frame has exactly
+  the write tools; the write tools and their tests are untouched. Unit
+  tests: 367 to 392 in 33 files. Upstream: freelensapp/freelens (see
+  "Upstream work items").
+- **A missing object is an error result now (09).** The frame's tools turned
+  a 404 into "The Pod "x" was not found."; in main, a GET answered 404 rejects
+  with the host's `JsonApiErrorParsed`, which keeps the `Status` private and
+  is not exported, so the tool cannot tell a 404 from another failure without
+  reading host internals. The model gets `getKubernetesResource failed:
+  <the server's message>` instead, the shape every other failure has. Upstream:
+  freelensapp/freelens.
+- **The pinned host still writes unset query fields (09).** At 5e1870e97,
+  `JsonApi` serializes the query with `node:querystring`'s `stringify`, which
+  writes `undefined` as an empty value (`previous=`) that the API server reads
+  as true (#308). The pod logs query therefore carries only the fields that are
+  set; a test checks it with `toStrictEqual`. The Freelens tree after the pin
+  filters them (`stringifyQuery`). Upstream: none (fixed after the pin).
+- **The stand-in cluster client (09).** `test/kube-json-api.ts` is the `main`
+  branch's stand-in with four changes: a GET of an unknown path rejects with a
+  stand-in of the host's parsed API error (`ParsedApiErrorStandIn`) instead of
+  a plain `Status`, as the host does for every failure but a GET answered 403;
+  each request records its abort signal; a `hang` option leaves the requests
+  of the given paths unanswered until their signal aborts; `installFakeClusters`
+  is left out, since the agent host gets the client injected. Its discovery
+  documents add `nodes` and `networking.k8s.io/v1` (`ingresses`, an irregular
+  plural with a subresource). The agent host tests, the tool tests and the
+  extension entry test use it. Upstream: none.
+
 ## Upstream work items
 
 - freelensapp/freelens: none. The two gaps the `main` branch found for this
@@ -450,6 +495,10 @@ turns them into manual test cases with steps and expected results.
 - pi: an entry point for its message, event and session-stats types that does
   not reach Node's types, so that browser code (here the renderer and common
   programs) can import them instead of declaring them (step 3).
+- freelensapp/freelens: expose the status of a failed request on the error
+  the JSON client rejects with (`JsonApiErrorParsed` keeps the Kubernetes
+  `Status` private and is not exported), so that an extension can tell a 404
+  from another failure without parsing the message (09).
 - freelensapp/freelens-example-extension: a script for the checks of the
   built output, such as `build/check-built-output.mjs` (step 2); the template
   and its ports run them by hand.
