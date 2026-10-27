@@ -8,6 +8,7 @@ import { PROVIDER_COMMAND_CHANNEL, PROVIDER_ENVELOPE_CHANNEL, type ProviderComma
 import { PreferencesStore } from "../common/store";
 import { legacyOpenAISettings } from "../common/store/legacy-preferences";
 import { AgentHost, type ModelRef } from "./agent/agent-host";
+import { migrateAzureCredential, renameAzureModelRef } from "./agent/azure-rename";
 import { importLegacyCredentials, importLegacyCustomProvider } from "./agent/credentials-import";
 import { loadDeviceId } from "./agent/device-id";
 import { ProviderService } from "./agent/provider-service";
@@ -53,11 +54,18 @@ export default class LensExtensionAiMain extends Main.LensExtension {
 
     const dataDir = await this.getExtensionFileFolder();
     const piDir = join(dataDir, "pi");
+    const authPath = join(piDir, "auth.json");
     const modelsPath = join(piDir, "models.json");
-    const modelRuntime = await ModelRuntime.create({
-      authPath: join(piDir, "auth.json"),
-      modelsPath,
-    });
+    const modelRuntime = await ModelRuntime.create({ authPath, modelsPath });
+
+    // pi renamed the Azure provider: carry its saved key and the chat's model over.
+    await migrateAzureCredential(modelRuntime, authPath).catch((error) =>
+      console.error("[freelens-ai] Moving the Azure key to pi's renamed provider failed:", error),
+    );
+    const agentModel = renameAzureModelRef(preferencesStore.agentModel);
+    if (agentModel !== preferencesStore.agentModel) {
+      preferencesStore.agentModel = agentModel;
+    }
 
     await this.importLegacySettings(preferencesStore, modelRuntime, piDir, modelsPath);
 

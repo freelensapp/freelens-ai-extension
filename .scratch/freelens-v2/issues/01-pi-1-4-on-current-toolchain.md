@@ -19,15 +19,15 @@ pi changed in ways that touch the extension (read pi's changelog from 1.0.0 to
 
 **Status:** ready-for-agent
 
-- [ ] Every pi package the extension depends on is at 1.4.0, and the lockfile
+- [x] Every pi package the extension depends on is at 1.4.0, and the lockfile
       holds no older pi.
-- [ ] An agent host test proves that the cluster and user rules sections reach
+- [x] An agent host test proves that the cluster and user rules sections reach
       the prompt on pi 1.4.0, for a run started by a user message.
-- [ ] The Azure rename is handled: a credential or saved model under the old
+- [x] The Azure rename is handled: a credential or saved model under the old
       provider id either still works or fails with a clear message that tells
       the user to sign in again; a test covers what the extension does.
-- [ ] Any other breaking change in the changelog that touches the extension is
+- [x] Any other breaking change in the changelog that touches the extension is
       handled or noted in the plan record as not applicable.
-- [ ] Type check, Biome, unit tests and the build pass on the current
+- [x] Type check, Biome, unit tests and the build pass on the current
       toolchain, and pi still bundles into the main output.
-- [ ] One commit.
+- [x] One commit.

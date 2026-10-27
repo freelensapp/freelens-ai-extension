@@ -10,7 +10,7 @@ This repository serves as an example how to build and publish extensions for
 Freelens application.
 
 - **Language**: TypeScript 5.9.3
-- **Runtime**: Node.js >= 22.0.0, Freelens >= 1.8.0
+- **Runtime**: Node.js >= 22.19.0, Freelens >= 1.8.0
 - **Package manager**: pnpm 10.x (locked)
 - **License**: MIT
 

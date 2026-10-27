@@ -387,6 +387,35 @@ describe("AgentHost", () => {
       expect(sectionsSeen[0].user_rules).toBe("<user_rules>\nAnswer in Italian.\n</user_rules>");
     });
 
+    // pi 1.2 changed before_agent_start into a union on the run's message type;
+    // a run started by a user message must keep both sections through its tool calls.
+    it("keeps the cluster's name and the user's rules on every model request of a run with a tool call", async () => {
+      faux.setResponses([
+        (context, options, state, model) => {
+          recordSections(context, options, state, model);
+          return fauxAssistantMessage([fauxToolCall("getClusterVersion", {})], { stopReason: "toolUse" });
+        },
+        recordSections,
+      ]);
+      const host = createHost({
+        getClusterName: () => "prod-eu-1",
+        getUserRules: () => "Answer in Italian.",
+      });
+
+      await host.handleCommand("c1", { type: "prompt", message: "which version?" });
+      await waitFor(() => envelopes.some((e) => e.kind === "tool_request"));
+      const request = envelopes.find((e) => e.kind === "tool_request");
+      if (request?.kind !== "tool_request") throw new Error("no tool request");
+      await host.handleCommand("c1", { type: "tool_result", requestId: request.payload.requestId, text: "v1.31.2" });
+      await waitFor(settled);
+
+      expect(sectionsSeen).toHaveLength(2);
+      for (const sections of sectionsSeen) {
+        expect(sections.cluster).toBe("<cluster>\nprod-eu-1\n</cluster>");
+        expect(sections.user_rules).toBe("<user_rules>\nAnswer in Italian.\n</user_rules>");
+      }
+    });
+
     it("applies an edit to the rules from the next prompt and drops the section once they are empty", async () => {
       faux.setResponses([recordSections, recordSections, recordSections]);
       let rules = "Answer in Italian.";

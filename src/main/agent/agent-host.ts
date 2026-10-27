@@ -764,7 +764,9 @@ export class AgentHost {
           pi.on("tool_call", (event, ctx) => this.gate(clusterId, event, ctx.signal));
           // pi hands each prompt a fresh copy of the sections and sends the
           // model only the ones that changed, so an edit applies from the next
-          // message and an empty value removes its section.
+          // message and an empty value removes its section. It fires for a run
+          // started by a user message and by a custom message alike, and both
+          // get the sections.
           pi.on("before_agent_start", (event) => {
             const { sections } = event.systemPromptOptions;
             const clusterName = this.options.getClusterName?.(clusterId)?.trim();
