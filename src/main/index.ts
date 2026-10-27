@@ -63,7 +63,7 @@ export default class LensExtensionAiMain extends Main.LensExtension {
 
     // pi renamed the Azure provider: carry its saved key and the chat's model over.
     await migrateAzureCredential(modelRuntime, authPath).catch((error) =>
-      console.error("[freelens-ai] Moving the Azure key to pi's renamed provider failed:", error),
+      log.error("Moving the Azure key to pi's renamed provider failed:", error),
     );
     const agentModel = renameAzureModelRef(preferencesStore.agentModel);
     if (agentModel !== preferencesStore.agentModel) {
