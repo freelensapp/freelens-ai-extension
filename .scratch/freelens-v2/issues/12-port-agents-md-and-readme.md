@@ -18,10 +18,10 @@ starts from an accurate description of it.
 
 **Status:** ready-for-agent
 
-- [ ] Every command, file layout and rule `AGENTS.md` names exists and works
+- [x] Every command, file layout and rule `AGENTS.md` names exists and works
       as written.
-- [ ] `AGENTS.md` no longer mentions the v1 toolchain, `tool_request`, the
+- [x] `AGENTS.md` no longer mentions the v1 toolchain, `tool_request`, the
       frame-side tools, LangChain or MCP as part of the extension.
 - [ ] The README's install and development steps work on Freelens 2.
-- [ ] The pi agent core ticket 08 links ADR 0002.
+- [x] The pi agent core ticket 08 links ADR 0002.
 - [ ] Trunk passes on the changed Markdown; one commit, pushed.

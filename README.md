@@ -24,7 +24,7 @@ automate complex tasks and enhance productivity.
 
 - [Install](#install)
 - [How to obtain a Google API Key](./docs/GOOGLE_API_KEY.md)
-- [Build & Run Guide](./docs/BUILD.md)
+- [Build from the source](#build-from-the-source)
 
 ---
 
@@ -33,23 +33,75 @@ automate complex tasks and enhance productivity.
 - [@freelensapp/ai-extension](#freelensappai-extension)
   - [Video Demo](#video-demo)
   - [Index](#index)
+  - [Requirements](#requirements)
   - [Install](#install)
+    - [From the registry](#from-the-registry)
+    - [From a release tarball](#from-a-release-tarball)
+    - [From a directory](#from-a-directory)
   - [How it works](#how-it-works)
+    - [Proxy and certificates](#proxy-and-certificates)
   - [Connecting a provider](#connecting-a-provider)
     - [Custom OpenAI-compatible endpoints](#custom-openai-compatible-endpoints)
     - [Ollama](#ollama)
     - [Upgrading from an earlier version](#upgrading-from-an-earlier-version)
   - [Key Features](#key-features)
-    - [Additional Resources](#additional-resources)
+  - [Build from the source](#build-from-the-source)
+    - [Prerequisites](#prerequisites)
+    - [Build the extension](#build-the-extension)
+    - [Development loop](#development-loop)
+    - [Check the code](#check-the-code)
+  - [Additional Resources](#additional-resources)
+  - [License](#license)
 
 ---
+
+## Requirements
+
+- Freelens >= 2.0.0
+- An account with a model provider: an API key, a subscription sign-in, or an
+  OpenAI-compatible endpoint of your own (see
+  [Connecting a provider](#connecting-a-provider))
+
 ## Install
-Open freelens > file > extensions and add the folowing string to the textbox: **@freelensapp/ai-extension**
 
-or:
+Open Freelens and go to Extensions (`ctrl`+`shift`+`E` or
+`cmd`+`shift`+`E`). The field at the top takes a package name, the URL of a
+tarball, or the path to a tarball or a directory.
 
-Use a following URL in the browser:
+### From the registry
+
+Enter `@freelensapp/ai-extension` and press Install.
+
+Alternatively, open the following URL in the browser to install directly:
+
 [freelens://app/extensions/install/%40freelensapp%2Fai-extension](freelens://app/extensions/install/%40freelensapp%2Fai-extension)
+
+### From a release tarball
+
+Each [release](https://github.com/freelensapp/freelens-ai-extension/releases)
+has the extension as `freelensapp-ai-extension-<version>.tgz`, with its
+checksum in `freelensapp-ai-extension-<version>.tgz.sha256`. Use a release
+whose major version matches your Freelens version: the 1.x releases are for
+Freelens 2, the 0.x releases for Freelens 1.
+
+- Enter the URL of the `.tgz` asset and press Install. Freelens downloads the
+  `.tgz.sha256` next to it and checks the tarball against it.
+- Or download both files into one directory and enter the path to the `.tgz`,
+  or drop the `.tgz` on the Freelens window. Freelens checks it against the
+  `.tgz.sha256` next to it.
+
+### From a directory
+
+[Build the extension](#build-the-extension), then enter the path to your
+checkout, the directory with `package.json`, and press Install. Freelens asks
+whether to load the extension in place; confirm it. It runs the extension from
+that directory, from the files in `dist/`, and lists it as "in place,
+unverified". This is how you work on the extension: see
+[Development loop](#development-loop).
+
+Once installed, connect a provider in the extension's preferences, as
+described in [Connecting a provider](#connecting-a-provider) and in the
+[set up guide](./docs/SET_UP_EXTENSION.md).
 
 ## How it works
 
@@ -61,12 +113,30 @@ The agent is built on the [pi](https://github.com/badlogic/pi-mono) agent SDK
 and runs in the Freelens main process: one agent per cluster, with the cluster
 tools, the approval gate and the saved chats. Your API keys and sign-ins stay in
 the main process and are never sent to the Freelens windows. The cluster tools
-run in the cluster's window, through the same Kubernetes access Freelens itself
-uses.
+run in the main process too, through the same Kubernetes access Freelens itself
+uses, so a cluster you left disconnected is never connected by the agent, and
+the lists you look at in Freelens do not change because the agent looked
+something up.
 
 Usage is billed by the provider you connect: per token with an API key, or
 under your plan when you sign in with a subscription that allows it. Check that
 your provider's terms allow using its subscription in a third-party app.
+
+### Proxy and certificates
+
+The chat's requests to the model provider follow the proxy and certificate
+settings of the Freelens preferences. The following go out without those
+settings:
+
+- requests to models of the Google providers (Google Generative AI and Google
+  Vertex);
+- requests to models on Amazon Bedrock, which take a proxy only from the
+  `HTTPS_PROXY` and `HTTP_PROXY` environment variables of Freelens;
+- the WebSocket connection that the OpenAI Codex provider tries first, before
+  it falls back to a regular request, which takes its proxy from the same
+  environment variables;
+- sign-ins with a subscription and their token refreshes, and the refresh of a
+  provider's model list.
 
 ## Connecting a provider
 
@@ -169,11 +239,112 @@ context of the conversation.
 
 ---
 
-### Additional Resources
+## Build from the source
+
+### Prerequisites
+
+Use [NVM](https://github.com/nvm-sh/nvm),
+[mise-en-place](https://mise.jdx.dev/), or
+[windows-nvm](https://github.com/coreybutler/nvm-windows) to install the
+Node.js version in `.nvmrc`.
+
+From the root of this repository:
+
+```sh
+nvm install
+# or
+mise install
+# or
+winget install CoreyButler.NVMforWindows
+nvm install "$(cat .nvmrc)"
+nvm use "$(cat .nvmrc)"
+```
+
+Install pnpm:
+
+```sh
+corepack install
+# or
+curl -fsSL https://get.pnpm.io/install.sh | sh -
+# or
+winget install pnpm.pnpm
+```
+
+### Build the extension
+
+```sh
+pnpm install
+pnpm build
+```
+
+The extension is built into `dist/`: `dist/main.js`, `dist/renderer.js` and
+`dist/renderer.css`. The build ends by checking the bundles for what only
+Freelens would reject at runtime. To pack it into a tarball:
+
+```sh
+pnpm pack
+```
+
+One script to bump the prerelease version, build and pack the extension for
+testing:
+
+```sh
+pnpm pack:dev
+```
+
+The tarball is placed in the current directory. Install it as described in
+[From a release tarball](#from-a-release-tarball).
+
+### Development loop
+
+Install the extension from your checkout once, as described in
+[From a directory](#from-a-directory), then run:
+
+```sh
+pnpm dev
+```
+
+It rebuilds the extension whenever a source file changes, and Freelens
+reloads the extension after each rebuild, without a restart and without
+packing. Stop it with `ctrl`+`C`.
+
+Neither `pnpm build` nor `pnpm dev` type-checks; run `pnpm type:check` for
+that. A change to `main` or `renderer` in `package.json` needs Freelens
+restarted once.
+
+To check the extension in Freelens with an AI agent, see "Checking the
+Extension in Freelens Dev" in [AGENTS.md](AGENTS.md).
+
+### Check the code
+
+```sh
+pnpm type:check
+pnpm test:unit
+pnpm lint:check
+pnpm build
+pnpm knip:check
+```
+
+and, for the formats that Biome does not cover:
+
+```sh
+pnpm trunk:check
+```
+
+How the extension is built, type-checked and tested, and why, is described in
+[AGENTS.md](AGENTS.md).
+
+## Additional Resources
 
 - [***Contribute***](CONTRIBUTING.md)
-- [***Build freelens-ai-extension extension***](./docs/BUILD.md)
-- [***Set up extension on freelens***](./docs/SET_UP_EXTENSION.md)
+- [***Build the extension***](./docs/BUILD.md)
+- [***Set up the extension in Freelens***](./docs/SET_UP_EXTENSION.md)
 
 If you find this project useful, please consider giving it a star on
-[***GitHub***](https://github.com/freelensapp/freelens-ai)!
+[***GitHub***](https://github.com/freelensapp/freelens-ai-extension)!
+
+## License
+
+Copyright (c) 2025-2026 Freelens Authors.
+
+[MIT License](https://opensource.org/licenses/MIT)

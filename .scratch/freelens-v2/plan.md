@@ -146,7 +146,7 @@ Open: none.
 - [x] **Step 6. Tooling and CI from the `main` branch (08).**
 - [x] **F1. Read tools in main (09), write tools and the backup in main (10).**
 - [x] **F2. Model requests through the Freelens HTTP client (11).**
-- [ ] **Step 7. AGENTS.md and README (12).**
+- [x] **Step 7. AGENTS.md and README (12).**
 - [ ] **Manual test cases for Freelens v2 (13).**
 - [ ] **Final merge of the `main` branch (14).**
 
@@ -602,6 +602,41 @@ turns them into manual test cases with steps and expected results.
   `freelens-cluster.ts`, the backup loader, `withApprovalBackup` and the
   message object's `approvalTarget`. The approval request keeps its
   `approval` target, which main reads to load the backup. Upstream: none.
+- **AGENTS.md is the `main` branch's, with the pi agent in place of LangChain
+  (step 7).** The sections on the build, TypeScript, tests, lint, CI, the
+  rules that fail silently, checking in Freelens dev, security and the
+  GitHub Actions rules are the `main` branch's, changed where this branch
+  differs: the one-file main bundle and `registerBunOAuthFlows()`, the checks
+  of the built output (`pnpm check:dist`, which also makes "one CSS asset" and
+  "main on the `node` platform" checked rather than silent), pi kept out of
+  the renderer and common programs, the stub's lifecycle and `Main.Ipc`, the
+  stand-in client's `hang` and `answers`, the integration test's "Thinking
+  level" label, pi and `typebox` among the bundled libraries. The LangChain,
+  bridge and MCP sections are replaced by "The pi agent": the agent host, the
+  IPC protocol (ADR 0001), the cluster tools in main (ADR 0002), approvals,
+  providers, HTTP from main with the gaps of F2, and the lifecycle. New rules
+  that fail silently: pi in main only, the one-file main bundle, the cluster
+  from the command, no unset query field, the injected fetch for every new
+  session. The GitHub Actions sections were missing four subsections of the
+  `main` branch's file; `claude.yaml` names one of them ("Fork PRs: Review
+  Only"), so all four are added. Both Claude workflows read `AGENTS.md` from
+  the `main` branch, not from the branch under work, so the CI agent sees
+  this file only once it is on `main`. Upstream: none.
+- **The README and the guides describe Freelens 2 (step 7).** The README
+  gains the requirements, the three ways to install (registry, release
+  tarball, directory), a "Proxy and certificates" section with the gaps of F2
+  in user terms, and "Build from the source" with the development loop, as on
+  the `main` branch; "How it works" no longer says the tools run in the
+  cluster's window. `CONTRIBUTING.md` and `docs/BUILD.md` are the `main`
+  branch's (broken links, the removed `build:production`, the directory
+  install and `pnpm dev`); `docs/SET_UP_EXTENSION.md` takes the `main`
+  branch's install steps, and its "Setup API key" step becomes "Connect a
+  provider". Its old screenshot of the API key fields,
+  `docs/images/preferences_freelens_ai.png`, is no longer referenced and is
+  left in place. The pi agent core ticket 08 links ADR 0002. Left for a code
+  ticket: two comments still describe the frame-side tools,
+  `src/renderer/index.tsx` ("this frame answers its tool calls") and
+  `src/main/index.ts` ("The read tools run here"). Upstream: none.
 
 ## Upstream work items
 

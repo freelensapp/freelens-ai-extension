@@ -3,6 +3,9 @@
 Type: grilling
 Status: resolved
 Blocked by:
+Superseded by: [ADR 0002, cluster tools run in the main process](../../../docs/adr/0002-cluster-tools-run-in-the-main-process.md).
+On the Freelens v2 extension API the tools run in main, through
+`Main.K8sApi.KubeJsonApi.forCluster`; the answer below is kept as it was.
 
 ## Question
 
