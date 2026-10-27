@@ -392,7 +392,7 @@ its files can replace the `jq` edit of step 3.
 
    With a real key, put it in place of the dummy.
 4. Start Freelens (`pnpm dev`), open the extension's preferences.
-5. `jq '{openAIKey, selectedModel, podLogsRequireApproval, agentModel, thinkingLevel, toolApprovalOverrides}' "$FAE_PREFS"`
+5. `jq '{openAIKey, selectedModel, podLogsRequireApproval, bypassApprovals, agentModel, thinkingLevel, toolApprovalOverrides}' "$FAE_PREFS"`
 6. Open the chat of `kind-lan-dev`.
 7. With a real key keep `openai/gpt-4o-mini`; otherwise log out of OpenAI and
    pick M. Run D1 (read, approve and change).
@@ -402,8 +402,8 @@ Expected:
 - The **OpenAI** card shows "API key saved".
 - **Thinking level** is "High"; under **Tool approvals** the `getPodLogs`
   switch is off, the others as by default.
-- The file shows `openAIKey`, `selectedModel` and `podLogsRequireApproval` as
-  `null`, `agentModel` `"openai/gpt-4o-mini"`, `thinkingLevel` `"high"`,
+- The file shows `openAIKey`, `selectedModel`, `podLogsRequireApproval` and
+  `bypassApprovals` as `null`, `agentModel` `"openai/gpt-4o-mini"`, `thinkingLevel` `"high"`,
   `toolApprovalOverrides` `{"getPodLogs": false}`.
 - The chat's picker shows `gpt-4o-mini` under OpenAI; no chat of 0.7.1 shows;
   "Approve all in this chat" is off (the old bypass flag is not read).

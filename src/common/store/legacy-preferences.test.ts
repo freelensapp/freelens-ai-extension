@@ -17,6 +17,7 @@ const oldStore = {
   ],
   aiProxyPort: 4321,
   mcpEnabled: false,
+  bypassApprovals: true,
   customAgentRules: "Answer in Italian",
   agentModel: "openai/gpt-5.4",
 };
@@ -30,6 +31,7 @@ describe("pickLegacyPreferences", () => {
       models: oldStore.models,
       aiProxyPort: 4321,
       mcpEnabled: false,
+      bypassApprovals: true,
     });
   });
 
@@ -48,6 +50,7 @@ describe("clearedLegacyPreferences", () => {
       models: null,
       aiProxyPort: null,
       mcpEnabled: null,
+      bypassApprovals: null,
     });
     expect(hasLegacyValues(cleared)).toBe(false);
   });

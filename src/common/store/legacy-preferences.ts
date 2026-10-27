@@ -1,5 +1,6 @@
 // The preference fields of the LangChain agent. Nothing reads them any more
-// except the one-time imports in main, which move them into pi. Kept free of
+// except the one-time imports in main, which move them into pi; the others,
+// such as the old "bypass approvals" flag, are only cleared. Kept free of
 // host and MobX imports so it is unit-tested alone.
 
 export const LEGACY_PREFERENCE_KEYS = [
@@ -14,6 +15,7 @@ export const LEGACY_PREFERENCE_KEYS = [
   "podLogsRequireApproval",
   "mcpEnabled",
   "mcpConfiguration",
+  "bypassApprovals",
 ] as const;
 
 export type LegacyPreferenceKey = (typeof LEGACY_PREFERENCE_KEYS)[number];

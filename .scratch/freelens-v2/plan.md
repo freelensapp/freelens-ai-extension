@@ -735,6 +735,13 @@ turns them into manual test cases with steps and expected results.
   `--textColorPrimary`); the tool list keeps its teal accent, which reads on
   both themes. A6 and K5 now expect both to follow the theme. Upstream: none.
 
+- **The old "bypass approvals" flag is cleared too (review).**
+  `bypassApprovals`, the LangChain agent's switch that the pi agent replaced
+  with "Approve all in this chat" in memory, was not among the old preference
+  keys, so it stayed in the store file of an upgraded install. It is in
+  `LEGACY_PREFERENCE_KEYS` now and written back as `null` with the others;
+  nothing reads it. A5 checks it. Upstream: none.
+
 ## Upstream work items
 
 - freelensapp/freelens: none. The two gaps the `main` branch found for this
