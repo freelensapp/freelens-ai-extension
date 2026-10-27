@@ -6,6 +6,7 @@ import {
   type ProviderEnvelope,
   type ProviderResponse,
 } from "../../../common/provider-protocol";
+import { IpcConnection } from "../ipc-connection";
 
 // The renderer side of the provider protocol. The settings page in the root
 // window asks main for provider status and models, runs logins and receives
@@ -17,26 +18,30 @@ class ProviderRendererIpc extends Renderer.Ipc {}
 type EnvelopeListener = (envelope: ProviderEnvelope) => void;
 
 const listeners = new Set<EnvelopeListener>();
-let ipc: ProviderRendererIpc | undefined;
+const connection = new IpcConnection<ProviderEnvelope>(
+  (extension) => ProviderRendererIpc.createInstance(extension),
+  PROVIDER_ENVELOPE_CHANNEL,
+);
 
 export function startProviderClient(extension: Renderer.LensExtension): void {
-  if (ipc) {
-    return;
-  }
-  ipc = ProviderRendererIpc.createInstance(extension) as ProviderRendererIpc;
-  ipc.listen(PROVIDER_ENVELOPE_CHANNEL, (_event, envelope: ProviderEnvelope) => {
+  connection.connect(extension, (envelope) => {
     for (const listener of listeners) {
       listener(envelope);
     }
   });
 }
 
+/** Stops listening, on deactivation; the next activation connects again. */
+export function stopProviderClient(): void {
+  connection.disconnect();
+}
+
 export async function sendProviderCommand(command: ProviderCommand): Promise<ProviderResponse> {
-  if (!ipc) {
+  if (!connection.connected) {
     return { type: "response", command: command.type, success: false, error: "The provider settings are not ready." };
   }
   try {
-    return await ipc.invoke(PROVIDER_COMMAND_CHANNEL, command);
+    return (await connection.invoke(PROVIDER_COMMAND_CHANNEL, command)) as ProviderResponse;
   } catch (error) {
     return {
       type: "response",

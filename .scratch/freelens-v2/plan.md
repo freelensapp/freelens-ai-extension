@@ -676,6 +676,24 @@ turns them into manual test cases with steps and expected results.
   failed discovery answer or an `Error` to reject with, and its `getResponse`
   answers the known paths. Upstream: none.
 
+- **The renderer clients start over after Disable and Enable (review,
+  Lifecycle).** `startAgentClient` and `startProviderClient` returned early
+  while their module-level `Renderer.Ipc` was set, and nothing reset it, while
+  the host drops the instance and its listeners on Disable and Enable
+  activates the same loaded module again (manual gap K7). The renderer
+  extension now has an `onDeactivate` that stops both clients; the agent client
+  also drops its chat, so the next activation loads a new snapshot, and
+  ignores a snapshot that answers after the stop. The two
+  clients had the same connection shape, now `IpcConnection`
+  (`src/renderer/business/ipc-connection.ts`: create the instance, listen on
+  the envelope channel, invoke, disconnect), which also removed their casts
+  of `createInstance`. The stub gained `Renderer.LensExtension`,
+  `Renderer.Ipc` (`ipcRendererListeners`) and `Renderer.K8sApi.menuItemFor`
+  for the renderer entry's test (`src/renderer/index.test.tsx`), which loads
+  the extension, disables it and loads it again in a cluster frame's URL.
+  A4 step 5 and K7 now expect the chat to stream without a frame reload.
+  Upstream: none.
+
 ## Upstream work items
 
 - freelensapp/freelens: none. The two gaps the `main` branch found for this

@@ -9,6 +9,7 @@ import {
 } from "../../../common/agent-protocol";
 import { IS_LOADING_KEY } from "../../context/chat-session-storage";
 import { getFrameClusterId } from "../cluster/active-cluster";
+import { IpcConnection } from "../ipc-connection";
 import { type ChatViewState, chatFromSnapshot, reconcileApprovals, reduceEnvelope } from "./chat-reducer";
 
 import type { MessageObject } from "../../../common/objects/message-object";
@@ -24,7 +25,10 @@ class AgentRendererIpc extends Renderer.Ipc {}
 type ChatListener = (chat: ChatViewState) => void;
 
 const listeners = new Set<ChatListener>();
-let ipc: AgentRendererIpc | undefined;
+const connection = new IpcConnection<AgentEnvelope>(
+  (extension) => AgentRendererIpc.createInstance(extension),
+  AGENT_ENVELOPE_CHANNEL,
+);
 let chat: ChatViewState | undefined;
 // Envelopes that arrive while a snapshot is on its way; undefined when none is.
 let buffered: AgentEnvelope[] | undefined;
@@ -43,12 +47,11 @@ const failure = (command: AgentCommand, error: string): AgentResponse => ({
  */
 export function startAgentClient(extension: Renderer.LensExtension): void {
   const clusterId = getFrameClusterId();
-  if (!clusterId || ipc) {
+  if (!clusterId || connection.connected) {
     return;
   }
-  ipc = AgentRendererIpc.createInstance(extension) as AgentRendererIpc;
   chat = { clusterId, seq: 0, messages: [], isRunning: false, autoApprove: false };
-  ipc.listen(AGENT_ENVELOPE_CHANNEL, (_event, envelope: AgentEnvelope) => {
+  connection.connect(extension, (envelope) => {
     if (envelope?.clusterId !== clusterId) {
       return;
     }
@@ -62,6 +65,16 @@ export function startAgentClient(extension: Renderer.LensExtension): void {
     }
   });
   void loadSnapshot(clusterId);
+}
+
+/**
+ * Stops listening and drops the chat, on deactivation; the next activation
+ * starts again from main's snapshot.
+ */
+export function stopAgentClient(): void {
+  connection.disconnect();
+  chat = undefined;
+  buffered = undefined;
 }
 
 /** The chat as it stands now, or undefined outside a cluster frame. */
@@ -90,11 +103,11 @@ export function onAgentChat(listener: ChatListener): () => void {
 }
 
 export async function sendAgentCommand(clusterId: string, command: AgentCommand): Promise<AgentResponse> {
-  if (!ipc) {
+  if (!connection.connected) {
     return failure(command, "The Freelens AI agent is only available in a cluster window.");
   }
   try {
-    return await ipc.invoke(AGENT_COMMAND_CHANNEL, clusterId, command);
+    return (await connection.invoke(AGENT_COMMAND_CHANNEL, clusterId, command)) as AgentResponse;
   } catch (error) {
     return failure(command, `Could not reach the Freelens AI agent: ${error instanceof Error ? error.message : error}`);
   }
@@ -104,9 +117,11 @@ export async function sendAgentCommand(clusterId: string, command: AgentCommand)
 // from the session file) and when envelopes were missed.
 async function loadSnapshot(clusterId: string): Promise<void> {
   if (buffered) return;
-  buffered = [];
+  const pending: AgentEnvelope[] = [];
+  buffered = pending;
   const response = await sendAgentCommand(clusterId, { type: "get_snapshot" });
-  const pending = buffered;
+  // The client was stopped meanwhile, and maybe started again with a load of its own.
+  if (buffered !== pending) return;
   buffered = undefined;
   if (!response.success) {
     console.warn("[freelens-ai] Loading the chat from the agent failed:", response.error);

@@ -5,8 +5,8 @@
 
 import { Renderer } from "@freelensapp/extensions";
 import { PreferencesStore } from "../common/store";
-import { startAgentClient } from "./business/agent-client/agent-client";
-import { startProviderClient } from "./business/provider-client/provider-client";
+import { startAgentClient, stopAgentClient } from "./business/agent-client/agent-client";
+import { startProviderClient, stopProviderClient } from "./business/provider-client/provider-client";
 import {
   withMenuItemErrorBoundary,
   withPageErrorBoundary,
@@ -31,6 +31,13 @@ export default class FreeLensAIRenderer extends Renderer.LensExtension {
     startAgentClient(this);
     // Provider status, models and logins in main: for the settings page and the chat's model picker.
     startProviderClient(this);
+  }
+
+  // The host removes the clients' listeners on Disable, and Enable activates
+  // this module again, so the clients start over.
+  async onDeactivate() {
+    stopAgentClient();
+    stopProviderClient();
   }
 
   clusterPages: Renderer.LensExtension["clusterPages"] = [

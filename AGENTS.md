@@ -142,7 +142,7 @@ in the main process"), and the views use the host's `KubeEvent` only. So
   its props extend `Common.Types.KubeObjectMenuItemProps<KubeEvent>`. The page
   id is `MAIN_PAGE_ID` of `src/renderer/navigation/pages.ts`, used wherever the
   page is named. `onActivate` starts the agent client and the provider client
-  (see "The pi agent").
+  and `onDeactivate` stops them (see "The pi agent" and "Lifecycle").
 - **Error boundary.** `clusterPages`, `kubeObjectMenuItems` and
   `appPreferences` are mapped through `withPageErrorBoundary`,
   `withMenuItemErrorBoundary` and `withPreferenceErrorBoundary` of
@@ -576,6 +576,14 @@ loaded, so it throws under Vitest. `vitest.config.ts` aliases the package to
   a second handler for a channel throws, as in Electron, and `disable()`
   removes them, as the host does; `broadcast` sends nothing, and a test spies
   on it;
+- `Renderer.LensExtension`, the same lifecycle as `Main.LensExtension`, and
+  `Renderer.Ipc`, one instance per subclass, whose `listen` keeps the
+  listeners in the exported `ipcRendererListeners` map, so a test broadcasts
+  to them as main would, and whose `invoke` calls the handler in
+  `ipcMainHandlers`; `disable()` drops the instance and its listeners, as the
+  host does;
+- `Renderer.K8sApi.menuItemFor`, which returns the registration with the
+  components it is given;
 - `vi.fn()` stand-ins for `Common.logger`, `Main.Catalog.getClusterById`,
   `Main.Catalog.getAllClusters`, `Main.K8sApi.KubeJsonApi.forCluster`,
   `Main.Shell.getEnvironment`, `Main.Util.fetch`,
@@ -958,10 +966,17 @@ request reaches the stub's `Main.Util.fetch`.
 `ModelRuntime`, runs the one-time imports, starts the provider service and the
 agent host, and registers the two IPC handlers. `onDeactivate` disposes both:
 every pending approval is denied, every session and explanation disposed,
-which ends its run, and a login in progress cancelled. The host removes the IPC handlers when the extension is
-disabled, so a reload leaves one agent host and one handler per channel. Do
-not keep a session, a timer, a run or a login in module state that
-`onDeactivate` cannot reach.
+which ends its run, and a login in progress cancelled. The host removes the
+IPC handlers when the extension is disabled, so a reload leaves one agent host
+and one handler per channel. Do not keep a session, a timer, a run or a login
+in module state that `onDeactivate` cannot reach.
+
+The renderer extension's `onDeactivate` stops the agent client and the
+provider client (`IpcConnection` of `src/renderer/business/ipc-connection.ts`
+holds each one's `Renderer.Ipc` and listener). The host drops their
+`Renderer.Ipc` instances and listeners on Disable, and Enable activates the
+module already loaded again, so a client left connected would receive no
+envelopes; stopped, it connects again and loads a new snapshot.
 
 The main process logs through loglevel, `const { log } = useLog("freelens-ai")`
 of `src/main/utils/logger.ts`, which prefixes the scope; it does not call

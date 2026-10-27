@@ -366,8 +366,8 @@ Expected:
 - After enabling, the chat shows no run in progress (Send button, input
   enabled, no spinner) and the earlier messages; the interrupted answer is cut
   off or followed by "Stopped.". The answer does not continue.
-- Step 5: the answer streams into the chat as usual; the provider dialog shows
-  its prompt. Suspected to fail without a frame reload: see K7.
+- Step 5: the answer streams into the chat as usual, without reloading the
+  frame; the provider dialog shows its prompt.
 
 Result: [ ] Pass [ ] Fail [ ] Blocked. Notes:
 
@@ -1431,14 +1431,10 @@ odd. Report a case as failed only for something not listed here.
   tool list next to the input (`background: #36393E`). A6 may fail on them.
 - **K6. After picking another model, the gauge keeps the previous model's
   context window** until the next answer's stats arrive (pi 09).
-- **K7. Suspected: the renderer clients do not restart after Disable and
-  Enable.** `startAgentClient` and `startProviderClient` return early when
-  their module-level `ipc` is set, and Freelens imports a development build's
-  renderer entry from the same URL on Enable (a new URL only after a rebuild),
-  so the module and its old `ipc` stay, while Disable removed that `ipc`'s
-  listeners. A window that stayed open would then get no envelopes: no
-  streaming in the chat, no login prompts. A4 step 5 checks it; a frame reload
-  (Ctrl+R) should recover.
+- **K7. Fixed: the renderer clients restart after Disable and Enable.** The
+  renderer extension's `onDeactivate` stops the agent and provider clients,
+  so the next activation, in the module already loaded, listens again and
+  loads a new snapshot (A4 step 5).
 
 ## Mapping
 

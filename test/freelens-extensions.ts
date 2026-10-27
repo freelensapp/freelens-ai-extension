@@ -130,6 +130,45 @@ class Ipc {
   broadcast(_channel: string, ..._args: unknown[]): void {}
 }
 
+// The listeners of the extension's broadcast channels in the renderer, by
+// channel, so a test broadcasts to them as main would.
+export const ipcRendererListeners = new Map<string, Set<(event: unknown, ...args: unknown[]) => unknown>>();
+
+// Stand-in for the host's `Renderer.Ipc`: one instance per subclass, dropped
+// when the extension is disabled, and its listeners removed then too, as in the
+// host. `invoke` calls the handler main registered for the channel and, as
+// Electron does, rejects when there is none.
+const rendererIpcInstances = new Map<unknown, RendererIpc>();
+
+class RendererIpc {
+  constructor(private readonly extension: LensExtension) {
+    extension[disposers].push(() => rendererIpcInstances.delete(this.constructor));
+  }
+
+  static createInstance<T extends RendererIpc>(this: new (extension: LensExtension) => T, extension: LensExtension): T {
+    const instance = (rendererIpcInstances.get(this) as T | undefined) ?? new this(extension);
+    rendererIpcInstances.set(this, instance);
+    return instance;
+  }
+
+  listen(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): () => void {
+    const listeners = ipcRendererListeners.get(channel) ?? new Set();
+    ipcRendererListeners.set(channel, listeners);
+    listeners.add(listener);
+    const cleanup = () => {
+      listeners.delete(listener);
+    };
+    this.extension[disposers].push(cleanup);
+    return cleanup;
+  }
+
+  async invoke(channel: string, ...args: unknown[]): Promise<unknown> {
+    const handler = ipcMainHandlers.get(channel);
+    if (!handler) throw new Error(`No handler registered for '${channel}'`);
+    return handler({}, ...args);
+  }
+}
+
 export const Main = {
   LensExtension,
   Ipc,
@@ -229,6 +268,16 @@ function HorizontalLine() {
 }
 
 export const Renderer = {
+  LensExtension,
+  Ipc: RendererIpc,
+  K8sApi: {
+    KubeEvent: class KubeEvent {},
+    menuItemFor: (_kind: unknown, components: Record<string, unknown>) => ({
+      kind: "Event",
+      apiVersions: ["v1"],
+      components,
+    }),
+  },
   Catalog: {
     getActiveCluster: vi.fn<() => { id: string } | undefined>(() => undefined),
   },
