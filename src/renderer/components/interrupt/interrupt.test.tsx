@@ -48,6 +48,14 @@ describe("Interrupt", () => {
     expect(onAction).toHaveBeenCalledWith("no");
   });
 
+  it("marks a pending approval with an icon, its header text only the action", () => {
+    render(<Interrupt {...props()} />);
+
+    const header = screen.getByText("patchKubernetesResource");
+    expect(header.textContent).toBe("patchKubernetesResource");
+    expect(header.querySelector("svg")).not.toBeNull();
+  });
+
   it("shows no option buttons once the approval is resolved", () => {
     render(<Interrupt {...props({ approved: true })} />);
 

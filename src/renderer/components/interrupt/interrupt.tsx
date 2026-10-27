@@ -1,5 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
-import { CheckCircle, XCircle } from "lucide-react";
+import { CheckCircle, TriangleAlert, XCircle } from "lucide-react";
 import * as React from "react";
 import { CodeBlock } from "../code-block";
 import { MarkdownViewer } from "../markdown-viewer";
@@ -59,7 +59,7 @@ const Interrupt = ({
           onClick={pending ? undefined : () => setDetailsOpen((open) => !open)}
         >
           {pending ? (
-            <span className={styles.interruptWarningIcon}>⚠️</span>
+            <TriangleAlert className={`${styles.interruptStatusIcon} ${styles.interruptStatusPending}`} />
           ) : approved ? (
             <CheckCircle className={`${styles.interruptStatusIcon} ${styles.interruptStatusApproved}`} />
           ) : (

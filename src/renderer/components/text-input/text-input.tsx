@@ -1,5 +1,5 @@
 import { Renderer } from "@freelensapp/extensions";
-import { MessageSquarePlus, SendHorizonal, Square, Trash2 } from "lucide-react";
+import { MessageSquarePlus, SendHorizonal, Square, Trash2, Wrench } from "lucide-react";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
 import { useApplicationStatusStore } from "../../context/application-context";
@@ -91,7 +91,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                   e.currentTarget.style.background = "rgba(0,167,160,0.15)";
                 }}
               >
-                <span style={{ marginRight: 0 }}>🛠️</span>
+                <Wrench size={18} />
               </button>
             </div>
             <div style={{ display: "flex", alignItems: "center" }}>

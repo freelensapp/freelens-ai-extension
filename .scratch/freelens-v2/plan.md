@@ -706,6 +706,11 @@ turns them into manual test cases with steps and expected results.
   The stub's `Renderer.Catalog.getActiveCluster` went with its last user.
   Upstream: none.
 
+- **No emoji in the source (review).** The pending approval card's header
+  and the tool list button of the chat input showed emoji; they are
+  lucide-react icons now (`TriangleAlert` in the theme's warning colour,
+  `Wrench`), as the other icons of the chat are. Upstream: none.
+
 ## Upstream work items
 
 - freelensapp/freelens: none. The two gaps the `main` branch found for this

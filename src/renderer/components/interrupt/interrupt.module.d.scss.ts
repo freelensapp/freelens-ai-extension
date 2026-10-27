@@ -4,8 +4,8 @@ declare const classNames: {
   readonly interruptQuestion: "interruptQuestion";
   readonly interruptHeaderToggle: "interruptHeaderToggle";
   readonly interruptDetails: "interruptDetails";
-  readonly interruptWarningIcon: "interruptWarningIcon";
   readonly interruptStatusIcon: "interruptStatusIcon";
+  readonly interruptStatusPending: "interruptStatusPending";
   readonly interruptStatusApproved: "interruptStatusApproved";
   readonly interruptStatusRejected: "interruptStatusRejected";
   readonly messageButtonsOptions: "messageButtonsOptions";
