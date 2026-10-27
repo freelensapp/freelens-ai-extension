@@ -139,7 +139,7 @@ Open: none.
 - [x] **Step 0. Plan record (03).** This file.
 - [x] **Step 1. Manifest and toolchain (03).**
 - [x] **Step 2. Vite build (04).**
-- [ ] **Step 3. TypeScript layout and environment tests (05).**
+- [x] **Step 3. TypeScript layout and environment tests (05).**
 - [ ] **Step 4. Source migration (06).**
 - [ ] **Step 5. Unit tests on Vitest 5, tree green again (07).** Steps 1 to 5
       are pushed here.
@@ -310,6 +310,43 @@ turns them into manual test cases with steps and expected results.
   the missing `dist/renderer.css`: the seven `?inline` stylesheets emit no CSS
   file. No `*.module.scss` exists yet, so the build writes no declaration;
   ticket 06's CSS modules bring both. Upstream: none.
+- **pi's declarations bring Node into every program that imports them
+  (step 3).** Every entry point of pi's packages (`@earendil-works/pi-ai`, its
+  `compat` subpath, `@earendil-works/pi-coding-agent`), imported for types
+  only, reaches `@types/node` through the provider SDKs it exports
+  (`@anthropic-ai/sdk`, `openai` and `undici-types`, which reference Node's
+  types). With `src/common/agent-protocol.ts` importing `AssistantMessage`,
+  `UserMessage`, `JsonAgentSessionEvent` and `SessionStats`, the environment
+  tests of the renderer and the common program reported all four Node lines
+  of `node-apis.ts` as unused `@ts-expect-error` directives. So the protocol
+  now declares the shapes itself: the content parts, `UserMessage`,
+  `StopReason`, `AssistantMessage` and the other roles of `AgentMessage`, the
+  assistant message events, `JsonAgentSessionEvent` and `SessionStats`, each
+  with the fields the frames and the agent host's tests read, and the event
+  types and message roles the frames ignore listed by name. Main still sends
+  pi's objects unchanged; the agent host's type check holds them to these
+  declarations, so an event type or a role pi adds fails `type:check:sources`
+  until the protocol lists it (checked by removing one of each). Nothing in
+  the renderer or the tests changed for it. Upstream: pi (see "Upstream work
+  items").
+- **The tsconfig layout is the `main` branch's, file for file (step 3).**
+  `tsconfig.base.json`, the root `tsconfig.json` (tooling), `src/tsconfig.json`
+  (tests), `src/{main,renderer,common}/tsconfig.json`, `environment-tests/*`
+  and the five `type:check*` scripts are copied unchanged. The `paths` the old
+  root config needed for `@vitejs/plugin-react` and two `pi-ai` subpaths are
+  gone: Bundler resolution reads the packages' `exports`. The test program
+  includes `../test/**/*`, which does not exist yet (ticket 07). Upstream:
+  none.
+- **What the split leaves for step 4 (step 3).** With the environment tests
+  passing, `pnpm type:check` stops at `type:check:sources` on the errors the
+  source migration fixes: `observable.ref` in
+  `src/common/store/preferences-store.ts` (mobx 7, in every program), and in
+  the renderer `require("electron")` in `navigate-to-extension-preferences.ts`
+  (no Node types in the renderer program any more), `Common.Util.openExternal`
+  in `provider-settings.tsx`, the `inline` prop in `markdown-viewer.tsx`
+  (react-markdown 10) and the untyped `onAction` parameter in
+  `interrupt.tsx` (the base config's `noImplicitAny`). The tooling and test
+  programs pass. Upstream: none.
 
 ## Upstream work items
 
@@ -319,6 +356,9 @@ turns them into manual test cases with steps and expected results.
   "openExternal, openBrowser" in the guide).
 - pi: a session-level `fetch` option, so that OAuth logins and model-list
   refreshes can use the host's client too (ticket 11 files it).
+- pi: an entry point for its message, event and session-stats types that does
+  not reach Node's types, so that browser code (here the renderer and common
+  programs) can import them instead of declaring them (step 3).
 - freelensapp/freelens-example-extension: a script for the checks of the
   built output, such as `build/check-built-output.mjs` (step 2); the template
   and its ports run them by hand.

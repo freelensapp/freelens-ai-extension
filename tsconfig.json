@@ -1,15 +1,10 @@
 {
-  "include": ["*.ts", "src/**/*"],
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "composite": true,
-    "esModuleInterop": true,
-    "moduleResolution": "node10",
-    "jsx": "react-jsx",
-    "types": ["vite/client", "electron-vite/node"],
-    "paths": {
-      "@vitejs/plugin-react": ["./node_modules/@vitejs/plugin-react/dist/index.d.ts"],
-      "@earendil-works/pi-ai/bun-oauth": ["./node_modules/@earendil-works/pi-ai/dist/bun-oauth.d.ts"],
-      "@earendil-works/pi-ai/providers/all": ["./node_modules/@earendil-works/pi-ai/dist/providers/all.d.ts"]
-    }
-  }
+    "lib": ["ES2024"],
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true
+  },
+  "include": ["*.ts", "*.mjs", "build/**/*"]
 }

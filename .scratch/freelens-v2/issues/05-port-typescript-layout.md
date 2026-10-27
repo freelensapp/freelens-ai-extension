@@ -15,9 +15,9 @@ from pi, and the plan record notes it as a finding for pi.
 
 **Status:** ready-for-agent
 
-- [ ] The tsconfig files and environment tests match the `main` branch.
-- [ ] The environment tests pass: each expected error is reported, and no
+- [x] The tsconfig files and environment tests match the `main` branch.
+- [x] The environment tests pass: each expected error is reported, and no
       program sees the other process's globals.
-- [ ] Common code type-checks without Node and without the DOM.
-- [ ] The step report lists the type errors left for ticket 06.
-- [ ] One commit.
+- [x] Common code type-checks without Node and without the DOM.
+- [x] The step report lists the type errors left for ticket 06.
+- [x] One commit.
