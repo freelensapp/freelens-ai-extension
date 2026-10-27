@@ -1,0 +1,17 @@
+// The text area follows the theme through the host's variables for input
+// controls, in the light and the dark theme.
+.agent-rules {
+  width: 100%;
+  min-height: 150px;
+  padding: 8px;
+  border: 1px solid var(--inputControlBorder);
+  border-radius: 4px;
+  background: var(--inputControlBackground);
+  color: var(--textColorPrimary);
+  font-family: monospace;
+  font-size: 14px;
+
+  &:hover {
+    border-color: var(--inputControlHoverBorder);
+  }
+}

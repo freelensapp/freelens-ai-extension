@@ -1,0 +1,41 @@
+// The panel follows the theme through the host's variables for input
+// controls; the accent colour reads on both themes.
+.available-tools {
+  max-height: 200px;
+  margin-top: 12px;
+  padding: 8px;
+  overflow-y: auto;
+  border-radius: 6px;
+  background: var(--inputControlBackground);
+  color: var(--textColorPrimary);
+}
+
+.available-tools-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.available-tools-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid #00a7a0;
+  }
+}
+
+.available-tools-initial {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 12px;
+  border-radius: 50%;
+  background: #00a7a0;
+  color: #fff;
+  font-size: 18px;
+}

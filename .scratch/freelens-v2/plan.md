@@ -726,6 +726,15 @@ turns them into manual test cases with steps and expected results.
   `src/common/agent-protocol.ts` now, next to `AgentResponse`, which the
   provider protocol's `ProviderResponse` is. Upstream: none.
 
+- **The agent rules and the tool list follow the light theme (review, story
+  5).** The agent rules text area (`#222` with white text) and the tool list
+  next to the chat input (`#36393E`) had inline dark colours (manual gap K5).
+  Both moved to CSS modules (`preferences-page.module.scss`, as on the `main`
+  branch, and `available-tools.module.scss`) and take the host's input
+  control colours (`--inputControlBackground`, `--inputControlBorder`,
+  `--textColorPrimary`); the tool list keeps its teal accent, which reads on
+  both themes. A6 and K5 now expect both to follow the theme. Upstream: none.
+
 ## Upstream work items
 
 - freelensapp/freelens: none. The two gaps the `main` branch found for this

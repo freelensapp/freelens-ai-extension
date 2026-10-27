@@ -420,14 +420,16 @@ Preconditions: E1 done; a chat with an answer, a code block and an approval
 card (after D1).
 
 1. **File > Preferences**, **App**, **Theme**: "Dark". Look at the chat page,
-   an approval card, a code block, the tool list (wrench button next to the
-   input) and the extension's preferences.
+   an approval card, a code block, a tool call unfolded, the tool list (wrench
+   button next to the input) and the extension's preferences.
 2. Switch to "Light" and look at the same places.
 
 Expected: in both themes the chat bubbles, the input, the token counter, the
-context gauge, the approval card and the code blocks follow the theme's colours
-and stay readable; the extension's preferences look like the rest of the
-Preferences. Switching does not need a reload. (Known: see K5.)
+context gauge, the approval card, the code blocks and the tool calls follow the
+theme's colours and stay readable; the extension's preferences look like the
+rest of the Preferences. The **Agent rules** text area and the tool list take
+the background and text colour of the theme's input fields. Switching does not
+need a reload.
 
 Result: [ ] Pass [ ] Fail [ ] Blocked. Notes:
 
@@ -1426,9 +1428,9 @@ odd. Report a case as failed only for something not listed here.
   a rebuild from a snapshot; a pending card comes back (pi 05).
 - **K4. A restart of Freelens drops a pending approval** (accepted in the pi
   agent build).
-- **K5. Two parts keep dark inline colours in the light theme**: the **Agent
-  rules** text area of the preferences (`background: #222`, white text) and the
-  tool list next to the input (`background: #36393E`). A6 may fail on them.
+- **K5. Fixed: the agent rules text area and the tool list follow the theme.**
+  Both take the theme's input field colours instead of their dark inline ones
+  (A6).
 - **K6. After picking another model, the gauge keeps the previous model's
   context window** until the next answer's stats arrive (pi 09).
 - **K7. Fixed: the renderer clients restart after Disable and Enable.** The

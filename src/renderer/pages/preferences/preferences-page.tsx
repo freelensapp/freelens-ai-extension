@@ -1,6 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
+import styles from "./preferences-page.module.scss";
 import { ProviderSettings } from "./provider-settings";
 
 import type { SingleValue } from "react-select";
@@ -129,17 +130,7 @@ export const PreferencesPage = observer(() => {
         conventions, preferences, or constraints. Leave empty to use the built-in rules only.
       </div>
       <textarea
-        style={{
-          width: "100%",
-          minHeight: 150,
-          fontFamily: "monospace",
-          fontSize: 14,
-          padding: 8,
-          borderRadius: 4,
-          border: "1px solid #ccc",
-          background: "#222",
-          color: "#fff",
-        }}
+        className={styles.agentRules}
         placeholder="e.g. Always answer in English. Prefer kubectl examples over Helm."
         value={customAgentRulesField.value}
         onChange={(e) => customAgentRulesField.onChange(e.target.value)}
