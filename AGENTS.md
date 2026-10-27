@@ -9,9 +9,9 @@ This file provides guidance to coding agents when working with code in this repo
 This repository serves as an example how to build and publish extensions for
 Freelens application.
 
-- **Language**: TypeScript 5.9.3
-- **Runtime**: Node.js >= 22.19.0, Freelens >= 1.8.0
-- **Package manager**: pnpm 10.x (locked)
+- **Language**: TypeScript 7.0.2
+- **Runtime**: Node.js >= 24, Freelens >= 2.0.0 (extension API v2)
+- **Package manager**: pnpm 12.x (`packageManager`, run through corepack)
 - **License**: MIT
 
 ## Common Commands

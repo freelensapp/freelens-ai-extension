@@ -35,12 +35,12 @@ until then.
 - [x] The plan record exists and lists every v1 API use with its v2
       replacement, including the removed `openExternal` and the host channel
       used to open the preferences.
-- [ ] The manifest has the engines, module type, version, entries and files
+- [x] The manifest has the engines, module type, version, entries and files
       above, and the host API is pinned to the same nightly as the `main`
       branch.
-- [ ] Dependency versions match the `main` branch wherever both branches use
+- [x] Dependency versions match the `main` branch wherever both branches use
       the package.
-- [ ] `pnpm install` succeeds with strict peer dependencies.
-- [ ] The step report says which checks fail and why (expected until ticket
+- [x] `pnpm install` succeeds with strict peer dependencies.
+- [x] The step report says which checks fail and why (expected until ticket
       07).
-- [ ] Two commits: step 0 and step 1.
+- [x] Two commits: step 0 and step 1.

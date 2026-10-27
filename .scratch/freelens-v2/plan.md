@@ -137,7 +137,7 @@ Open: none.
 - [x] **01. pi 1.4.0 on the current toolchain.**
 - [x] **02. Common code is process-neutral.**
 - [x] **Step 0. Plan record (03).** This file.
-- [ ] **Step 1. Manifest and toolchain (03).**
+- [x] **Step 1. Manifest and toolchain (03).**
 - [ ] **Step 2. Vite build (04).**
 - [ ] **Step 3. TypeScript layout and environment tests (05).**
 - [ ] **Step 4. Source migration (06).**
@@ -250,6 +250,28 @@ turns them into manual test cases with steps and expected results.
   `console.warn` calls of main go through `useLog("freelens-ai")`. loglevel
   binds the console method when its level is set, so a test that spies on
   `console.*` creates the logger after the spy.
+
+### Port
+
+- **pnpm 12 refuses the build scripts of two of pi's dependencies (step 1).**
+  With the `main` branch's `pnpm-workspace.yaml`, `pnpm install` fails with
+  `ERR_PNPM_IGNORED_BUILDS` for `@google/genai` (a preinstall that does
+  nothing) and `protobufjs` (a postinstall for its command-line tools). pnpm 10
+  ignored both before, since neither was in `onlyBuiltDependencies`. Both are
+  set to `false` in `allowBuilds`, which keeps that behaviour; this is the one
+  difference from the `main` branch's file. Upstream: none.
+- **Two majors in the bundled renderer libraries (step 1).** Matching the
+  `main` branch moves `react-markdown` from 6 to 10 and `remark-gfm` from 1
+  to 4. react-markdown 10 no longer passes `inline` to the `code` renderer, so
+  the markdown viewer needs the change the `main` branch made in 277bea9. Step
+  1 changes the versions only; ticket 06 adapts the code. Upstream: none.
+- **Packages only this branch has (step 1).** pi (`@earendil-works/pi-ai`,
+  `@earendil-works/pi-coding-agent`) and `typebox`, for the tool parameters,
+  stay bundled at their versions. `react-select` stays at 5.10.2 for its
+  `SingleValue` type, as `@freelensapp/extensions` depends on `^5.10.2`.
+  `jsdom` and `@testing-library/*`, which the `main` branch has for its
+  component tests, are not added: no test here renders a component; ticket 07
+  adds them if one does.
 
 ## Upstream work items
 

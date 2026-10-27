@@ -1,23 +1,24 @@
 {
   "name": "@freelensapp/ai-extension",
-  "version": "0.7.1",
+  "version": "1.0.0-0",
   "description": "AI capabilities for Freelens",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/freelensapp/freelens-ai-extension.git",
     "directory": "."
   },
-  "main": "out/main/index.js",
-  "renderer": "out/renderer/index.js",
+  "main": "dist/main.js",
+  "renderer": "dist/renderer.js",
   "files": [
-    "out/**/*"
+    "dist/**/*"
   ],
   "engines": {
-    "node": ">= 22.19.0",
-    "freelens": "^1.4.0"
+    "node": ">= 24.0.0",
+    "freelens": "^2.0.0"
   },
   "copyright": "© 2025-2026 Freelens Authors",
   "license": "MIT",
+  "type": "module",
   "author": {
     "name": "Freelens Authors",
     "email": "freelens@freelens.app"
@@ -60,30 +61,31 @@
     "postupdate": "pnpm biome:migrate"
   },
   "devDependencies": {
-    "@babel/plugin-proposal-decorators": "^8.0.2",
     "@earendil-works/pi-ai": "1.4.0",
     "@earendil-works/pi-coding-agent": "1.4.0",
-    "@electron-toolkit/tsconfig": "^2.0.0",
-    "@freelensapp/extensions": "^1.10.1",
-    "@types/node": "~24.12.4",
-    "@types/react": "^17.0.93",
-    "@vitejs/plugin-react": "^6.0.3",
-    "electron-vite": "^5.0.0",
+    "@freelensapp/extensions": "2.0.0-0-nightly-2026-10-15",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "43.7.11",
+    "esbuild": "0.28.2",
     "loglevel": "^1.9.2",
-    "lucide-react": "^1.21.0",
-    "mobx": "6.13.7",
-    "mobx-react": "7.6.0",
-    "react": "17.0.2",
-    "react-markdown": "^6.0.3",
+    "lucide-react": "^1.57.0",
+    "mobx": "7.0.6",
+    "mobx-react": "10.0.2",
+    "monaco-editor": "0.57.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-markdown": "^10.1.0",
     "react-select": "5.10.2",
-    "remark-gfm": "^1.0.0",
-    "sass": "^1.101.0",
+    "remark-gfm": "^4.0.1",
+    "sass-embedded": "1.105.1",
     "typebox": "1.3.27",
-    "typescript": "5.9.3",
-    "vite": "^8.1.0",
-    "vite-plugin-sass-dts": "^1.3.37",
-    "vitest": "^4.1.9",
-    "yaml": "^2.9.0"
+    "typescript": "7.0.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.4",
+    "yaml": "^2.9.1"
   },
   "keywords": [
     "ai",
@@ -95,5 +97,5 @@
     "openai",
     "openlens"
   ],
-  "packageManager": "pnpm@10.34.4+sha512.8768be55200ae3f2226b6527fcca2687e14bc4e5f12d7721a0f25da3df47915177058648db4177baf348120fa0ba2752d8d8d93f6beaf1fe64ae18da8de961af"
+  "packageManager": "pnpm@12.11.2+sha512.25a51652a196785af5f28bda6dfe8dc582ebefa4ac1d180221ce1390231c5fb76637822ea4b6e4633ce74acdcb0a77f725af11bad38177fdeddaee818a955cb9"
 }
