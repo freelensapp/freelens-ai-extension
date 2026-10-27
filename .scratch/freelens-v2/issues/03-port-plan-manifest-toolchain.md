@@ -32,7 +32,7 @@ until then.
 
 **Status:** ready-for-agent
 
-- [ ] The plan record exists and lists every v1 API use with its v2
+- [x] The plan record exists and lists every v1 API use with its v2
       replacement, including the removed `openExternal` and the host channel
       used to open the preferences.
 - [ ] The manifest has the engines, module type, version, entries and files
