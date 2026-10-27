@@ -30,9 +30,9 @@ through the Freelens HTTP client).
 
 **Status:** ready-for-agent
 
-- [ ] Every user story of the spec maps to at least one case, and the document
+- [x] Every user story of the spec maps to at least one case, and the document
       lists the mapping.
-- [ ] Every pending manual check of the pi agent build tickets maps to a case.
-- [ ] Each case has preconditions, steps and an expected result a tester can
+- [x] Every pending manual check of the pi agent build tickets maps to a case.
+- [x] Each case has preconditions, steps and an expected result a tester can
       check without reading the code.
 - [ ] Trunk passes on the document; one commit, pushed.

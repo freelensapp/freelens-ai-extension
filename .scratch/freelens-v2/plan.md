@@ -147,7 +147,7 @@ Open: none.
 - [x] **F1. Read tools in main (09), write tools and the backup in main (10).**
 - [x] **F2. Model requests through the Freelens HTTP client (11).**
 - [ ] **Step 7. AGENTS.md and README (12).**
-- [ ] **Manual test cases for Freelens v2 (13).**
+- [x] **Manual test cases for Freelens v2 (13).** `manual-test-cases.md`.
 - [ ] **Final merge of the `main` branch (14).**
 
 ### Validation per step
@@ -602,6 +602,16 @@ turns them into manual test cases with steps and expected results.
   `freelens-cluster.ts`, the backup loader, `withApprovalBackup` and the
   message object's `approvalTarget`. The approval request keeps its
   `approval` target, which main reads to load the backup. Upstream: none.
+- **What the manual test cases found in the code (13).** Writing the expected
+  results against the code turned up behaviour the cases mark as known gaps
+  (`manual-test-cases.md`, "Known gaps"): the chat shows no tool calls or tool
+  results (the reducer ignores pi's `tool_execution_*` events and the tool-call
+  parts), so spec story 9 fails and the cases read the calls from the session
+  file; the agent rules text area and the tool list keep dark inline colours
+  in the light theme; and, read from the code but not run, the renderer's agent
+  and provider clients do not restart after Disable and Enable in a window
+  that stays open (module-level `ipc` guards, while Freelens imports a
+  development build's renderer from the same URL on Enable). Upstream: none.
 
 ## Upstream work items
 
