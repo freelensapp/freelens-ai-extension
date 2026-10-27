@@ -22,10 +22,10 @@ requests use the proxy and CA preferences of Freelens.
 
 **Status:** ready-for-agent
 
-- [ ] Agent host test: the injected `fetch` reaches the provider request of a
+- [x] Agent host test: the injected `fetch` reaches the provider request of a
       chat run (pi's faux provider receives it in the request options).
-- [ ] Agent host test: the same holds for AI Explain.
-- [ ] Agent host test: a model on a Google API gets no custom `fetch`.
-- [ ] The finding about the gaps is in the plan record, with the pi request
+- [x] Agent host test: the same holds for AI Explain.
+- [x] Agent host test: a model on a Google API gets no custom `fetch`.
+- [x] The finding about the gaps is in the plan record, with the pi request
       linked once filed.
 - [ ] Every check passes; one commit, pushed.

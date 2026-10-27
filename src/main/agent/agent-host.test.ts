@@ -1600,4 +1600,84 @@ describe("AgentHost", () => {
       expect(statsEnvelopes()).toEqual([]);
     });
   });
+
+  describe("model requests through the injected fetch", () => {
+    const hostFetch: typeof fetch = async () => new Response(null, { status: 500 });
+
+    // Answers with the fetch the provider request carried, so a test reads it from the chat.
+    const reportFetch: FauxFactory = (_context, options) =>
+      fauxAssistantMessage([fauxText(options?.fetch === hostFetch ? "host fetch" : "default fetch")]);
+
+    const answerText = () =>
+      envelopes
+        .flatMap((e) => (e.kind === "event" && e.payload.type === "message_update" ? [e.payload] : []))
+        .map((p) => (p.assistantMessageEvent.type === "text_delta" ? p.assistantMessageEvent.delta : ""))
+        .join("");
+
+    it("passes the injected fetch to the provider request of a chat run", async () => {
+      faux.setResponses([reportFetch]);
+      const host = createHost({ fetch: hostFetch });
+
+      await host.handleCommand("c1", { type: "prompt", message: "hi" });
+      await waitFor(settled);
+
+      expect(answerText()).toBe("host fetch");
+    });
+
+    it("passes the injected fetch to the provider request of an explanation", async () => {
+      faux.setResponses([reportFetch]);
+      const host = createHost({ fetch: hostFetch });
+
+      await host.handleCommand("c1", { type: "explain", message: "an event" });
+      await waitFor(settled);
+
+      expect(answerText()).toBe("host fetch");
+    });
+
+    it("passes the injected fetch to the summary requests of a compaction", async () => {
+      faux = fauxProvider({ tokensPerSecond: 100_000, models: [{ id: "tiny", contextWindow: 4000 }] });
+      modelRuntime.registerNativeProvider(faux.provider);
+      const fetches: (typeof fetch | undefined)[] = [];
+      const recordFetch =
+        (text: string): FauxFactory =>
+        (_context, options) => {
+          fetches.push(options?.fetch);
+          return fauxAssistantMessage([fauxText(text)]);
+        };
+      faux.setResponses([
+        recordFetch("first answer"),
+        recordFetch("second answer"),
+        ...Array.from({ length: 4 }, () => recordFetch("Summary of the chat.")),
+      ]);
+      const host = createHost({ fetch: hostFetch, compaction: { reserveTokens: 1000, keepRecentTokens: 100 } });
+
+      await host.handleCommand("c1", { type: "prompt", message: "hi" });
+      await waitFor(settled);
+      await host.handleCommand("c1", { type: "prompt", message: "x".repeat(14_000) });
+      await waitFor(() => eventTypes().includes("compaction_end"));
+
+      // The two answers and at least one summary.
+      expect(fetches.length).toBeGreaterThan(2);
+      expect(fetches.every((used) => used === hostFetch)).toBe(true);
+    });
+
+    // pi's adapters for these APIs throw "Custom fetch is not supported".
+    const googleApis = ["google-generative-ai", "google-vertex"];
+
+    it.each(googleApis)("keeps pi's default fetch for a model on the %s API", async (api) => {
+      faux = fauxProvider({ api, provider: `faux-${api}`, tokensPerSecond: 100_000 });
+      modelRuntime.registerNativeProvider(faux.provider);
+      faux.setResponses([reportFetch, reportFetch]);
+      const host = createHost({ fetch: hostFetch });
+
+      await host.handleCommand("c1", { type: "prompt", message: "hi" });
+      await waitFor(settled);
+      expect(answerText()).toBe("default fetch");
+
+      envelopes = [];
+      await host.handleCommand("c1", { type: "explain", message: "an event" });
+      await waitFor(settled);
+      expect(answerText()).toBe("default fetch");
+    });
+  });
 });

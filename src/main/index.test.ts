@@ -116,6 +116,23 @@ describe("LensExtensionAiMain", () => {
     expect(consoleError).not.toHaveBeenCalled();
   });
 
+  it("sends the chat's model requests with the host's fetch", async () => {
+    const hostFetch = vi.mocked(Main.Util.fetch);
+    hostFetch.mockClear();
+    faux.setResponses([
+      async (_context, options) => {
+        await options?.fetch?.("https://models.example/v1/chat", { method: "POST" });
+        return fauxAssistantMessage([fauxText("Answered through the host.")]);
+      },
+    ]);
+
+    await load();
+    await invokeAgent("c1", { type: "prompt", message: "hi" });
+    await waitFor(() => settledRuns() === 1);
+
+    expect(hostFetch).toHaveBeenCalledWith("https://models.example/v1/chat", { method: "POST" });
+  });
+
   it("leaves one handler per IPC channel and one agent host after deactivating and activating again", async () => {
     faux.setResponses([waitForAbort, fauxAssistantMessage([fauxText("Answered after the reload.")])]);
     const first = await load();

@@ -42,6 +42,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // Left in a cluster's session folder by New chat until the new chat has a
 // file, so a restart in between does not reopen the chat the user left.
 const NEW_CHAT_MARKER = ".new-chat";
+// pi's adapters for these APIs throw "Custom fetch is not supported", so their
+// requests keep pi's default fetch.
+const APIS_WITHOUT_CUSTOM_FETCH: ReadonlySet<string> = new Set(["google-generative-ai", "google-vertex"]);
 
 export interface ModelRef {
   provider: string;
@@ -64,6 +67,12 @@ export interface AgentHostOptions {
   getUserRules?: () => string;
   /** The cluster's name as Freelens shows it; read before every prompt. Undefined sets no section. */
   getClusterName?: (clusterId: string) => string | undefined;
+  /**
+   * The HTTP client for pi's model requests (the host's `Main.Util.fetch`, which
+   * applies the Freelens proxy and CA settings). Undefined keeps pi's default,
+   * Node's global `fetch`.
+   */
+  fetch?: typeof fetch;
   systemPrompt?: string;
   toolTimeoutMs?: number;
   /** pi retries temporary provider errors; tests turn that off. */
@@ -357,6 +366,7 @@ export class AgentHost {
       finish();
       return fail("explain", errorText(error));
     }
+    this.useInjectedFetch(session);
     run.session = session;
     // Stop or New chat while the session was being created: nothing ran.
     if (run.cancelled) {
@@ -801,6 +811,8 @@ export class AgentHost {
       }),
     });
 
+    this.useInjectedFetch(session);
+
     const agent: ClusterAgent = { session, autoApprove: false };
     // Called from pi's listener loop and from a microtask, where a throw would
     // break the run or go uncaught in main, so a failure is only logged.
@@ -830,6 +842,17 @@ export class AgentHost {
       if (event.type === "agent_settled" || event.type === "compaction_end") sendStats();
     });
     return agent;
+  }
+
+  // pi has no session-level fetch option, so the session's stream function is
+  // wrapped to add the injected fetch to every model request. The chat, its
+  // compaction and pi's cache warmer all send through this function.
+  private useInjectedFetch(session: AgentSession): void {
+    const streamFunction = session.agent.streamFunction;
+    session.agent.streamFunction = (model, context, options) => {
+      const fetch = APIS_WITHOUT_CUSTOM_FETCH.has(model.api) ? undefined : this.options.fetch;
+      return streamFunction(model, context, fetch ? { ...options, fetch } : options);
+    };
   }
 
   // Fire and forget: the session listener never waits on the frames, and a
