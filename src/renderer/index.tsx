@@ -7,21 +7,25 @@ import { Renderer } from "@freelensapp/extensions";
 import { PreferencesStore } from "../common/store";
 import { startAgentClient } from "./business/agent-client/agent-client";
 import { startProviderClient } from "./business/provider-client/provider-client";
+import {
+  withMenuItemErrorBoundary,
+  withPageErrorBoundary,
+  withPreferenceErrorBoundary,
+} from "./components/error-boundary";
 import { FreeLensAiIcon } from "./components/freelens-ai-icon";
 import { MenuEntry } from "./components/menu-entry";
-import { setExtensionPreferencesPath } from "./navigation/extension-preferences";
+import { MAIN_PAGE_ID } from "./navigation/pages";
 import { MainPage } from "./pages/main";
 import { PreferencesPage } from "./pages/preferences";
 
-type KubeObject = Renderer.K8sApi.KubeObject;
-type KubeObjectMenuProps<TKubeObject extends KubeObject> = Renderer.Component.KubeObjectMenuProps<TKubeObject>;
-
+// The chat page, the "Explain" menu item and the preferences render inside an
+// error boundary, so that an error they throw stays in their place: the host has
+// none around a menu item or an extension's preferences, and its boundary around
+// a frame would replace the whole cluster view or preferences page. Each
+// registration field is mapped through its wrapper, so an entry added to it is
+// wrapped too.
 export default class FreeLensAIRenderer extends Renderer.LensExtension {
   async onActivate() {
-    // Resolve the route to this extension's own preferences tab so the chat
-    // "Connect a provider" button can link straight to it.
-    setExtensionPreferencesPath(this.sanitizedExtensionId);
-    // @ts-ignore
     PreferencesStore.getInstanceOrCreate<PreferencesStore>().loadExtension(this);
     // The chat runs on the pi agent in main; this frame answers its tool calls.
     startAgentClient(this);
@@ -29,27 +33,27 @@ export default class FreeLensAIRenderer extends Renderer.LensExtension {
     startProviderClient(this);
   }
 
-  clusterPages = [
+  clusterPages: Renderer.LensExtension["clusterPages"] = [
     {
-      id: "ai-extension-main-page",
+      id: MAIN_PAGE_ID,
       components: {
-        Page: () => <MainPage />,
+        Page: () => <MainPage extension={this} />,
       },
     },
-  ];
+  ].map((registration) => withPageErrorBoundary(this, registration));
 
   clusterPageMenus = [
     {
       id: "ai-extension",
       title: "Freelens AI",
-      target: { pageId: "ai-extension-main-page" },
+      target: { pageId: MAIN_PAGE_ID },
       components: {
         Icon: FreeLensAiIcon,
       },
     },
   ];
 
-  appPreferences = [
+  appPreferences: Renderer.LensExtension["appPreferences"] = [
     {
       title: "Freelens AI Settings",
       components: {
@@ -57,15 +61,11 @@ export default class FreeLensAIRenderer extends Renderer.LensExtension {
         Hint: () => <span></span>,
       },
     },
-  ];
+  ].map((registration) => withPreferenceErrorBoundary(this, registration));
 
-  kubeObjectMenuItems = [
-    {
-      kind: "Event",
-      apiVersions: ["v1"],
-      components: {
-        MenuItem: (props: KubeObjectMenuProps<Renderer.K8sApi.KubeEvent>) => <MenuEntry {...props} />,
-      },
-    },
-  ];
+  kubeObjectMenuItems: Renderer.LensExtension["kubeObjectMenuItems"] = [
+    Renderer.K8sApi.menuItemFor(Renderer.K8sApi.KubeEvent, {
+      MenuItem: (props) => <MenuEntry {...props} extension={this} />,
+    }),
+  ].map((registration) => withMenuItemErrorBoundary(this, registration));
 }

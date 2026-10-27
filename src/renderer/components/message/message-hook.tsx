@@ -1,4 +1,5 @@
 import * as React from "react";
+import styles from "./message.module.scss";
 
 import type { MessageObject } from "../../../common/objects/message-object";
 
@@ -9,7 +10,7 @@ export interface MessageHookProps {
 }
 
 const useMessageHook = ({ message }: MessageHookProps) => {
-  const sentMessageClassName = message.sent ? "message-bubble sent" : "message-bubble";
+  const sentMessageClassName = message.sent ? `${styles.messageBubble} ${styles.sent}` : styles.messageBubble;
   const [visibleText, _setVisibleText] = useState("");
   const lastTextRef = useRef(message.text);
   const rafRef = useRef<number | null>(null);

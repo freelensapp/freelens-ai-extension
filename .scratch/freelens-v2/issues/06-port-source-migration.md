@@ -31,10 +31,10 @@ No `as any`, no `globalThis.require`, no host internals.
 
 **Status:** ready-for-agent
 
-- [ ] Type check passes for every program, environment tests included.
-- [ ] The build passes, and so do the checks of the built output.
-- [ ] No `?inline` import, no Electron import in the renderer, no hardcoded
+- [x] Type check passes for every program, environment tests included.
+- [x] The build passes, and so do the checks of the built output.
+- [x] No `?inline` import, no Electron import in the renderer, no hardcoded
       extension route, no `openExternal`, no cast into a protected host member.
-- [ ] Each registration field of the chat page, the menu item and the
+- [x] Each registration field of the chat page, the menu item and the
       preferences is wrapped in an error boundary.
-- [ ] One commit.
+- [x] One commit.

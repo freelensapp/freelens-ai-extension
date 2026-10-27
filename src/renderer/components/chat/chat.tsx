@@ -3,7 +3,7 @@ import { getTextMessage } from "../../business/objects/message-object-provider";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { Message } from "../message";
 import { TextInput } from "../text-input";
-import styleInline from "./chat.scss?inline";
+import styles from "./chat.module.scss";
 import { useChatHook } from "./chat-hook";
 
 import type { MessageObject } from "../../../common/objects/message-object";
@@ -14,23 +14,22 @@ export const Chat = () => {
 
   return (
     <>
-      <style>{styleInline}</style>
       {/* "Approve all in this chat" is on in main */}
       {applicationStatusStore.autoApproveAll && (
-        <div className="auto-approve-notice" title="Changes to the cluster run without asking for approval">
+        <div className={styles.autoApproveNotice} title="Changes to the cluster run without asking for approval">
           <ShieldOff size={16} />
           Approving all actions in this chat
           <button
             type="button"
-            className="auto-approve-notice-button"
+            className={styles.autoApproveNoticeButton}
             onClick={() => applicationStatusStore.turnOffAutoApprove()}
           >
             Turn off
           </button>
         </div>
       )}
-      <div className="chat-container">
-        <div className="messages-container" ref={chatHook.containerRef}>
+      <div className={styles.chatContainer}>
+        <div className={styles.messagesContainer} ref={chatHook.containerRef}>
           {applicationStatusStore.chatMessages?.map((msg: MessageObject, index: number) => (
             <Message key={index} message={msg} />
           ))}
@@ -44,7 +43,7 @@ export const Chat = () => {
                 margin: "16px 0",
               }}
             >
-              <Loader2 size={32} className="chat-loading-spinner" />
+              <Loader2 size={32} className={styles.chatLoadingSpinner} />
             </div>
           )}
         </div>

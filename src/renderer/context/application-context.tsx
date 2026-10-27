@@ -17,6 +17,8 @@ import { getActiveClusterId } from "../business/cluster/active-cluster";
 import useLog from "../utils/logger/logger-service";
 import { IS_LOADING_KEY } from "./chat-session-storage";
 
+import type { Renderer } from "@freelensapp/extensions";
+
 import type { SessionStats } from "../../common/agent-protocol";
 import type { MessageObject } from "../../common/objects/message-object";
 import type { ChatViewState } from "../business/agent-client/chat-reducer";
@@ -47,11 +49,18 @@ export interface AppContextType {
   clearChat: () => Promise<void>;
   // Deletes every saved chat of this cluster and starts an empty one.
   deleteAllChats: () => Promise<void>;
+  // Opens this extension's preferences tab, in the root frame.
+  navigateToPreferences: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-export const ApplicationContextProvider = observer(({ children }: { children: React.ReactNode }) => {
+export interface ApplicationContextProviderProps {
+  extension: Renderer.LensExtension;
+  children: React.ReactNode;
+}
+
+export const ApplicationContextProvider = observer(({ extension, children }: ApplicationContextProviderProps) => {
   const { log } = useLog("useChatService");
   const [preferencesStore] = useState<PreferencesStore>(PreferencesStore.getInstanceOrCreate<PreferencesStore>());
   // Resolved once: this cluster frame belongs to exactly one cluster for its
@@ -136,6 +145,11 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
     }
   };
 
+  // The chat runs in the cluster frame and the preferences live in the root
+  // frame; `navigateToPreferences()` reaches the root frame from here, which
+  // `Renderer.Navigation.navigate` cannot.
+  const navigateToPreferences = () => extension.navigateToPreferences();
+
   const setExplainEvent = (messageObject: MessageObject) => {
     preferencesStore.explainEvent = messageObject;
   };
@@ -167,6 +181,7 @@ export const ApplicationContextProvider = observer(({ children }: { children: Re
         removeErrorMessages,
         clearChat,
         deleteAllChats,
+        navigateToPreferences,
       }}
     >
       {children}

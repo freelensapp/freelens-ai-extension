@@ -4,7 +4,7 @@ import { APPROVE_ALL_OPTION } from "../../business/agent-client/chat-reducer";
 import useChatService from "../chat/chat-service";
 import Interrupt from "../interrupt/interrupt";
 import { MarkdownViewer } from "../markdown-viewer";
-import styleInline from "./message.scss?inline";
+import styles from "./message.module.scss";
 import useMessageHook from "./message-hook";
 
 import type { MessageObject } from "../../../common/objects/message-object";
@@ -20,7 +20,6 @@ export const Message = ({ message }: MessageProps) => {
   if (message.sent) {
     return (
       <>
-        <style>{styleInline}</style>
         <div className={chatHook.sentMessageClassName}>{message.text}</div>
       </>
     );
@@ -28,7 +27,6 @@ export const Message = ({ message }: MessageProps) => {
     if (MessageType.INTERRUPT === message.type) {
       return (
         <>
-          <style>{styleInline}</style>
           <Interrupt
             header={message.action!}
             question={message.question!}
@@ -46,18 +44,12 @@ export const Message = ({ message }: MessageProps) => {
         </>
       );
     } else if (message.notice) {
-      return (
-        <div className="notice-message">
-          <style>{styleInline}</style>
-          {message.text}
-        </div>
-      );
+      return <div className={styles.noticeMessage}>{message.text}</div>;
     } else if (message.error) {
       return (
-        <div className="error-message">
-          <style>{styleInline}</style>
+        <div className={styles.errorMessage}>
           <MarkdownViewer content={chatHook.visibleText} />
-          <button type="button" className="retry-button" onClick={() => chatService.retry(message)}>
+          <button type="button" className={styles.retryButton} onClick={() => chatService.retry(message)}>
             <RotateCcw size={14} />
             Retry
           </button>
@@ -66,15 +58,14 @@ export const Message = ({ message }: MessageProps) => {
     } else {
       return (
         <div>
-          <style>{styleInline}</style>
           {chatHook.reasoning && (
             <details
-              className="reasoning-details"
+              className={styles.reasoningDetails}
               open={chatHook.reasoningOpen}
               onToggle={(event) => chatHook.setReasoningOpen((event.target as HTMLDetailsElement).open)}
             >
-              <summary className="reasoning-summary">Reasoning</summary>
-              <div className="reasoning-content">{chatHook.reasoning}</div>
+              <summary className={styles.reasoningSummary}>Reasoning</summary>
+              <div className={styles.reasoningContent}>{chatHook.reasoning}</div>
             </details>
           )}
           <MarkdownViewer content={chatHook.visibleText} />

@@ -1,5 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
 import { PreferencesStore } from "../../../common/store";
+import { getActiveClusterId } from "../cluster/active-cluster";
 
 import type { KubernetesVersionInfo } from "../../../common/agent-tools/version-summary";
 import type { Cluster, ClusterResource, ResourceApi } from "./cluster-tools";
@@ -13,28 +14,13 @@ type CreateData = Parameters<KubeObjectStore["create"]>[1];
 type UpdateData = Parameters<KubeObjectStore["update"]>[1];
 type DeleteOptions = Parameters<KubeObjectStore["removeWithOptions"]>[1];
 
-// The host KubeApi has no public way to patch a subresource, and its request
-// client is protected. Describe the surface we rely on.
-interface SubresourcePatchApi {
-  formatUrlForNotListing(desc: { name?: string; namespace?: string }): string;
-  request: {
-    patch(path: string, params: { data: unknown }, reqInit: { headers: Record<string, string> }): Promise<unknown>;
-  };
-}
-
 // Subresource patches such as an in-place Pod resize merge array entries by
 // their `name` key, which needs a strategic merge patch.
 const STRATEGIC_MERGE_PATCH_CONTENT_TYPE = "application/strategic-merge-patch+json";
 
-// The host KubeApi exposes the shared cluster `KubeJsonApi` client through a
-// protected `request` property with no public accessor. Describe the minimal
-// surface we rely on (a typed GET) and reach it through a structural cast via
-// `unknown` (the project forbids `as any`).
-interface VersionRequestApi {
-  request: {
-    get<T>(path: string): Promise<T>;
-  };
-}
+// The host's JSON client of this frame's cluster, for requests by path that no
+// KubeApi or store method makes: `/version` and subresource patches.
+const clusterJsonApi = () => Renderer.K8sApi.KubeJsonApi.forCluster(getActiveClusterId());
 
 // A failed request rejects with the host's JsonApiErrorParsed, which keeps the
 // cluster's Status in its (private) `error` field.
@@ -64,9 +50,7 @@ function toResource(object: KubeObject): ClusterResource {
  */
 export const freelensCluster: Cluster = {
   async getVersionInfo() {
-    // Any registered KubeApi shares the cluster client, so the pods API reaches `/version`.
-    const api = Renderer.K8sApi.podsApi as unknown as VersionRequestApi;
-    return api.request.get<KubernetesVersionInfo>("/version");
+    return clusterJsonApi().get<KubernetesVersionInfo>("/version");
   },
 
   getNamespaceNames() {
@@ -128,10 +112,9 @@ export const freelensCluster: Cluster = {
           return;
         }
         // The store cannot target a subresource: build the resource URL and
-        // PATCH `<url>/<subresource>` through the KubeApi request client.
-        const patchApi = api as unknown as SubresourcePatchApi;
-        const url = `${patchApi.formatUrlForNotListing({ name, namespace })}/${subresource}`;
-        await patchApi.request.patch(
+        // PATCH `<url>/<subresource>` through the cluster's JSON client.
+        const url = `${api.formatUrlForNotListing({ name, namespace })}/${subresource}`;
+        await clusterJsonApi().patch(
           url,
           { data },
           { headers: { "content-type": STRATEGIC_MERGE_PATCH_CONTENT_TYPE } },

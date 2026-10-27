@@ -29,7 +29,6 @@ export default class LensExtensionAiMain extends Main.LensExtension {
   private providerService?: ProviderService;
 
   async onActivate() {
-    // @ts-ignore
     const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
     preferencesStore.loadExtension(this);
@@ -97,11 +96,9 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       // Read before every prompt, so an edit applies from the next message. AI
       // Explain gets the user's custom agent rules too.
       getUserRules: () => preferencesStore.customAgentRules,
-      // Hosts before the main cluster API (Freelens 1.10) send no cluster section.
-      getClusterName: (clusterId) => Main.Catalog?.getClusterById?.(clusterId)?.name,
+      getClusterName: (clusterId) => Main.Catalog.getClusterById(clusterId)?.name,
       getRetentionDays: () => preferencesStore.chatRetentionDays,
-      // Hosts before the main cluster API (Freelens 1.10) keep every cluster's latest chat.
-      knownClusterIds: () => Main.Catalog?.getAllClusters?.()?.map((cluster) => cluster.id),
+      knownClusterIds: () => Main.Catalog.getAllClusters().map((cluster) => cluster.id),
     });
     this.agentHost = agentHost;
     ipc.handle(AGENT_COMMAND_CHANNEL, (_event, clusterId: string, command: AgentCommand) =>

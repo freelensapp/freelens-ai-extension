@@ -1,4 +1,4 @@
-import { Common, Renderer } from "@freelensapp/extensions";
+import { Renderer } from "@freelensapp/extensions";
 import * as React from "react";
 import { type CustomProviderInput, parseModelIds, validateCustomProvider } from "../../../common/custom-provider";
 import { onProviderEnvelope, sendProviderCommand } from "../../business/provider-client/provider-client";
@@ -29,10 +29,12 @@ const MODELS_SHOWN = 8;
 
 const hint = (text: React.ReactNode) => <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>{text}</div>;
 
-// Only web links are opened; a login never needs anything else.
+// Only web links are opened; a login never needs anything else. The host
+// refuses every new window and hands an http: or https: URL to the system
+// browser instead.
 const openLink = (url: string) => {
   if (/^https?:\/\//i.test(url)) {
-    void Common.Util.openExternal(url);
+    window.open(url);
   }
 };
 

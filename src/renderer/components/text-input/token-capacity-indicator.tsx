@@ -1,4 +1,6 @@
-import * as React from "react";
+import styles from "./text-input.module.scss";
+
+import type { FC } from "react";
 
 type TokenCapacityIndicatorProps = {
   // pi's estimate of the context the next prompt sends, from the chat's stats.
@@ -12,10 +14,10 @@ type TokenCapacityIndicatorProps = {
 // Minimal circular progress indicator shown next to the send button. Renders a
 // thin circle contour for the unused capacity with the progress arc drawn for
 // the used tokens, leaving the inside unfilled. The stroke colours are
-// theme-aware and driven from SCSS (see `text-input.scss`).
+// theme-aware and driven from SCSS (see `text-input.module.scss`).
 // 0% means the context is empty (a new chat); pi compacts the chat on its own
 // when it gets close to 100%.
-export const TokenCapacityIndicator: React.FC<TokenCapacityIndicatorProps> = ({ usedTokens, maxTokens }) => {
+export const TokenCapacityIndicator: FC<TokenCapacityIndicatorProps> = ({ usedTokens, maxTokens }) => {
   const size = 22;
   const strokeWidth = 2;
   const center = size / 2;
@@ -35,11 +37,11 @@ export const TokenCapacityIndicator: React.FC<TokenCapacityIndicatorProps> = ({ 
         : `Conversation context: ${used.toLocaleString("en-US")} tokens`;
 
   return (
-    <span className="text-input-token-capacity text-input-tooltip" data-tooltip={title}>
+    <span className={`${styles.textInputTokenCapacity} ${styles.textInputTooltip}`} data-tooltip={title}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={title}>
         {/* Contour for the unused capacity; colour is theme-aware (see SCSS) */}
         <circle
-          className="text-input-token-capacity-track"
+          className={styles.textInputTokenCapacityTrack}
           cx={center}
           cy={center}
           r={radius}
@@ -48,7 +50,7 @@ export const TokenCapacityIndicator: React.FC<TokenCapacityIndicatorProps> = ({ 
         />
         {/* Progress arc for the used tokens; colour is theme-aware (see SCSS) */}
         <circle
-          className="text-input-token-capacity-arc"
+          className={styles.textInputTokenCapacityArc}
           cx={center}
           cy={center}
           r={radius}

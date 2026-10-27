@@ -4,7 +4,7 @@ import * as MobxReact from "mobx-react";
 import * as React from "react";
 import { useApplicationStatusStore } from "../../context/application-context";
 import { AvailableTools } from "../available-tools/available-tools";
-import styleInline from "./text-input.scss?inline";
+import styles from "./text-input.module.scss";
 import { useTextInput } from "./text-input-hook";
 import { TokenCapacityIndicator } from "./token-capacity-indicator";
 import { formatCost, formatTokenCounts, tokenCounts } from "./usage-format";
@@ -33,24 +33,23 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
 
   return (
     <>
-      <style>{styleInline}</style>
-      <div className="text-input-container">
-        <div className="text-input-inner-wrapper">
+      <div className={styles.textInputContainer}>
+        <div className={styles.textInputInnerWrapper}>
           <textarea
             ref={textInputHook.textareaRef}
             rows={1}
-            className="text-input-textarea"
+            className={styles.textInputTextarea}
             placeholder={applicationStatusStore.isLoading ? "The agent is working..." : "Write a message..."}
             disabled={applicationStatusStore.isLoading}
             value={textInputHook.message}
             onChange={(e) => textInputHook.setMessage(e.target.value)}
             onKeyDown={textInputHook.handleKeyDown}
           />
-          <div className="text-input-buttons-container">
+          <div className={styles.textInputButtonsContainer}>
             <div id="chatButtonsContainer" style={{ display: "flex" }}>
               {/* New chat: stops a run, the old chat stays saved until retention deletes it */}
               <button
-                className="chat-button chat-clear-button"
+                className={`chat-button ${styles.chatClearButton}`}
                 onClick={() => applicationStatusStore.clearChat()}
                 disabled={applicationStatusStore.chatMessages?.length === 0}
                 title="New chat"
@@ -58,7 +57,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                 <MessageSquarePlus size={20} />
               </button>
               <button
-                className="chat-button chat-clear-button"
+                className={`chat-button ${styles.chatClearButton}`}
                 onClick={() => {
                   if (window.confirm("Delete all saved chats of this cluster? This cannot be undone.")) {
                     void applicationStatusStore.deleteAllChats();
@@ -70,7 +69,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               </button>
               {/* Button to toggle tools */}
               <button
-                className={`chat-button chat-clear-button${showList ? " active" : ""}`}
+                className={`chat-button ${styles.chatClearButton}${showList ? " active" : ""}`}
                 onClick={() => setShowList((prev) => !prev)}
                 title={showList ? "Hide Tools" : "Show Tools"}
                 style={{
@@ -98,7 +97,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
             <div style={{ display: "flex", alignItems: "center" }}>
               {textInputHook.agentConfigured && (
                 <span
-                  className="text-input-token-counter text-input-tooltip"
+                  className={`${styles.textInputTokenCounter} ${styles.textInputTooltip}`}
                   data-tooltip="Tokens used in this chat (input, cached input, output), with the cost when the model's price is known. Starts again with a new chat."
                 >
                   {formatTokenCounts(tokenCounts(stats?.tokens))}
@@ -113,12 +112,12 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                   placeholder="Choose a model"
                   onChange={textInputHook.onChangeModel}
                   themeName="lens"
-                  className="text-input-select-box"
+                  className={styles.textInputSelectBox}
                 />
               )}
               {textInputHook.noProviderConnected && (
                 <>
-                  <span className="text-input-no-provider">No AI provider is connected.</span>
+                  <span className={styles.textInputNoProvider}>No AI provider is connected.</span>
                   <Button
                     primary
                     label="Connect a provider"
@@ -136,7 +135,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
               {/* While a run is going, Stop is the only action */}
               {applicationStatusStore.isAgentRunning ? (
                 <button
-                  className="text-input-send-button text-input-stop-button"
+                  className={styles.textInputSendButton}
                   onClick={() => applicationStatusStore.stopAgent()}
                   title="Stop"
                   id="stop-button"
@@ -145,7 +144,7 @@ export const TextInput = observer(({ onSend }: TextInputProps) => {
                 </button>
               ) : (
                 <button
-                  className="text-input-send-button"
+                  className={styles.textInputSendButton}
                   onClick={textInputHook.handleSend}
                   disabled={applicationStatusStore.isLoading || !textInputHook.message.trim()}
                   title="Send"

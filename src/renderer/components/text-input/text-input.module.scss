@@ -35,6 +35,7 @@
 
 .text-input-send-button {
   margin-left: 0;
+  padding-left: 10px;
   background: none;
   border: none;
   cursor: pointer;
@@ -54,7 +55,8 @@
 
 // Capacity-indicator stroke colours. A CSS `stroke` rule overrides the SVG
 // presentation attribute, so this drives the colours per theme. Dark theme is
-// the default (no body class); `body.theme-light` is set by the host for light.
+// the default (no body class); `body.theme-light` is set by the host for light,
+// outside this module, so it is a global selector.
 .text-input-token-capacity-track {
   stroke: #616466; // unused capacity (dark theme)
 }
@@ -63,11 +65,11 @@
   stroke: #a0a0a0; // used tokens (dark theme)
 }
 
-body.theme-light .text-input-token-capacity-track {
+:global(body.theme-light) .text-input-token-capacity-track {
   stroke: #acacac; // unused capacity (light theme)
 }
 
-body.theme-light .text-input-token-capacity-arc {
+:global(body.theme-light) .text-input-token-capacity-arc {
   stroke: var(--textColorPrimary); // used tokens (light theme)
 }
 
@@ -97,20 +99,15 @@ body.theme-light .text-input-token-capacity-arc {
   white-space: nowrap;
 }
 
-.text-input-select-box .Select__single-value {
+.text-input-select-box :global(.Select__single-value) {
   font-size: 13px;
 }
 
-.text-input-select-box .Select__value-container {
+.text-input-select-box :global(.Select__value-container) {
   margin: 0;
   padding-top: 0;
   padding-bottom: 0;
   padding-right: 0;
-}
-
-#send-button,
-#stop-button {
-  padding-left: 10px;
 }
 
 .text-input-textarea:disabled {

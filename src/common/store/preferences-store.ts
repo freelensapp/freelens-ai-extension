@@ -1,5 +1,5 @@
 import { Common } from "@freelensapp/extensions";
-import { makeObservable, observable } from "mobx";
+import { makeObservable, observable, observableRef } from "mobx";
 import { DEFAULT_CHAT_RETENTION_DAYS } from "../agent-protocol";
 import { loadApprovalOverrides, type ToolApprovalOverrides } from "../agent-tools/approval-settings";
 import { DEFAULT_THINKING_LEVEL, loadThinkingLevel, type ThinkingLevel } from "../thinking-level";
@@ -67,19 +67,19 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesMod
         // settings have not been imported yet.
       },
     });
-    // Use the explicit annotation form instead of `@observable` decorators.
-    // The build's legacy decorator transform emits native class-field
-    // initializers, which the decorators cannot convert into observables; the
-    // explicit form reads the initialized field values directly and works
-    // regardless of how the build emits class fields.
+    // The annotation map on plain fields rather than `@observable accessor`
+    // fields: `makeObservable` runs after the field initializers, the fields stay
+    // own properties of the instance, and `toJSON()`, which the host persists,
+    // reads them as they are. Accessor fields would keep the values behind
+    // getters on the prototype, which `toJS()` and spreading do not see.
     makeObservable(this, {
-      toolApprovalOverrides: observable.ref,
+      toolApprovalOverrides: observableRef,
       podLogsTailLines: observable,
       customAgentRules: observable,
       agentModel: observable,
       chatRetentionDays: observable,
       thinkingLevel: observable,
-      legacy: observable.ref,
+      legacy: observableRef,
       explainEvent: observable,
     });
   }

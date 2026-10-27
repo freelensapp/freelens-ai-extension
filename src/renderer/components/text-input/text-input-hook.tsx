@@ -4,7 +4,6 @@ import { PreferencesStore } from "../../../common/store";
 import { groupModels, modelRef, resolvePickedModel } from "../../business/provider-client/model-picker";
 import { onProviderEnvelope, sendProviderCommand } from "../../business/provider-client/provider-client";
 import { useApplicationStatusStore } from "../../context/application-context";
-import { navigateToExtensionPreferences } from "../../navigation/navigate-to-extension-preferences";
 
 import type { SingleValue } from "react-select";
 
@@ -115,7 +114,7 @@ export const useTextInput = ({ onSend }: TextInputHookProps) => {
     }
   };
 
-  const goToPreferences = () => navigateToExtensionPreferences();
+  const goToPreferences = () => applicationStatusStore.navigateToPreferences();
 
   return {
     message,

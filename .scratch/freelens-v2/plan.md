@@ -140,7 +140,7 @@ Open: none.
 - [x] **Step 1. Manifest and toolchain (03).**
 - [x] **Step 2. Vite build (04).**
 - [x] **Step 3. TypeScript layout and environment tests (05).**
-- [ ] **Step 4. Source migration (06).**
+- [x] **Step 4. Source migration (06).**
 - [ ] **Step 5. Unit tests on Vitest 5, tree green again (07).** Steps 1 to 5
       are pushed here.
 - [ ] **Step 6. Tooling and CI from the `main` branch (08).**
@@ -347,6 +347,58 @@ turns them into manual test cases with steps and expected results.
   (react-markdown 10) and the untyped `onAction` parameter in
   `interrupt.tsx` (the base config's `noImplicitAny`). The tooling and test
   programs pass. Upstream: none.
+
+- **mobx 7 names its annotation modifiers (step 4).** `observable.ref` is gone;
+  the preferences store uses the named export `observableRef` in its
+  annotation map, which stays on plain fields (`makeObservable` after the field
+  initializers), so the values `toJSON()` returns stay own properties. The
+  `@ts-ignore` on `getInstanceOrCreate` in both entries was no longer needed.
+  Upstream: none.
+- **Two class names and an id needed care as CSS modules (step 4).** The seven
+  `?inline` stylesheets are now `*.module.scss`, imported as `styles` and
+  written into `dist/renderer.css`; the build wrote the eight committed
+  `*.module.d.scss.ts` (the seven and the `main` branch's error page). Three
+  selectors in `text-input.module.scss` name things outside the module:
+  `body.theme-light` (the host's theme class) and react-select's
+  `.Select__single-value` and `.Select__value-container` are wrapped in
+  `:global(...)`; the `#send-button, #stop-button` rule went into
+  `.text-input-send-button`, which both buttons have, because CSS modules
+  localize ids too (checked in a build: `#send-button` became
+  `#_send-button_<hash>`). The `main` branch did the same. The plain class
+  names `chat-button`, `active` and `text-input-vertical-list` have no rule and
+  stay strings. Upstream: none.
+- **The preferences and the chat page are reached through the extension
+  (step 4).** The chat page gets the extension from its registration
+  (`<MainPage extension={this} />`) and hands it to the application context,
+  whose `navigateToPreferences()` calls the extension's; the "Connect a
+  provider" button uses it. `navigation/extension-preferences.ts`, its test (3
+  cases of the route, 1 of the broadcast) and
+  `navigate-to-extension-preferences.ts` are deleted, so the unit tests went
+  from 349 to 346 with the new `menu-entry-hook.test.ts`. The menu item takes
+  `Common.Types.KubeObjectMenuItemProps<KubeEvent>` and the extension, is
+  registered with `menuItemFor(KubeEvent, ...)`, and opens the chat with
+  `extension.navigate(MAIN_PAGE_ID)`. The `main` branch's `error-boundary.tsx`
+  and `error-page.tsx` wrap `clusterPages`, `kubeObjectMenuItems` and
+  `appPreferences`; their component tests (`error-boundary.test.tsx`,
+  `error-page.test.tsx`) and the markdown viewer's need jsdom and Testing
+  Library, which ticket 07 adds. Upstream: none.
+- **The markdown viewer follows react-markdown 10 (step 4).** The viewer and
+  its hook are the `main` branch's after 277bea9: a `pre` renderer marks its
+  content as a block through a context, so the `code` renderer knows inline
+  code from a fenced block without the removed `inline` prop; the renderers
+  drop react-markdown's `node`. Upstream: none.
+- **The frame-side tools use the frame's JSON client (step 4).** `/version`
+  and subresource patches go through
+  `Renderer.K8sApi.KubeJsonApi.forCluster(getActiveClusterId())` instead of a
+  structural cast into the protected `KubeApi.request`; the resource URL still
+  comes from the public `formatUrlForNotListing`. Both clients use the same
+  `/api-kube` base in Freelens. The old-host fallbacks went: the catalog calls
+  (`Main.Catalog.getClusterById`, `getAllClusters`,
+  `Renderer.Catalog.getClusterById`, `getActiveCluster`) are direct, without
+  optional calls or `try`. Ticket 10 deletes these tools. Upstream: none.
+- **`openExternal` is `window.open` (step 4).** The sign-in page and the
+  device-code links of a provider login open with `window.open(url)`, still
+  only for `http:` and `https:` URLs. Upstream: none.
 
 ## Upstream work items
 

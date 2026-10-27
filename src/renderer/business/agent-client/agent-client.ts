@@ -251,13 +251,9 @@ async function loadApprovalBackup(approvalId: string, target: ApprovalTarget | u
 }
 
 function isClusterConnected(clusterId: string): boolean {
-  try {
-    const status = Renderer.Catalog.getClusterById?.(clusterId)?.status;
-    // Unknown on hosts without the cluster API: let the call try.
-    return status === undefined || status === "connected";
-  } catch {
-    return true;
-  }
+  const status = Renderer.Catalog.getClusterById(clusterId)?.status;
+  // A cluster the catalog does not list: let the call try.
+  return status === undefined || status === "connected";
 }
 
 // A change found only in a snapshot may already have been applied by this
