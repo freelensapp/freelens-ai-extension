@@ -22,10 +22,10 @@ branch.
 
 **Status:** ready-for-agent
 
-- [ ] Install, type check, Biome, unit tests, build and the checks of the
+- [x] Install, type check, Biome, unit tests, build and the checks of the
       built output all pass.
-- [ ] The extension entry test covers activate, deactivate, activate and
+- [x] The extension entry test covers activate, deactivate, activate and
       deactivate during a run.
-- [ ] No existing test was deleted to get green; any test removed is listed in
+- [x] No existing test was deleted to get green; any test removed is listed in
       the report with the reason.
 - [ ] One commit; the commits of tickets 03 to 07 are pushed.

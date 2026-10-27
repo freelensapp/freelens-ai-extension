@@ -141,7 +141,7 @@ Open: none.
 - [x] **Step 2. Vite build (04).**
 - [x] **Step 3. TypeScript layout and environment tests (05).**
 - [x] **Step 4. Source migration (06).**
-- [ ] **Step 5. Unit tests on Vitest 5, tree green again (07).** Steps 1 to 5
+- [x] **Step 5. Unit tests on Vitest 5, tree green again (07).** Steps 1 to 5
       are pushed here.
 - [ ] **Step 6. Tooling and CI from the `main` branch (08).**
 - [ ] **F1. Read tools in main (09), write tools and the backup in main (10).**
@@ -399,6 +399,45 @@ turns them into manual test cases with steps and expected results.
 - **`openExternal` is `window.open` (step 4).** The sign-in page and the
   device-code links of a provider login open with `window.open(url)`, still
   only for `http:` and `https:` URLs. Upstream: none.
+
+- **The tests run on the `main` branch's Vitest setup (step 5).**
+  `vitest.config.ts` is the `main` branch's verbatim: the standard decorators
+  plugin and `@vitejs/plugin-react` as in the build, `globals` on for Testing
+  Library's cleanup, `dist/**` excluded, and `@freelensapp/extensions`
+  aliased to `test/freelens-extensions.ts`. The stub is the `main` branch's
+  file plus what the extension entry needs: `Main.LensExtension` gets the
+  host's lifecycle (`activate()` runs `onActivate`; `disable()` awaits
+  `onDeactivate`, then runs the disposers) and a `getExtensionFileFolder()`
+  that the test points at a temporary folder, and `Main.Ipc` is a singleton
+  per subclass whose `handle` keeps the handlers in an exported
+  `ipcMainHandlers` map, throws on a second handler for a channel as Electron
+  does, and removes them on `disable()`, as the host does. Biome gets the
+  `main` branch's two `noRestrictedImports` overrides: `vitest`, React's
+  `act`, `react-dom/test-utils` and Testing Library only in tests and
+  `test/`. The rest of `main`'s `biome.jsonc` is step 6's. Upstream: none.
+- **The extension entry test (step 5).** `src/main/index.test.ts` drives
+  `LensExtensionAiMain` in the host's order (new instance, `activate()`,
+  `enable()`, `disable()`) with pi's faux provider registered on the
+  `ModelRuntime` the entry creates (a spy on `ModelRuntime.create`). It
+  checks that a prompt sent to the agent channel's handler streams envelopes
+  to the end; that after a deactivation during a run and a new activation
+  there is one handler per channel, the first host's model request is
+  aborted, and the new run's envelopes come from one session with
+  consecutive `seq`; and that deactivating during a run aborts the model
+  request, broadcasts nothing more and logs no error. The entry needed no
+  change: removing `this.agentHost?.dispose()` from `onDeactivate` fails the
+  last two cases. Upstream: none.
+- **Component tests from the `main` branch (step 5).** `error-boundary`,
+  `error-page`, `markdown-viewer` and `interrupt` tests are copied
+  unchanged, with `jsdom` 30.1.2, `@testing-library/react` 16.3.3 and
+  `@testing-library/dom` 10.4.2 (the `main` branch's versions). The
+  interrupt test found the missing `key` on the option buttons, which the
+  `main` branch had fixed; the same one-line fix is in this step.
+  `menu-entry-hook.test.ts` is the `main` branch's (the real store on the
+  stub, `resetInstance()` after each case). Not copied: the `main` branch's
+  `application-context` and `preferences-page` tests, whose components differ
+  entirely here. Unit tests: 346 to 367 in 30 files, none removed.
+  Upstream: none.
 
 ## Upstream work items
 

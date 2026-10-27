@@ -1,16 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MessageType } from "../../../common/objects/message-type";
+import { PreferencesStore } from "../../../common/store";
 import { MAIN_PAGE_ID } from "../../navigation/pages";
 import { useMenuEntryHook } from "./menu-entry-hook";
 
 import type { Renderer } from "@freelensapp/extensions";
 
-import type { PreferencesStore } from "../../../common/store";
+afterEach(() => {
+  PreferencesStore.resetInstance();
+});
 
 describe("useMenuEntryHook", () => {
   it("hands the event to the chat and opens the chat page of this extension", () => {
-    // Only `explainEvent` is used; the store itself needs the host API.
-    const preferencesStore = {} as PreferencesStore;
+    const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
     const navigate = vi.fn(() => Promise.resolve());
     const extension = { navigate } as unknown as Renderer.LensExtension;
 
