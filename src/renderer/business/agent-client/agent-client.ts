@@ -24,7 +24,7 @@ import { createClusterTools } from "./cluster-tools";
 import { freelensCluster } from "./freelens-cluster";
 import { runToolRequest, type ToolReply } from "./tool-runner";
 
-import type { MessageObject } from "../objects/message-object";
+import type { MessageObject } from "../../../common/objects/message-object";
 
 // The cluster frame's side of the agent protocol: it sends commands to the pi
 // agent host in main, answers the tool calls main sends for this cluster, and

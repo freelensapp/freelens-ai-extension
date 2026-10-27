@@ -16,6 +16,7 @@ import { DEFAULT_CHAT_RETENTION_DAYS } from "../../common/agent-protocol";
 import { prepareApproval } from "../../common/agent-tools/approval";
 import { requiresApproval, type ToolApprovalOverrides } from "../../common/agent-tools/approval-settings";
 import { DEFAULT_THINKING_LEVEL, type ThinkingLevel } from "../../common/thinking-level";
+import useLog from "../utils/logger";
 import { toJsonEvent } from "./json-event";
 import { EXPLAIN_PROMPT, SYSTEM_PROMPT, withUserRules } from "./system-prompt";
 
@@ -32,6 +33,8 @@ import type {
   TranscriptEntry,
 } from "../../common/agent-protocol";
 import type { AgentToolDefinition } from "../../common/agent-tools";
+
+const { log } = useLog("freelens-ai");
 
 export const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 export const DENIED_REASON = "The user denied the action";
@@ -276,7 +279,7 @@ export class AgentHost {
         .catch((error) => {
           if (answered) {
             // Run errors normally arrive as events; this one escaped them.
-            console.error(`[freelens-ai] The agent run for cluster ${clusterId} failed:`, error);
+            log.error(`The agent run for cluster ${clusterId} failed:`, error);
           }
           answer(fail("prompt", errorText(error)));
         });
@@ -391,7 +394,7 @@ export class AgentHost {
         .then(() => answer(ok("explain")))
         .catch((error) => {
           if (answered) {
-            console.error(`[freelens-ai] The explanation for cluster ${clusterId} failed:`, error);
+            log.error(`The explanation for cluster ${clusterId} failed:`, error);
           }
           answer(fail("explain", errorText(error)));
         })
@@ -467,7 +470,7 @@ export class AgentHost {
           deleted += 1;
         } catch (error) {
           left += 1;
-          console.error(`[freelens-ai] Deleting the old chat ${session.path} failed:`, error);
+          log.error(`Deleting the old chat ${session.path} failed:`, error);
         }
       }
       // Tidy up the folder of a cluster with no chats left and no open session.
@@ -534,7 +537,7 @@ export class AgentHost {
       try {
         await this.pruneSessions();
       } catch (error) {
-        console.error("[freelens-ai] Deleting old chats failed:", error);
+        log.error("Deleting old chats failed:", error);
       }
     }
     const snapshot = await this.snapshot(clusterId);
@@ -803,7 +806,7 @@ export class AgentHost {
       try {
         this.send(clusterId, agent.session.sessionId, { kind: "stats", payload: agent.session.getSessionStats() });
       } catch (error) {
-        console.error(`[freelens-ai] Reading the session stats for cluster ${clusterId} failed:`, error);
+        log.error(`Reading the session stats for cluster ${clusterId} failed:`, error);
       }
     };
     session.subscribe((event) => {
@@ -835,7 +838,7 @@ export class AgentHost {
     try {
       this.options.broadcast({ clusterId, sessionId, seq, ...body } as AgentEnvelope);
     } catch (error) {
-      console.error(`[freelens-ai] Broadcasting to the frames of cluster ${clusterId} failed:`, error);
+      log.error(`Broadcasting to the frames of cluster ${clusterId} failed:`, error);
     }
   }
 

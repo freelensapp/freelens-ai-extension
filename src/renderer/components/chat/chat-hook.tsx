@@ -2,11 +2,11 @@ import * as React from "react";
 
 const { useEffect, useRef } = React;
 
-import { MessageType } from "../../business/objects/message-type";
+import { MessageType } from "../../../common/objects/message-type";
 import { useApplicationStatusStore } from "../../context/application-context";
 import useChatService from "./chat-service";
 
-import type { MessageObject } from "../../business/objects/message-object";
+import type { MessageObject } from "../../../common/objects/message-object";
 
 export const useChatHook = () => {
   const chatService = useChatService();

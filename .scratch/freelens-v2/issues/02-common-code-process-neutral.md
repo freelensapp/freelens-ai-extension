@@ -17,12 +17,12 @@ move into common. The behaviour does not change.
 
 **Status:** ready-for-agent
 
-- [ ] No module in common imports React, a renderer module or a main-process
+- [x] No module in common imports React, a renderer module or a main-process
       module.
-- [ ] The main process logs through a logger that needs neither React nor the
+- [x] The main process logs through a logger that needs neither React nor the
       DOM; the renderer keeps its current logging.
-- [ ] The saved preferences (including the chat messages the store keeps) read
+- [x] The saved preferences (including the chat messages the store keeps) read
       and write the same values as before; the existing store tests pass.
-- [ ] Type check, Biome, unit tests and the build pass on the current
+- [x] Type check, Biome, unit tests and the build pass on the current
       toolchain.
-- [ ] One commit.
+- [x] One commit.

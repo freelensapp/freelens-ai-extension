@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import type { MessageObject } from "../../business/objects/message-object";
+import type { MessageObject } from "../../../common/objects/message-object";
 
 const { useEffect, useRef, useState } = React;
 

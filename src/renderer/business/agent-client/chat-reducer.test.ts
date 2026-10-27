@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MessageType } from "../objects/message-type";
+import { MessageType } from "../../../common/objects/message-type";
 import {
   APPROVE_ALL_OPTION,
   type ChatViewState,
@@ -16,7 +16,7 @@ import type {
   ChatMessage,
   SessionStats,
 } from "../../../common/agent-protocol";
-import type { MessageObject } from "../objects/message-object";
+import type { MessageObject } from "../../../common/objects/message-object";
 
 const userMessage: MessageObject = {
   messageId: "u1",

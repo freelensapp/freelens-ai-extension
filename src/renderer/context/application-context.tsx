@@ -5,7 +5,6 @@ const { observer } = MobxReact;
 const { createContext, useContext, useEffect, useState } = React;
 
 import { PreferencesStore } from "../../common/store";
-import useLog from "../../common/utils/logger/logger-service";
 import {
   editAgentTranscript,
   getAgentChat,
@@ -15,11 +14,12 @@ import {
   turnOffAutoApprove as turnOffAutoApproveInMain,
 } from "../business/agent-client/agent-client";
 import { getActiveClusterId } from "../business/cluster/active-cluster";
+import useLog from "../utils/logger/logger-service";
 import { IS_LOADING_KEY } from "./chat-session-storage";
 
 import type { SessionStats } from "../../common/agent-protocol";
+import type { MessageObject } from "../../common/objects/message-object";
 import type { ChatViewState } from "../business/agent-client/chat-reducer";
-import type { MessageObject } from "../business/objects/message-object";
 
 export interface AppContextType {
   // The cluster of this frame; the chat and its pi agent session are bound to it.

@@ -1,15 +1,15 @@
-import useLog from "../../../common/utils/logger/logger-service";
+import { MessageType } from "../../../common/objects/message-type";
 import {
   answerApproval as answerApprovalInMain,
   getAgentChat,
   sendAgentCommand,
 } from "../../business/agent-client/agent-client";
 import { getErrorMessage } from "../../business/objects/message-object-provider";
-import { MessageType } from "../../business/objects/message-type";
 import { useApplicationStatusStore } from "../../context/application-context";
+import useLog from "../../utils/logger/logger-service";
 
 import type { AgentResponse } from "../../../common/agent-protocol";
-import type { MessageObject } from "../../business/objects/message-object";
+import type { MessageObject } from "../../../common/objects/message-object";
 
 // The chat page's actions: each is a command to this cluster's pi agent in
 // main, whose answer streams back as envelopes the agent client folds into the

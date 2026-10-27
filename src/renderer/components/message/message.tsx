@@ -1,13 +1,13 @@
 import { RotateCcw } from "lucide-react";
+import { MessageType } from "../../../common/objects/message-type";
 import { APPROVE_ALL_OPTION } from "../../business/agent-client/chat-reducer";
-import { MessageType } from "../../business/objects/message-type";
 import useChatService from "../chat/chat-service";
 import Interrupt from "../interrupt/interrupt";
 import { MarkdownViewer } from "../markdown-viewer";
 import styleInline from "./message.scss?inline";
 import useMessageHook from "./message-hook";
 
-import type { MessageObject } from "../../business/objects/message-object";
+import type { MessageObject } from "../../../common/objects/message-object";
 
 export interface MessageProps {
   message: MessageObject;

@@ -1,7 +1,7 @@
+import { MessageType } from "../../../common/objects/message-type";
 import { generateUuid } from "../../../common/utils/uuid";
-import { MessageType } from "./message-type";
 
-import type { MessageObject, RetryContext } from "./message-object";
+import type { MessageObject, RetryContext } from "../../../common/objects/message-object";
 
 export function getTextMessage(message: string, sent: boolean): MessageObject {
   return {
