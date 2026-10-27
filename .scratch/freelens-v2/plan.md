@@ -648,6 +648,21 @@ turns them into manual test cases with steps and expected results.
   that stays open (module-level `ipc` guards, while Freelens imports a
   development build's renderer from the same URL on Enable). Upstream: none.
 
+### Code review fixes
+
+- **Tool calls and their results are shown in the chat (review, story 9).**
+  The chat reducer folds `tool_execution_start` (name and arguments, running)
+  and `tool_execution_end` (the result text, or the error) into a tool call
+  message under the answer that asked for it; a call still open when the run
+  settles is shown as not run. The snapshot now carries the saved tool result
+  messages, and the protocol declares pi's `ToolCall` content (id, name,
+  arguments) and `ToolResultMessage`, so a remounted frame rebuilds the same
+  lines; the calls of an answer that failed or was stopped are left out, as pi
+  never runs them. The view (`components/tool-call/`) is one dimmed line with
+  the arguments and the result folded under it. The `main` branch shows no
+  tool calls, so there was no pattern to copy. Manual case B4 now describes
+  it, and K1 is marked fixed. Upstream: none.
+
 ## Upstream work items
 
 - freelensapp/freelens: none. The two gaps the `main` branch found for this

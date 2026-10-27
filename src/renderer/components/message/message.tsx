@@ -4,6 +4,7 @@ import { APPROVE_ALL_OPTION } from "../../business/agent-client/chat-reducer";
 import useChatService from "../chat/chat-service";
 import Interrupt from "../interrupt/interrupt";
 import { MarkdownViewer } from "../markdown-viewer";
+import { ToolCall } from "../tool-call/tool-call";
 import styles from "./message.module.scss";
 import useMessageHook from "./message-hook";
 
@@ -43,6 +44,8 @@ export const Message = ({ message }: MessageProps) => {
           />
         </>
       );
+    } else if (message.toolCall) {
+      return <ToolCall toolCall={message.toolCall} />;
     } else if (message.notice) {
       return <div className={styles.noticeMessage}>{message.text}</div>;
     } else if (message.error) {

@@ -325,6 +325,27 @@ describe("AgentHost", () => {
     expect(snapshot.autoApprove).toBe(false);
   });
 
+  it("snapshots the tool calls with their results, so a remounted frame shows them", async () => {
+    faux.setResponses(callThenEcho("getClusterVersion", {}));
+    const host = createHost();
+
+    await host.handleCommand("c1", { type: "prompt", message: "which version?" });
+    await waitFor(settled);
+
+    const snapshot = await snapshotOf(host);
+    expect(snapshot.messages.map((m) => m.role)).toEqual(["user", "assistant", "toolResult", "assistant"]);
+    expect(snapshot.messages[1]).toMatchObject({
+      content: [{ type: "toolCall", name: "getClusterVersion", arguments: {} }],
+    });
+    const call = snapshot.messages[1]?.role === "assistant" ? snapshot.messages[1].content[0] : undefined;
+    expect(snapshot.messages[2]).toMatchObject({
+      toolCallId: call?.type === "toolCall" ? call.id : "",
+      toolName: "getClusterVersion",
+      isError: false,
+      content: [{ type: "text", text: '{"version":"v1.31.2","major":"1","minor":"31"}' }],
+    });
+  });
+
   it("snapshots an empty chat for a cluster that never ran", async () => {
     const host = createHost();
     const snapshot = await snapshotOf(host, "fresh");

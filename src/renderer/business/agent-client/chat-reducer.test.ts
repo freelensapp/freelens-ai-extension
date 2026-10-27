@@ -51,7 +51,22 @@ const thinkingDelta = (delta: string) => ({
 });
 
 const reduceAll = (state: ChatViewState, envelopes: AgentEnvelope[]) => envelopes.reduce(reduceEnvelope, state);
-const agentTexts = (state: ChatViewState) => state.messages.filter((m) => !m.sent).map((m) => m.text);
+const agentTexts = (state: ChatViewState) =>
+  state.messages.filter((m) => !m.sent && m.type !== MessageType.TOOL_CALL).map((m) => m.text);
+const toolCalls = (state: ChatViewState) => state.messages.flatMap((m) => (m.toolCall ? [m.toolCall] : []));
+const toolStart = (toolCallId: string, toolName: string, args: unknown) => ({
+  type: "tool_execution_start",
+  toolCallId,
+  toolName,
+  args,
+});
+const toolEnd = (toolCallId: string, toolName: string, text: string, isError = false) => ({
+  type: "tool_execution_end",
+  toolCallId,
+  toolName,
+  result: { content: [{ type: "text", text }], details: {} },
+  isError,
+});
 
 describe("reduceEnvelope", () => {
   it("streams text deltas into one agent message after the user's message", () => {
@@ -88,8 +103,8 @@ describe("reduceEnvelope", () => {
         assistantStart,
         textDelta("Let me check."),
         assistantEnd({ stopReason: "toolUse" }),
-        { type: "tool_execution_start", toolCallId: "t1", toolName: "getClusterVersion", args: {} },
-        { type: "tool_execution_end", toolCallId: "t1", toolName: "getClusterVersion", isError: false },
+        toolStart("t1", "getClusterVersion", {}),
+        toolEnd("t1", "getClusterVersion", "v1.31.2"),
         assistantStart,
         assistantEnd({ stopReason: "toolUse" }),
         assistantStart,
@@ -99,6 +114,76 @@ describe("reduceEnvelope", () => {
     );
 
     expect(agentTexts(state)).toEqual(["Let me check.", "It runs v1.31.2."]);
+  });
+
+  it("shows a tool call with its arguments after the text before it, running until its result arrives", () => {
+    const running = reduceAll(
+      initial(),
+      stream("c1", [
+        { type: "agent_start" },
+        assistantStart,
+        textDelta("Let me look."),
+        assistantEnd({ stopReason: "toolUse" }),
+        toolStart("t1", "getNamespaces", { label: "team=web" }),
+      ]),
+    );
+
+    expect(running.messages.slice(1).map((m) => m.type)).toEqual([MessageType.MESSAGE, MessageType.TOOL_CALL]);
+    expect(toolCalls(running)).toEqual([
+      { toolCallId: "t1", toolName: "getNamespaces", args: { label: "team=web" }, running: true },
+    ]);
+
+    const [end] = stream("c1", [toolEnd("t1", "getNamespaces", "default\nweb")], 6);
+    expect(toolCalls(reduceEnvelope(running, end!))).toEqual([
+      {
+        toolCallId: "t1",
+        toolName: "getNamespaces",
+        args: { label: "team=web" },
+        running: false,
+        result: "default\nweb",
+        isError: false,
+      },
+    ]);
+  });
+
+  it("shows a failed tool call with its error text", () => {
+    const state = reduceAll(
+      initial(),
+      stream("c1", [
+        toolStart("t1", "getClusterVersion", {}),
+        toolEnd("t1", "getClusterVersion", "Cluster not connected", true),
+      ]),
+    );
+
+    expect(toolCalls(state)).toEqual([
+      expect.objectContaining({ running: false, result: "Cluster not connected", isError: true }),
+    ]);
+  });
+
+  it("shows each of several tool calls once, with its own result", () => {
+    const state = reduceAll(
+      initial(),
+      stream("c1", [
+        toolStart("t1", "getNamespaces", {}),
+        toolStart("t2", "getClusterVersion", {}),
+        toolEnd("t2", "getClusterVersion", "v1.31.2"),
+        toolEnd("t1", "getNamespaces", "default"),
+      ]),
+    );
+
+    expect(toolCalls(state).map((call) => [call.toolCallId, call.result])).toEqual([
+      ["t1", "default"],
+      ["t2", "v1.31.2"],
+    ]);
+  });
+
+  it("stops showing a call as running when the run settles without its result", () => {
+    const state = reduceAll(
+      initial(),
+      stream("c1", [{ type: "agent_start" }, toolStart("t1", "getClusterVersion", {}), { type: "agent_settled" }]),
+    );
+
+    expect(toolCalls(state)).toEqual([{ toolCallId: "t1", toolName: "getClusterVersion", args: {}, running: false }]);
   });
 
   it("ignores envelopes for other clusters", () => {
@@ -247,7 +332,17 @@ describe("chatFromSnapshot", () => {
     ...overrides,
   });
 
-  it("rebuilds the saved transcript, skipping turns with only tool calls", () => {
+  const toolResult = (toolCallId: string, text: string, isError = false) =>
+    ({
+      role: "toolResult",
+      toolCallId,
+      toolName: "getClusterVersion",
+      content: [{ type: "text", text }],
+      isError,
+      timestamp: 1,
+    }) as ChatMessage;
+
+  it("rebuilds the saved transcript with each tool call and its result", () => {
     const state = chatFromSnapshot(
       "c1",
       snapshot({
@@ -257,6 +352,7 @@ describe("chatFromSnapshot", () => {
           assistant([{ type: "toolCall", id: "t1", name: "getClusterVersion", arguments: {} }], {
             stopReason: "toolUse",
           }),
+          toolResult("t1", "v1.31.2"),
           assistant([
             { type: "thinking", thinking: "Read the result." },
             { type: "text", text: "It runs v1.31.2." },
@@ -269,8 +365,43 @@ describe("chatFromSnapshot", () => {
     expect(state.isRunning).toBe(false);
     expect(state.messages.map((m) => ({ text: m.text, sent: m.sent, reasoning: m.reasoning }))).toEqual([
       { text: "which version?", sent: true, reasoning: undefined },
+      { text: "", sent: false, reasoning: undefined },
       { text: "It runs v1.31.2.", sent: false, reasoning: "Read the result." },
     ]);
+    expect(toolCalls(state)).toEqual([
+      { toolCallId: "t1", toolName: "getClusterVersion", args: {}, running: false, result: "v1.31.2", isError: false },
+    ]);
+  });
+
+  it("shows a call without a result as running only while the run goes on", () => {
+    const messages = [
+      user("which version?"),
+      assistant([{ type: "toolCall", id: "t1", name: "getClusterVersion", arguments: {} }], { stopReason: "toolUse" }),
+    ];
+
+    expect(toolCalls(chatFromSnapshot("c1", snapshot({ messages, isStreaming: true })))).toEqual([
+      { toolCallId: "t1", toolName: "getClusterVersion", args: {}, running: true },
+    ]);
+    expect(toolCalls(chatFromSnapshot("c1", snapshot({ messages, isStreaming: false })))).toEqual([
+      { toolCallId: "t1", toolName: "getClusterVersion", args: {}, running: false },
+    ]);
+  });
+
+  it("leaves out the tool calls of an answer that failed or was stopped, which pi never runs", () => {
+    const state = chatFromSnapshot(
+      "c1",
+      snapshot({
+        messages: [
+          user("hi"),
+          assistant([{ type: "toolCall", id: "t1", name: "getClusterVersion", arguments: {} }], {
+            stopReason: "aborted",
+          }),
+        ],
+      }),
+    );
+
+    expect(toolCalls(state)).toEqual([]);
+    expect(state.messages.map((m) => m.text)).toEqual(["hi", "Stopped."]);
   });
 
   it("reads a user message given as text parts", () => {

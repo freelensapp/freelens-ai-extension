@@ -1,0 +1,65 @@
+// A tool call of the agent: one dimmed line, the arguments and the result
+// folded under it.
+.tool-call {
+  margin: 4px 0;
+  font-size: 0.85em;
+  color: var(--textColorDimmed);
+}
+
+.tool-call-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.tool-call-icon {
+  flex-shrink: 0;
+}
+
+.tool-call-running {
+  animation: tool-call-spin 1s linear infinite;
+}
+
+.tool-call-failed {
+  color: var(--colorError);
+}
+
+.tool-call-name {
+  font-family: monospace;
+  color: var(--textColorSecondary);
+}
+
+.tool-call-args {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+}
+
+.tool-call-status {
+  flex-shrink: 0;
+  font-style: italic;
+}
+
+.tool-call-label {
+  margin: 6px 0 2px;
+}
+
+.tool-call-text {
+  max-height: 240px;
+  margin: 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border-radius: 4px;
+  background-color: var(--inputControlBackground);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@keyframes tool-call-spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}

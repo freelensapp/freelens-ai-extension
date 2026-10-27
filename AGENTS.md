@@ -774,11 +774,11 @@ The frames talk to the agent over Freelens IPC, not a local HTTP bridge
   its answer), `auto_approve` and `stats` (tokens, cost, context usage). `seq`
   increases by one for every envelope of a cluster.
 - **The snapshot** (`get_snapshot`) has everything a frame needs to show the
-  chat when it opens or remounts, even mid-run: the transcript with its
-  compaction markers, the answer being streamed, the pending approval with
-  its backup, "Approve all in this chat" and the stats, and the `seq` of the
-  last envelope. The frame then applies only envelopes with a higher `seq`,
-  and loads a new snapshot when it sees a gap.
+  chat when it opens or remounts, even mid-run: the transcript with its tool
+  results and compaction markers, the answer being streamed, the pending
+  approval with its backup, "Approve all in this chat" and the stats, and the
+  `seq` of the last envelope. The frame then applies only envelopes with a
+  higher `seq`, and loads a new snapshot when it sees a gap.
 
 pi's types are declared in the protocol rather than imported (see "pi in main
 only"): the content parts, the message roles, the assistant message events,
@@ -799,9 +799,10 @@ starts once per cluster frame (`startAgentClient`; the root frame receives the
 same broadcasts and ignores them, as it has no cluster id), buffers the
 envelopes that arrive while a snapshot is on its way, and sends the commands.
 `chat-reducer.ts` folds a snapshot and the envelopes into the chat the views
-show; it is pure and tested on its own. The frame's cluster id is read from
-its host name (`src/renderer/business/cluster/frame-cluster-id.ts`), as
-Freelens reads it.
+show, a tool call from its `tool_execution_*` events or from the snapshot's
+tool-call parts and tool results; it is pure and tested on its own. The
+frame's cluster id is read from its host name
+(`src/renderer/business/cluster/frame-cluster-id.ts`), as Freelens reads it.
 
 ### Cluster tools in the main process
 

@@ -525,9 +525,22 @@ Result: [ ] Pass [ ] Fail [ ] Blocked. Notes:
 Preconditions: B3 done.
 
 1. Look at the transcript of B3 between the question and the answer.
+2. Click the line of the call to unfold it.
+3. Ask "Show me pod `fae-missing` in namespace `fae-test`." and look at the
+   call it makes.
+4. Reload the frame (Ctrl+R) and open **Freelens AI** again.
 
-Expected (spec story 9): the call of `getClusterVersion` and its result are
-shown in the transcript. Known to fail at the time of writing: see K1.
+Expected (spec story 9):
+
+- Between the question and the answer, one dimmed line shows the call: a
+  wrench icon, `getClusterVersion` and its arguments (`{}`). While the call
+  runs, a spinning icon and "running" take the place of the wrench.
+- Unfolded, it shows the arguments and, under **Result**, the version text
+  the tool answered.
+- Step 3: the call of `getKubernetesResource` (or `listKubernetesResources`)
+  shows a red icon and "failed"; unfolded, **Error** reads
+  `getKubernetesResource failed: ...` with the server's message.
+- Step 4: both calls are back in the same places with their results.
 
 Result: [ ] Pass [ ] Fail [ ] Blocked. Notes:
 
@@ -1401,13 +1414,11 @@ Result: [ ] Pass [ ] Fail [ ] Blocked. Notes:
 Behaviour of the code at the time of writing that makes a case fail or look
 odd. Report a case as failed only for something not listed here.
 
-- **K1. Tool calls are not shown in the chat.** The chat reducer
-  (`src/renderer/business/agent-client/chat-reducer.ts`) ignores pi's
-  `tool_execution_*` events and the tool-call parts of assistant messages, so
-  the transcript shows only text, reasoning, notices and approval cards. B4
-  fails until this is built; the other cases read the calls with `fae_tools`.
-  The pi agent build tickets list it as a known gap (05), and spec story 9 and
-  the pi agent build spec's story 3 ask for it.
+- **K1. Fixed: tool calls are shown in the chat.** The chat reducer folds
+  pi's `tool_execution_*` events, and the snapshot's tool-call parts and tool
+  results, into a line per call (B4). The other cases still name `fae_tools`
+  to read the calls and results in the session file, which shows them in
+  full.
 - **K2. AI Explain answers are not in the pi session**, so a chat rebuilt from
   a snapshot that has saved messages (frame reload, restart) drops them (pi
   13).
@@ -1443,7 +1454,7 @@ odd. Report a case as failed only for something not listed here.
 | 6. "Freelens AI" menu entry with icon               | B1                 |
 | 7. Answers grounded in this cluster                 | B2, G1             |
 | 8. Streaming with reasoning                         | B3, E6             |
-| 9. Tool calls and results in the transcript         | B4 (K1)            |
+| 9. Tool calls and results in the transcript         | B4                 |
 | 10. Stop, also during a cluster request             | B5, C10            |
 | 11. Chat restored on reopening, even mid-run        | B6, D5             |
 | 12. Chat survives a restart                         | B7                 |

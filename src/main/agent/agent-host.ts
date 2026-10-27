@@ -139,10 +139,10 @@ const ok = (command: string, data?: unknown): AgentResponse => ({ type: "respons
 const fail = (command: string, error: string): AgentResponse => ({ type: "response", command, success: false, error });
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-// The chat shows only these; pi's system prompt, tool results and custom
-// entries stay in main.
+// The chat shows only these, the tool results under their calls; pi's system
+// prompt and custom entries stay in main.
 const isChatMessage = (message: { role: string }): message is ChatMessage =>
-  message.role === "user" || message.role === "assistant";
+  message.role === "user" || message.role === "assistant" || message.role === "toolResult";
 
 // The chat as the user saw it, from the saved entries rather than
 // `session.messages`: after a compaction those hold only what the model still

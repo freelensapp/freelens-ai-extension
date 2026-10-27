@@ -9,6 +9,20 @@ export interface RetryContext {
   text: string;
 }
 
+// A tool call of the agent, with what the tool answered once it has run.
+export interface ToolCallView {
+  toolCallId: string;
+  toolName: string;
+  // The arguments the model called the tool with.
+  args: unknown;
+  // True from the start of the call until its result arrives or the run ends.
+  running: boolean;
+  // The text the tool answered the model; absent while it runs, and for a call
+  // the run ended before.
+  result?: string;
+  isError?: boolean;
+}
+
 export interface MessageObject {
   messageId: string;
   type: MessageType;
@@ -37,5 +51,7 @@ export interface MessageObject {
   streaming?: boolean;
   // A status line from the agent run (stopped, retrying), not an answer.
   notice?: boolean;
+  // Set on a tool call message (`MessageType.TOOL_CALL`).
+  toolCall?: ToolCallView;
   sent: boolean;
 }

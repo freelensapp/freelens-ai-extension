@@ -6,9 +6,12 @@ import type {
   AgentSnapshot,
   ApprovalRequest,
   ChatMessage,
+  ImageContent,
   SessionStats,
+  TextContent,
+  ToolCallContent,
 } from "../../../common/agent-protocol";
-import type { MessageObject, RetryContext } from "../../../common/objects/message-object";
+import type { MessageObject, RetryContext, ToolCallView } from "../../../common/objects/message-object";
 
 /** What the chat of one cluster frame shows, rebuilt from main's snapshot and envelopes. */
 export interface ChatViewState {
@@ -66,6 +69,29 @@ const endLines = (message: AssistantChatMessage, messages: MessageObject[]): Mes
   return [];
 };
 
+const toolCallMessage = (toolCall: ToolCallView): MessageObject => ({
+  messageId: generateUuid(),
+  type: MessageType.TOOL_CALL,
+  text: "",
+  toolCall,
+  sent: false,
+});
+
+const resultText = (content: (TextContent | ImageContent)[] = []) =>
+  content.map((part) => (part.type === "text" ? part.text : "")).join("");
+
+const updateToolCalls = (messages: MessageObject[], update: (toolCall: ToolCallView) => ToolCallView) => {
+  let changed = false;
+  const updated = messages.map((message) => {
+    if (!message.toolCall) return message;
+    const toolCall = update(message.toolCall);
+    if (toolCall === message.toolCall) return message;
+    changed = true;
+    return { ...message, toolCall };
+  });
+  return changed ? updated : messages;
+};
+
 // The message being streamed is the last one while it carries `streaming`.
 const updateStreaming = (messages: MessageObject[], update: (message: MessageObject) => MessageObject) => {
   const last = messages[messages.length - 1];
@@ -101,6 +127,27 @@ function reduceEvent(messages: MessageObject[], event: EventPayload): MessageObj
         : messages;
       return [...closed, ...endLines(event.message, closed)];
     }
+
+    // pi starts a call after the answer that asked for it, and before its approval.
+    case "tool_execution_start":
+      if (messages.some((message) => message.toolCall?.toolCallId === event.toolCallId)) return messages;
+      return [
+        ...messages,
+        toolCallMessage({ toolCallId: event.toolCallId, toolName: event.toolName, args: event.args, running: true }),
+      ];
+
+    case "tool_execution_end": {
+      const result = resultText(event.result.content);
+      return updateToolCalls(messages, (toolCall) =>
+        toolCall.toolCallId === event.toolCallId
+          ? { ...toolCall, running: false, result, isError: event.isError }
+          : toolCall,
+      );
+    }
+
+    // A call still open when the run ends (stopped before it ran) gets no result.
+    case "agent_settled":
+      return updateToolCalls(messages, (toolCall) => (toolCall.running ? { ...toolCall, running: false } : toolCall));
 
     // pi retries the failed request on its own, so the error it just showed
     // becomes a notice without a Retry button.
@@ -223,6 +270,10 @@ const userText = (message: Extract<ChatMessage, { role: "user" }>) =>
     ? message.content
     : message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
 
+type ToolResultChatMessage = Extract<ChatMessage, { role: "toolResult" }>;
+
+const isToolCall = (part: AssistantChatMessage["content"][number]): part is ToolCallContent => part.type === "toolCall";
+
 const assistantMessage = (message: AssistantChatMessage, streaming: boolean): MessageObject | undefined => {
   const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
   const reasoning = message.content.map((part) => (part.type === "thinking" ? part.thinking : "")).join("");
@@ -237,6 +288,23 @@ const assistantMessage = (message: AssistantChatMessage, streaming: boolean): Me
  * after missed envelopes. Envelopes up to the snapshot's `seq` are already in it.
  */
 export function chatFromSnapshot(clusterId: string, snapshot: AgentSnapshot): ChatViewState {
+  const results = new Map<string, ToolResultChatMessage>();
+  for (const message of snapshot.messages) {
+    if (message.role === "toolResult") results.set(message.toolCallId, message);
+  }
+  // Shown under the answer that asked for them, as the events show them.
+  const toolCallsOf = (message: AssistantChatMessage) =>
+    message.content.filter(isToolCall).map((part) => {
+      const result = results.get(part.id);
+      return toolCallMessage({
+        toolCallId: part.id,
+        toolName: part.name,
+        args: part.arguments,
+        running: !result && snapshot.isStreaming,
+        ...(result ? { result: resultText(result.content), isError: result.isError } : {}),
+      });
+    });
+
   let messages: MessageObject[] = [];
   for (const message of snapshot.messages) {
     if (message.role === "user") {
@@ -247,8 +315,12 @@ export function chatFromSnapshot(clusterId: string, snapshot: AgentSnapshot): Ch
       messages = [...messages, notice(COMPACTED)];
       continue;
     }
+    if (message.role === "toolResult") continue;
     const answer = assistantMessage(message, false);
-    messages = [...messages, ...(answer ? [answer] : []), ...endLines(message, messages)];
+    const ended = endLines(message, messages);
+    // pi runs no call of an answer that failed or was stopped.
+    const toolCalls = ended.length > 0 ? [] : toolCallsOf(message);
+    messages = [...messages, ...(answer ? [answer] : []), ...toolCalls, ...ended];
   }
   const streaming = snapshot.streamingMessage && assistantMessage(snapshot.streamingMessage, true);
   if (streaming) messages = [...messages, streaming];

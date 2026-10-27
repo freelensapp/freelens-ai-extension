@@ -29,9 +29,12 @@ export interface ImageContent {
   type: "image";
 }
 
-/** pi's `ToolCall` content; the chat shows tool calls from their events instead. */
+/** pi's `ToolCall` content. */
 export interface ToolCallContent {
   type: "toolCall";
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
 }
 
 /** pi's `UserMessage`. */
@@ -53,13 +56,23 @@ export interface AssistantMessage {
   timestamp: number;
 }
 
+/** pi's `ToolResultMessage`: what a tool call answered the model. */
+export interface ToolResultMessage {
+  role: "toolResult";
+  toolCallId: string;
+  toolName: string;
+  content: (TextContent | ImageContent)[];
+  isError: boolean;
+  timestamp: number;
+}
+
 /** The other roles of pi's `AgentMessage`; the chat does not show them. */
 export interface OtherAgentMessage {
-  role: "system" | "toolResult" | "bashExecution" | "custom" | "branchSummary" | "compactionSummary";
+  role: "system" | "bashExecution" | "custom" | "branchSummary" | "compactionSummary";
 }
 
 /** pi's `AgentMessage`. */
-export type AgentMessage = UserMessage | AssistantMessage | OtherAgentMessage;
+export type AgentMessage = UserMessage | AssistantMessage | ToolResultMessage | OtherAgentMessage;
 
 /** pi's `AssistantMessageEvent` without the partial message, as pi's RPC mode sends it. */
 export type AssistantMessageEvent =
@@ -84,10 +97,15 @@ export type JsonAgentSessionEvent =
   | { type: "message_start"; message: AgentMessage }
   | { type: "message_update"; assistantMessageEvent: AssistantMessageEvent }
   | { type: "message_end"; message: AgentMessage }
+  | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: unknown }
+  | { type: "tool_execution_update"; toolCallId: string; toolName: string }
+  /** `result` is pi's `AgentToolResult`; an error result carries the error text as its content. */
   | {
-      type: "tool_execution_start" | "tool_execution_update" | "tool_execution_end";
+      type: "tool_execution_end";
       toolCallId: string;
       toolName: string;
+      result: { content?: (TextContent | ImageContent)[] };
+      isError: boolean;
     }
   | { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
   /** `result` is pi's `CompactionResult`, undefined when the compaction failed. */
@@ -199,7 +217,7 @@ export type AgentEnvelope =
   | (EnvelopeBase & { kind: "stats"; payload: SessionStats });
 
 /** A message of the chat transcript as main sends it in a snapshot. */
-export type ChatMessage = UserMessage | AssistantMessage;
+export type ChatMessage = UserMessage | AssistantMessage | ToolResultMessage;
 
 /** Where pi compacted the chat: the messages before it were summarized for the model. */
 export interface CompactionMarker {
@@ -216,9 +234,9 @@ export type TranscriptEntry = ChatMessage | CompactionMarker;
 export interface AgentSnapshot {
   sessionId?: string;
   /**
-   * The saved user and assistant messages of the active session, also those
-   * pi has since compacted away from the model's context, with a marker where
-   * each compaction happened.
+   * The saved user, assistant and tool result messages of the active session,
+   * also those pi has since compacted away from the model's context, with a
+   * marker where each compaction happened.
    */
   messages: TranscriptEntry[];
   /** The assistant answer being streamed right now, if any. */
