@@ -586,8 +586,7 @@ loaded, so it throws under Vitest. `vitest.config.ts` aliases the package to
   components it is given;
 - `vi.fn()` stand-ins for `Common.logger`, `Main.Catalog.getClusterById`,
   `Main.Catalog.getAllClusters`, `Main.K8sApi.KubeJsonApi.forCluster`,
-  `Main.Shell.getEnvironment`, `Main.Util.fetch`,
-  `Renderer.Catalog.getActiveCluster` and the terminal of
+  `Main.Shell.getEnvironment`, `Main.Util.fetch` and the terminal of
   `Renderer.Component`;
 - plain DOM stand-ins for the host components the views render (`Button`,
   `Icon`, `Input`, `Switch`, `HorizontalLine`, `MonacoEditor`, which shows its

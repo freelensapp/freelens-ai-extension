@@ -694,6 +694,18 @@ turns them into manual test cases with steps and expected results.
   A4 step 5 and K7 now expect the chat to stream without a frame reload.
   Upstream: none.
 
+- **The frame's cluster id comes from its host name only (review).** The
+  chat page's context took `getActiveClusterId()`, which fell back to
+  `Renderer.Catalog.getActiveCluster()` and then to a `"default"` id, which
+  main would have kept a chat for as if it were a cluster. The context now
+  takes `getFrameClusterId()`, moved into `frame-cluster-id.ts`
+  (`active-cluster.ts` is gone), and is undefined outside a cluster frame;
+  `sendAgentCommand` sends nothing without a cluster id, so neither do the
+  commands built on it. The agent client already started only in a cluster
+  frame; a test checks that the root window has no chat and sends nothing.
+  The stub's `Renderer.Catalog.getActiveCluster` went with its last user.
+  Upstream: none.
+
 ## Upstream work items
 
 - freelensapp/freelens: none. The two gaps the `main` branch found for this

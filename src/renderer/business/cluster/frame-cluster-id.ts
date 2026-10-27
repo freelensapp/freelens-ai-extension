@@ -16,3 +16,8 @@ export function getClusterIdFromFrameHost(host: string): string | undefined {
   const clusterId = labels[labels.length - 1];
   return clusterId ? clusterId : undefined;
 }
+
+/** The cluster of this cluster frame, or undefined in the root window. */
+export function getFrameClusterId(): string | undefined {
+  return getClusterIdFromFrameHost(window.location.host);
+}

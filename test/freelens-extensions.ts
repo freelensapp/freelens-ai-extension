@@ -278,9 +278,6 @@ export const Renderer = {
       components,
     }),
   },
-  Catalog: {
-    getActiveCluster: vi.fn<() => { id: string } | undefined>(() => undefined),
-  },
   Component: {
     Button,
     HorizontalLine,

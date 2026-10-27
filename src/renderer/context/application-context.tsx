@@ -13,7 +13,7 @@ import {
   sendAgentCommand,
   turnOffAutoApprove as turnOffAutoApproveInMain,
 } from "../business/agent-client/agent-client";
-import { getActiveClusterId } from "../business/cluster/active-cluster";
+import { getFrameClusterId } from "../business/cluster/frame-cluster-id";
 import useLog from "../utils/logger/logger-service";
 import { IS_LOADING_KEY } from "./chat-session-storage";
 
@@ -24,8 +24,9 @@ import type { MessageObject } from "../../common/objects/message-object";
 import type { ChatViewState } from "../business/agent-client/chat-reducer";
 
 export interface AppContextType {
-  // The cluster of this frame; the chat and its pi agent session are bound to it.
-  clusterId: string;
+  // The cluster of this frame; the chat and its pi agent session are bound to
+  // it. Undefined outside a cluster frame, where the chat sends nothing.
+  clusterId: string | undefined;
   // "Approve all in this chat" is on in main: gated calls run without a card.
   autoApproveAll: boolean;
   explainEvent: MessageObject;
@@ -65,7 +66,7 @@ export const ApplicationContextProvider = observer(({ extension, children }: App
   const [preferencesStore] = useState<PreferencesStore>(PreferencesStore.getInstanceOrCreate<PreferencesStore>());
   // Resolved once: this cluster frame belongs to exactly one cluster for its
   // whole lifetime, and main keeps one pi session per cluster.
-  const [clusterId] = useState<string>(() => getActiveClusterId());
+  const [clusterId] = useState<string | undefined>(() => getFrameClusterId());
   const [isLoading, _setLoading] = useState(() => window.sessionStorage.getItem(IS_LOADING_KEY) === "true");
   const [isAgentRunning, _setAgentRunning] = useState(false);
   const [autoApproveAll, _setAutoApproveAll] = useState(false);

@@ -8,7 +8,7 @@ import {
   type AgentSnapshot,
 } from "../../../common/agent-protocol";
 import { IS_LOADING_KEY } from "../../context/chat-session-storage";
-import { getFrameClusterId } from "../cluster/active-cluster";
+import { getFrameClusterId } from "../cluster/frame-cluster-id";
 import { IpcConnection } from "../ipc-connection";
 import { type ChatViewState, chatFromSnapshot, reconcileApprovals, reduceEnvelope } from "./chat-reducer";
 
@@ -102,8 +102,9 @@ export function onAgentChat(listener: ChatListener): () => void {
   };
 }
 
-export async function sendAgentCommand(clusterId: string, command: AgentCommand): Promise<AgentResponse> {
-  if (!connection.connected) {
+/** Sends nothing without a cluster id: only a cluster frame has a chat. */
+export async function sendAgentCommand(clusterId: string | undefined, command: AgentCommand): Promise<AgentResponse> {
+  if (!clusterId || !connection.connected) {
     return failure(command, "The Freelens AI agent is only available in a cluster window.");
   }
   try {
@@ -170,13 +171,13 @@ function update(next: ChatViewState): void {
  * `seq` makes the frame ignore late envelopes of the old chat.
  */
 export async function resetAgentChat(
-  clusterId: string,
+  clusterId: string | undefined,
   type: "new_session" | "delete_sessions",
 ): Promise<AgentResponse> {
   const response = await sendAgentCommand(clusterId, { type });
-  if (response.success && chat?.clusterId === clusterId) {
+  if (response.success && chat && chat.clusterId === clusterId) {
     const snapshot = response.data as AgentSnapshot;
-    update(chatFromSnapshot(clusterId, snapshot));
+    update(chatFromSnapshot(chat.clusterId, snapshot));
   }
   return response;
 }
@@ -187,7 +188,7 @@ export async function resetAgentChat(
  * `approveAll` also turns on "Approve all in this chat".
  */
 export async function answerApproval(
-  clusterId: string,
+  clusterId: string | undefined,
   id: string,
   confirmed: boolean,
   approveAll = false,
@@ -196,6 +197,6 @@ export async function answerApproval(
 }
 
 /** Turns "Approve all in this chat" off; the notice goes when main broadcasts the change. */
-export async function turnOffAutoApprove(clusterId: string): Promise<AgentResponse> {
+export async function turnOffAutoApprove(clusterId: string | undefined): Promise<AgentResponse> {
   return sendAgentCommand(clusterId, { type: "set_auto_approve", enabled: false });
 }
