@@ -34,7 +34,7 @@ added beside the frame path, and ticket 10 removes the frame path.
 
 **Blocked by:** 07 (port, step 5).
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] Agent host test: a read tool call runs in the main process, its result
       reaches the model, and no `tool_request` envelope is broadcast.
@@ -47,4 +47,4 @@ added beside the frame path, and ticket 10 removes the frame path.
 - [x] Error description tests cover the three rejection shapes.
 - [x] The pure tool helpers keep their tests; the read tests no longer use the
       fake `Cluster`.
-- [ ] Every check passes; one commit, pushed.
+- [x] Every check passes; one commit, pushed.

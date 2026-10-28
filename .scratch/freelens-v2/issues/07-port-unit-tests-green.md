@@ -20,7 +20,7 @@ branch.
 
 **Blocked by:** 06 (port, step 4).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Install, type check, Biome, unit tests, build and the checks of the
       built output all pass.
@@ -28,4 +28,4 @@ branch.
       deactivate during a run.
 - [x] No existing test was deleted to get green; any test removed is listed in
       the report with the reason.
-- [ ] One commit; the commits of tickets 03 to 07 are pushed.
+- [x] One commit; the commits of tickets 03 to 07 are pushed.

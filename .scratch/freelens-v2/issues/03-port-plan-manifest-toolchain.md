@@ -30,7 +30,7 @@ until then.
 
 **Blocked by:** 01 (pi 1.4.0 on the current toolchain).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] The plan record exists and lists every v1 API use with its v2
       replacement, including the removed `openExternal` and the host channel

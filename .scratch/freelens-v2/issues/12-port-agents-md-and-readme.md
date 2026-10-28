@@ -16,7 +16,7 @@ starts from an accurate description of it.
 **Blocked by:** 08 (port, step 6), 10 (write tools in the main process), 11
 (model requests through the Freelens HTTP client).
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] Every command, file layout and rule `AGENTS.md` names exists and works
       as written.
@@ -24,4 +24,4 @@ starts from an accurate description of it.
       frame-side tools, LangChain or MCP as part of the extension.
 - [ ] The README's install and development steps work on Freelens 2.
 - [x] The pi agent core ticket 08 links ADR 0002.
-- [ ] Trunk passes on the changed Markdown; one commit, pushed.
+- [x] Trunk passes on the changed Markdown; one commit, pushed.

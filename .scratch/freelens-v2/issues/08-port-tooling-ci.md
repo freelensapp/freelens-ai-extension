@@ -9,11 +9,11 @@ Identical files keep the final merge (ticket 14) free of tooling conflicts.
 
 **Blocked by:** 07 (port, step 5).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] The tooling and workflow files match the `main` branch, apart from
       differences the pi agent needs, each listed in the report.
 - [x] Knip reports nothing; anything ignored has a reason in its config.
 - [x] Biome passes with the `main` branch's config.
 - [x] Every check from ticket 07 still passes.
-- [ ] One commit, pushed; CI is green on the branch.
+- [x] One commit, pushed; CI is green on the branch.

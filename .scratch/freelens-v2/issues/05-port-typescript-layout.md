@@ -13,7 +13,7 @@ from pi, and the plan record notes it as a finding for pi.
 
 **Blocked by:** 02 (common code is process-neutral), 04 (port, step 2).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] The tsconfig files and environment tests match the `main` branch.
 - [x] The environment tests pass: each expected error is reported, and no

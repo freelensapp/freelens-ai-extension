@@ -27,7 +27,7 @@ bundle should build and load already.
 
 **Blocked by:** 03 (port, steps 0 and 1).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] The build configuration and plugins match the `main` branch, apart from
       what the pi agent needs (one-file main bundle).

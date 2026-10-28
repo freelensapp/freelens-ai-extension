@@ -29,7 +29,7 @@ No `as any`, no `globalThis.require`, no host internals.
 
 **Blocked by:** 05 (port, step 3).
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] Type check passes for every program, environment tests included.
 - [x] The build passes, and so do the checks of the built output.

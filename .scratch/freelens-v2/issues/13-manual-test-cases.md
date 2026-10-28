@@ -28,11 +28,11 @@ login) and how to create the objects they need.
 **Blocked by:** 10 (write tools in the main process), 11 (model requests
 through the Freelens HTTP client).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Every user story of the spec maps to at least one case, and the document
       lists the mapping.
 - [x] Every pending manual check of the pi agent build tickets maps to a case.
 - [x] Each case has preconditions, steps and an expected result a tester can
       check without reading the code.
-- [ ] Trunk passes on the document; one commit, pushed.
+- [x] Trunk passes on the document; one commit, pushed.

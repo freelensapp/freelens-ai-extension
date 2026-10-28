@@ -17,7 +17,7 @@ pi changed in ways that touch the extension (read pi's changelog from 1.0.0 to
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] Every pi package the extension depends on is at 1.4.0, and the lockfile
       holds no older pi.

@@ -20,7 +20,7 @@ requests use the proxy and CA preferences of Freelens.
 
 **Blocked by:** 07 (port, step 5).
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] Agent host test: the injected `fetch` reaches the provider request of a
       chat run (pi's faux provider receives it in the request options).
@@ -28,4 +28,4 @@ requests use the proxy and CA preferences of Freelens.
 - [x] Agent host test: a model on a Google API gets no custom `fetch`.
 - [x] The finding about the gaps is in the plan record, with the pi request
       linked once filed.
-- [ ] Every check passes; one commit, pushed.
+- [x] Every check passes; one commit, pushed.

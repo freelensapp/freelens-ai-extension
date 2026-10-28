@@ -15,7 +15,7 @@ move into common. The behaviour does not change.
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] No module in common imports React, a renderer module or a main-process
       module.

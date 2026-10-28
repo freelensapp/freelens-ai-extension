@@ -32,7 +32,7 @@ frame-side cluster tools and the `Cluster` interface.
 
 **Blocked by:** 09 (read tools run in the main process).
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] Tool tests on the stand-in assert the method, path, query, body and
       content type of every write operation above.
@@ -46,4 +46,4 @@ frame-side cluster tools and the `Cluster` interface.
       approval card shows the backup from the request.
 - [x] The protocol, the frame client and the snapshot hold no tool request
       bookkeeping; no frame code calls the cluster for a tool.
-- [ ] Every check passes, Knip included; one commit, pushed.
+- [x] Every check passes, Knip included; one commit, pushed.
