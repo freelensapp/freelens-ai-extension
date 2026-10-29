@@ -2,14 +2,25 @@
 // a hardcoded enum, so adding a new model needs no code changes. Extend the
 // pattern table below when a new family needs different handling.
 
-// OpenAI reasoning models (o-series, gpt-5.x) reject `temperature` and instead
-// accept a `reasoningEffort`. Non-reasoning models are the inverse.
-const REASONING_MODEL_PATTERNS: RegExp[] = [/^o\d/i, /gpt-5/i];
+// OpenAI reasoning models (o-series, gpt-5.x, gpt-6.x) reject `temperature` and
+// instead accept a `reasoningEffort`. Non-reasoning models are the inverse.
+const REASONING_MODEL_PATTERNS: RegExp[] = [/^o\d/i, /gpt-5/i, /gpt-6/i];
 
 export const isReasoningModel = (modelName: string): boolean =>
   REASONING_MODEL_PATTERNS.some((pattern) => pattern.test(modelName));
 
 export const supportsTemperature = (modelName: string): boolean => !isReasoningModel(modelName);
+
+// Models whose function tools work only through the Responses API. The GPT-6
+// family answers tool calls on Chat Completions with an error (GPT-6 Luna and
+// GPT-6.1 Terra only with reasoning effort `none`, which the preferences do not
+// offer). The other patterns are the models `@langchain/openai` already sends to
+// Responses on its own (`_modelPrefersResponsesAPI`), listed here so that they
+// get the same request options as GPT-6.
+const RESPONSES_API_MODEL_PATTERNS: RegExp[] = [/gpt-6/i, /gpt-5\.6/i, /gpt-5\.\d+-pro/i, /codex/i];
+
+export const requiresResponsesApi = (modelName: string): boolean =>
+  RESPONSES_API_MODEL_PATTERNS.some((pattern) => pattern.test(modelName));
 
 // Some "thinking" models (notably DeepSeek served through LiteLLM/OpenAI-compat
 // gateways, and Qwen reasoning models) reject a *forced* `tool_choice` while

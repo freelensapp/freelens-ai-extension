@@ -706,7 +706,7 @@ export const modelEndpoint: ModelEndpoint | undefined =
 // The placeholders of the inputs of the extension's preferences.
 const apiKeyPlaceholder = "Put here your OpenAI API key";
 const baseUrlPlaceholder = "https://api.openai.com/v1";
-const modelNamePlaceholder = "Model name, e.g. gpt-5.5";
+const modelNamePlaceholder = "Model name, e.g. gpt-6.1-sol";
 
 /**
  * Opens the extension's preferences and sets the API key, and with an

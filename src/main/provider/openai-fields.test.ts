@@ -36,6 +36,37 @@ describe("buildOpenAIChatFields", () => {
     expect(fields.temperature).toBeUndefined();
   });
 
+  it.each(["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"])(
+    "sets reasoning effort and omits temperature for %s",
+    (modelName) => {
+      const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort: "medium" });
+      expect(fields.reasoning?.effort).toBe("medium");
+      expect(fields.temperature).toBeUndefined();
+    },
+  );
+
+  it.each(["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-5.6-cyber"])(
+    "sends %s through the Responses API, stateless and with non-strict tools",
+    (modelName) => {
+      const fields = buildOpenAIChatFields({ ...baseOptions, modelName });
+      expect(fields.useResponsesApi).toBe(true);
+      expect(fields.zdrEnabled).toBe(true);
+      expect(fields.supportsStrictToolCalling).toBe(false);
+      expect(fields.modelKwargs).toEqual({ include: ["reasoning.encrypted_content"] });
+    },
+  );
+
+  it.each(["gpt-5.5", "gpt-5.4-mini", "gpt-4.1", "deepseek-v4-pro"])(
+    "leaves the API of %s to the client",
+    (modelName) => {
+      const fields = buildOpenAIChatFields({ ...baseOptions, modelName });
+      expect(fields.useResponsesApi).toBeUndefined();
+      expect(fields.zdrEnabled).toBeUndefined();
+      expect(fields.supportsStrictToolCalling).toBeUndefined();
+      expect(fields.modelKwargs).toBeUndefined();
+    },
+  );
+
   it("disables thinking via modelKwargs when requested", () => {
     const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "deepseek-v4-pro", disableThinking: true });
     expect(fields.modelKwargs).toMatchObject({ thinking: { type: "disabled" } });

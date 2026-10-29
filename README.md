@@ -111,8 +111,11 @@ the cluster tools, structured output, and human-in-the-loop approvals) runs
 inside the extension, in the main process of Freelens, and only the model
 inference is delegated to the provider.
 
-- **Talks the OpenAI Chat Completions API.** The extension is built on the
-  OpenAI client and the OpenAI-compatible wire format. It works with OpenAI
+- **Talks the OpenAI Chat Completions and Responses APIs.** The extension is
+  built on the OpenAI client and the OpenAI-compatible wire format. Most models
+  are reached through Chat Completions; the GPT-6 models, which take tools only
+  through the Responses API, are reached through Responses (see [Available
+  Models](#available-models)). It works with OpenAI
   directly, and with any endpoint that implements the same API — either natively
   or through an OpenAI-compatible gateway such as
   [LiteLLM](https://github.com/BerriAI/litellm) (see [Using other providers
@@ -153,15 +156,30 @@ The list of models is fully editable in the extension preferences. You can add
 or remove any model offered by the configured provider; the model name you enter
 is sent directly to the provider API.
 
-The list comes seeded with these OpenAI models, which you can change at any time:
+The list comes seeded with the flagship models of the OpenAI API, which you can
+change at any time:
 
-- _**gpt-5.5**_
-- _**gpt-5.4**_
-- _**gpt-5.4-mini**_
+- _**gpt-6.1-sol**_, selected at first: near GPT-6 Astra at a fifth of its cost
+- _**gpt-6-astra**_, the most capable, for complex reasoning and coding
+- _**gpt-6.1-terra**_, fast and efficient
+- _**gpt-6-luna**_, the cheapest, for high-volume tasks
+
+A list saved by an earlier version is kept as it is; **Reset to defaults** in
+the preferences replaces it with the list above. Older models, such as
+_**gpt-5.5**_, can be added back by name.
 
 Model-specific behavior (for example, sending a reasoning effort instead of a
 temperature) is decided by heuristics on the model name, so adding a new model
 needs no code changes.
+
+The GPT-6 models (and GPT-5.6, the GPT-5.x Pro models and the Codex models)
+call tools only through the OpenAI **Responses API**, so the extension sends
+their requests to `/responses` instead of `/chat/completions`. As with Chat
+Completions, the conversation is kept by the extension and sent with every
+request: the requests set `store: false`, so OpenAI keeps no copy of them, and
+the model's reasoning is carried from one tool call to the next in its
+encrypted form. A gateway in front of these models has to implement
+`/v1/responses` too.
 
 > Currently the **OpenAI** provider is the only one enabled. Google/Gemini
 > support is temporarily disabled and will return after further refactoring.
@@ -169,7 +187,8 @@ needs no code changes.
 ### Using other providers through an OpenAI-compatible gateway
 
 Although OpenAI is the only built-in provider, the extension talks to any
-endpoint that implements the OpenAI Chat Completions API. That means you can put
+endpoint that implements the OpenAI Chat Completions API (and, for the models
+that need it, the Responses API). That means you can put
 a gateway such as [LiteLLM](https://github.com/BerriAI/litellm) in front of the
 extension and reach providers like Anthropic, Google/Gemini, DeepSeek, Qwen, and
 many others through a single OpenAI-compatible API.
