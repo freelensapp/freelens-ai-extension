@@ -19,10 +19,10 @@ runs it in Freelens.
 
 ### Prerequisites
 
-- [***Freelens***](https://freelens.app) 2.0.0 or newer
-- [***Node.js***](https://nodejs.org/en), the version in `.nvmrc` (installed
+- [**_Freelens_**](https://freelens.app) 2.0.0 or newer
+- [**_Node.js_**](https://nodejs.org/en), the version in `.nvmrc` (installed
   with `nvm install` or `mise install` from the root of this repository)
-- [***pnpm***](https://pnpm.io/installation), the version of `packageManager`
+- [**_pnpm_**](https://pnpm.io/installation), the version of `packageManager`
   in `package.json` (installed with `corepack install`)
 
 ---
@@ -51,8 +51,8 @@ that.
 
 Now you can proceed with the following steps:
 
-- [***Create the tgz file***](#create-the-tgz-file)
-- [***Run the extension***](#run-the-extension)
+- [**_Create the tgz file_**](#create-the-tgz-file)
+- [**_Run the extension_**](#run-the-extension)
 
 ---
 
@@ -72,7 +72,7 @@ without changing the version.
 
 This project builds a Freelens extension, not a standalone application: the
 code runs inside Freelens once it is installed, as described in the
-[***setup guide***](./SET_UP_EXTENSION.md). Install either the tgz file, or
+[**_setup guide_**](./SET_UP_EXTENSION.md). Install either the tgz file, or
 the checkout itself as a directory.
 
 ---
@@ -80,7 +80,7 @@ the checkout itself as a directory.
 ### Development loop
 
 Install the extension from the directory of your checkout once, as the
-[***setup guide***](./SET_UP_EXTENSION.md) describes, then run:
+[**_setup guide_**](./SET_UP_EXTENSION.md) describes, then run:
 
 ```sh
 pnpm dev
@@ -95,9 +95,9 @@ packing. Stop it with `ctrl`+`C`. A change to `main` or `renderer` in
 
 #### Additional Resources
 
-- [***README***](../README.md)
-- [***Contribute***](../CONTRIBUTING.md)
-- [***Set up extension on freelens***](./SET_UP_EXTENSION.md)
+- [**_README_**](../README.md)
+- [**_Contribute_**](../CONTRIBUTING.md)
+- [**_Set up extension on freelens_**](./SET_UP_EXTENSION.md)
 
 If you find this project useful, please consider giving it a star on
-[***GitHub***](https://github.com/freelensapp/freelens-ai-extension)!
+[**_GitHub_**](https://github.com/freelensapp/freelens-ai-extension)!
