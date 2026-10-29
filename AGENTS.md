@@ -243,6 +243,10 @@ mechanism; this is the list to check a change against.
   `configurable.clusterId`, never from module state: two cluster frames run
   at once, and a module-level cluster sends one chat's request to the other's
   cluster ("Runs and their cluster").
+- **Kubernetes requests through `clusterApiFor()`.** Its client leaves out
+  an unset query value; the host's `forCluster` client sends it empty, and
+  the API server reads an empty boolean parameter as `true` ("Runs and their
+  cluster").
 - **HTTP from main through `Main.Util.fetch`.** The global `fetch`, or a
   bundled client's default one, works too, but ignores the user's proxy and
   certificate preferences ("HTTP from main").
@@ -542,7 +546,11 @@ knip does not follow the alias, so the stub is an entry of `knip.jsonc`.
 `test/kube-json-api.ts` is a stand-in `KubeJsonApi` for the Kubernetes tools:
 it answers a GET from a map of paths (the discovery documents included),
 records every request, and `installFakeClusters()` hands one per cluster id to
-the stubbed `forCluster`. The tool tests assert on the recorded requests. The
+the stubbed `forCluster`. The tool tests assert on the recorded requests. It
+records a query as the API server reads it, serialized with `node:querystring`
+as the host's `JsonApi` does, so every value is a string and an `undefined` or
+`null` value is an empty one, which the API server reads as `true` for a
+boolean parameter. The
 approval gate runs inside a real LangGraph graph in `agent-service.test.ts`,
 since `interrupt()` needs one; elsewhere `@langchain/langgraph` is mocked so
 that `interrupt()` answers at once. The bridge is tested over plain HTTP on an
@@ -937,6 +945,14 @@ host's `Main.K8sApi.KubeJsonApi.forCluster` client; without a cluster, or with
 one Freelens does not know, a tool answers the model with a message and sends
 nothing. Never read the cluster from a module-level variable: two cluster
 frames run at once.
+
+The client `clusterApiFor()` returns leaves out every `undefined` or `null`
+value of a request's query, so a tool passes its optional parameters as they
+are. The host serializes the query with `node:querystring`, which sends such a
+value as an empty one, and the API server reads an empty boolean parameter as
+`true`: an unset `previous` of the pod logs asked for the logs of the previous
+container. Get the client from `clusterApiFor()`, never from `forCluster`
+directly.
 
 Every request of a tool goes by path. A kind and an apiVersion resolve to their
 plural and scope from the API server's discovery document of the group version
