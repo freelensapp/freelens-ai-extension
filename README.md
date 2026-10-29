@@ -156,11 +156,17 @@ The list of models is fully editable in the extension preferences. You can add
 or remove any model offered by the configured provider; the model name you enter
 is sent directly to the provider API.
 
-The list comes seeded with these OpenAI models, which you can change at any time:
+The list comes seeded with the flagship models of the OpenAI API, which you can
+change at any time:
 
-- _**gpt-5.5**_
-- _**gpt-5.4**_
-- _**gpt-5.4-mini**_
+- _**gpt-6.1-sol**_, selected at first: near GPT-6 Astra at a fifth of its cost
+- _**gpt-6-astra**_, the most capable, for complex reasoning and coding
+- _**gpt-6.1-terra**_, fast and efficient
+- _**gpt-6-luna**_, the cheapest, for high-volume tasks
+
+A list saved by an earlier version is kept as it is; **Reset to defaults** in
+the preferences replaces it with the list above. Older models, such as
+_**gpt-5.5**_, can be added back by name.
 
 Model-specific behavior (for example, sending a reasoning effort instead of a
 temperature) is decided by heuristics on the model name, so adding a new model

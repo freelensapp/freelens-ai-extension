@@ -804,7 +804,9 @@ store; there is no hardcoded model enum. What `PreferencesStore` needs lives in
 
 - `ai-models.ts` — `AIProviders` enum (only `OPEN_AI` active), the
   `CustomModel` type (`{ provider, name }`), the seed list `DEFAULT_MODELS`
-  (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`), and `DEFAULT_OPENAI_BASE_URL`.
+  (the flagship models of the OpenAI API: `gpt-6.1-sol`, the initial
+  selection, `gpt-6-astra`, `gpt-6.1-terra`, `gpt-6-luna`), and
+  `DEFAULT_OPENAI_BASE_URL`.
 - `model-list.ts` — pure helpers for the editable list (trim, dedupe, remove,
   `resolveSelectedModel` selection fallback). No host/MobX deps so they are
   unit-tested directly.
