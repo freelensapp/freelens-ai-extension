@@ -131,7 +131,7 @@ export const PreferencesPage = observer(() => {
         onChange={(value: string) => (preferencesStore.openAIBaseUrl = value)}
       />
       <div className={styles.label}>Reasoning effort</div>
-      <div className={styles.hint}>Applied only to reasoning-capable models (o-series, gpt-5.x).</div>
+      <div className={styles.hint}>Applied only to reasoning-capable models (o-series, gpt-5.x, gpt-6.x).</div>
       <Select
         options={REASONING_EFFORT_OPTIONS}
         value={preferencesStore.openAIReasoningEffort}
@@ -178,7 +178,7 @@ export const PreferencesPage = observer(() => {
         </div>
         <div className={styles.addModelName}>
           <Input
-            placeholder="Model name, e.g. gpt-5.5"
+            placeholder="Model name, e.g. gpt-6.1-sol"
             value={newModelName}
             onChange={(value: string) => setNewModelName(value)}
             onSubmit={handleAddModel}

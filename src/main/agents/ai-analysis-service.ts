@@ -4,6 +4,7 @@ import { PreferencesStore } from "../../common/store";
 import { useModelProvider } from "../provider/model-provider";
 import { ANALYSIS_PROMPT_TEMPLATE } from "../provider/prompt-template-provider";
 import useLog from "../utils/logger";
+import { flattenContentText } from "./stream-merge";
 import { wait } from "./wait";
 
 const MAX_GEMINI_STREAM_RETRIES = 3;
@@ -67,9 +68,12 @@ export const useAiAnalysisService = (): AiAnalysisService => {
         const streamResponse = await chain.stream({ context: message }, { signal });
 
         for await (const chunk of streamResponse) {
-          if (chunk?.content) {
+          // The Responses API streams the content as an array of blocks, Chat
+          // Completions as a string.
+          const text = chunk ? flattenContentText(chunk.content) : "";
+          if (text) {
             hasYieldedContent = true;
-            yield String(chunk.content);
+            yield text;
           }
         }
 

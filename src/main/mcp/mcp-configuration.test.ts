@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isStdioServer, parseMcpServers, withClusterEnvironment } from "./mcp-configuration";
+import { isStdioServer, parseMcpServers, withClusterEnvironment, withoutElicitation } from "./mcp-configuration";
 
 describe("parseMcpServers", () => {
   it("reads the servers of the configuration", () => {
@@ -65,5 +65,32 @@ describe("withClusterEnvironment", () => {
     const servers = { remote: { url: "https://mcp.example.com/mcp", headers: { authorization: "Bearer t" } } };
 
     expect(withClusterEnvironment(servers, environment)).toEqual(servers);
+  });
+});
+
+describe("withoutElicitation", () => {
+  it("turns elicitation off for stdio and HTTP servers, also where the server turned it on", () => {
+    expect(
+      withoutElicitation({
+        kubernetes: { command: "npx" },
+        remote: { url: "https://mcp.example.com/mcp", mode: "modern" },
+        asking: { transport: "http", url: "https://mcp.example.com/mcp", elicitation: true },
+      }),
+    ).toEqual({
+      kubernetes: { command: "npx", elicitation: false },
+      remote: { url: "https://mcp.example.com/mcp", mode: "modern", elicitation: false },
+      asking: { transport: "http", url: "https://mcp.example.com/mcp", elicitation: false },
+    });
+  });
+
+  it("leaves SSE servers, legacy servers and invalid entries as they are", () => {
+    const servers = {
+      sse: { transport: "sse", url: "https://mcp.example.com/sse" },
+      typed: { type: "sse", url: "https://mcp.example.com/sse" },
+      legacy: { command: "npx", mode: "legacy" },
+      invalid: "npx",
+    };
+
+    expect(withoutElicitation(servers)).toEqual(servers);
   });
 });

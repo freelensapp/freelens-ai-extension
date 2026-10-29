@@ -4,7 +4,7 @@
 // that the process is gone after the client closes.
 //
 // It speaks just enough of the protocol (newline-delimited JSON-RPC) for
-// `MultiServerMCPClient`: initialize, tools/list and tools/call.
+// `MCPAdapter`: initialize, tools/list and tools/call.
 import { createInterface } from "node:readline";
 
 const send = (message) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);

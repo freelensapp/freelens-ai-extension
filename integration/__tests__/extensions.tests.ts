@@ -1,42 +1,35 @@
 /**
- * Copyright (c) OpenLens Authors. All rights reserved.
+ * Copyright (c) Freelens Authors. All rights reserved.
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-// Runs inside a Freelens checkout, copied into `freelens/integration/__tests__/`
-// by the integration tests workflow, and imports the helpers found there.
+// Installs this checkout in place in Freelens dev, uninstalling whatever
+// installation of the extension the app had, and opens its preferences.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { installExtension, openExtensionPreferences, startApp } from "./extension-helpers";
+import { appReady, connectApp, installExtension, openExtensionPreferences } from "./extension-helpers";
 
 import type { AppSession } from "./extension-helpers";
 
-describe("extensions page tests", () => {
+describe.skipIf(!(await appReady({ cluster: false })))("extensions page tests", () => {
   let session: AppSession | undefined;
 
   beforeAll(async () => {
-    session = await startApp();
-    await installExtension(session);
+    session = await connectApp();
+    await installExtension(session, { reinstall: true });
   }, 120 * 1000);
 
-  afterAll(
-    async () => {
-      expect((await session?.close()) ?? []).toEqual([]);
-    },
-    10 * 60 * 1000,
-  );
+  afterAll(async () => {
+    expect((await session?.close()) ?? []).toEqual([]);
+  });
 
-  it(
-    "installs an extension",
-    async () => {
-      expect(session?.errors()).toEqual([]);
-    },
-    100 * 60 * 1000,
-  );
+  it("installs the extension", () => {
+    expect(session?.errors()).toEqual([]);
+  });
 
   it("opens the extension's preferences", async () => {
     if (!session) {
-      throw new Error("The app did not start");
+      throw new Error("The app is not connected");
     }
 
     await openExtensionPreferences(session);
