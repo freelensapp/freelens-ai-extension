@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { finished } from "node:stream";
 import { BRIDGE_HOST, BRIDGE_TOKEN_HEADER, type BridgeRoutePath } from "../../common/bridge/protocol";
 import { encodeSseEvent } from "../../common/bridge/sse";
+import { toBridgeError } from "./bridge-error";
 import type { AddressInfo } from "node:net";
 
 // The renderer is the only intended caller. Its frames are served from
@@ -23,8 +24,8 @@ export type BridgeRouteHandler =
   // Answers with one JSON body.
   | { method: "GET" | "POST"; kind: "json"; handle: (input: BridgeInput) => Promise<unknown> }
   // Answers with an SSE stream of the events the iterable yields, then a
-  // `done` event, an `error` event when it throws, or a `cancelled` event when
-  // the bridge closes first.
+  // `done` event, an `error` event when it throws, with the `code` of a
+  // BridgeRequestError, or a `cancelled` event when the bridge closes first.
   | { method: "GET" | "POST"; kind: "stream"; handle: (input: BridgeInput) => AsyncIterable<object> };
 
 export type BridgeRoutes = Partial<Record<BridgeRoutePath, BridgeRouteHandler>>;
@@ -127,7 +128,7 @@ const streamEvents = async (response: ServerResponse, events: AsyncIterable<obje
     }
   } catch (error) {
     if (!signal.aborted) {
-      response.write(encodeSseEvent({ type: "error", error: { message: errorMessage(error) } }));
+      response.write(encodeSseEvent({ type: "error", error: toBridgeError(error) }));
     }
   }
   response.end();

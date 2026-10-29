@@ -49,10 +49,12 @@ export const Message = ({ message }: MessageProps) => {
       return (
         <div className={styles.errorMessage}>
           <MarkdownViewer content={chatHook.visibleText} />
-          <button type="button" className={styles.retryButton} onClick={() => chatService.retry(message)}>
-            <RotateCcw size={14} />
-            Retry
-          </button>
+          {message.retryContext && (
+            <button type="button" className={styles.retryButton} onClick={() => chatService.retry(message)}>
+              <RotateCcw size={14} />
+              Retry
+            </button>
+          )}
         </div>
       );
     } else if (message.notice) {

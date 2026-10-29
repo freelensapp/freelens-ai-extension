@@ -1,7 +1,7 @@
 import { Main } from "@freelensapp/extensions";
 import { interrupt } from "@langchain/langgraph";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createFakeKubeJsonApi, installFakeClusters } from "../../../../test/kube-json-api";
+import { createFakeKubeJsonApi, DELETED_AT, installFakeClusters } from "../../../../test/kube-json-api";
 import { PreferencesStore } from "../../../common/store";
 import {
   createKubernetesResource,
@@ -40,6 +40,15 @@ const POD = {
   spec: { containers: [{ name: "web" }] },
 };
 
+const FINALIZER_POD_PATH = "/api/v1/namespaces/default/pods/finalizer-pod";
+
+const FINALIZER_POD = {
+  apiVersion: "v1",
+  kind: "Pod",
+  metadata: { name: "finalizer-pod", namespace: "default", uid: "uid-1", finalizers: ["freelens.app/ai-check"] },
+  spec: { containers: [{ name: "app" }] },
+};
+
 const KUSTOMIZATION = {
   apiVersion: "kustomize.toolkit.fluxcd.io/v1",
   kind: "Kustomization",
@@ -58,6 +67,7 @@ beforeEach(() => {
       "/apis/apps/v1/namespaces/default/deployments/web": WEB,
       "/apis/apps/v1/deployments": { items: [WEB] },
       "/api/v1/namespaces/default/pods/web-1": POD,
+      [FINALIZER_POD_PATH]: FINALIZER_POD,
       "/apis/kustomize.toolkit.fluxcd.io/v1/namespaces/flux-system/kustomizations": { items: [KUSTOMIZATION] },
       "/apis/kustomize.toolkit.fluxcd.io/v1/namespaces/flux-system/kustomizations/apps": KUSTOMIZATION,
       "/api/v1/namespaces": { items: [{ metadata: { name: "default" } }, { metadata: { name: "flux-system" } }] },
@@ -381,19 +391,84 @@ describe("the write tools", () => {
     });
   });
 
-  it("clears the finalizers of a pod, then force deletes it", async () => {
-    await deletePod.invoke(
-      { name: "web-1", namespace: "default", mode: "delete_with_finalizers" },
-      config("cluster-a"),
-    );
+  describe("deleting a pod with its finalizers", () => {
+    const deleteWithFinalizers = () =>
+      deletePod.invoke(
+        { name: "finalizer-pod", namespace: "default", mode: "delete_with_finalizers" },
+        config("cluster-a"),
+      );
 
-    const [patch, del] = cluster.actions().filter(({ method }) => method !== "get");
-    expect(patch).toMatchObject({
-      method: "patch",
-      data: { metadata: { finalizers: [] } },
-      headers: { "content-type": "application/strategic-merge-patch+json" },
+    const writes = () => cluster.actions().filter(({ method }) => method !== "get");
+
+    it("removes the finalizers with a JSON merge patch, then force deletes the pod", async () => {
+      const result = await deleteWithFinalizers();
+
+      expect(writes()).toEqual([
+        {
+          method: "patch",
+          path: FINALIZER_POD_PATH,
+          data: { metadata: { finalizers: null } },
+          query: undefined,
+          headers: { "content-type": "application/merge-patch+json" },
+        },
+        expect.objectContaining({
+          method: "del",
+          path: FINALIZER_POD_PATH,
+          data: expect.objectContaining({ gracePeriodSeconds: 0 }),
+        }),
+      ]);
+      expect(cluster.objects).not.toHaveProperty(FINALIZER_POD_PATH);
+      expect(result).toBe('Pod "finalizer-pod" deleted and its finalizers removed');
     });
-    expect(del).toMatchObject({ method: "del", data: { gracePeriodSeconds: 0 } });
+
+    it("reports a pod in Terminating as deleted when it is gone before the force delete", async () => {
+      (cluster.objects[FINALIZER_POD_PATH] as { metadata: Record<string, unknown> }).metadata.deletionTimestamp =
+        DELETED_AT;
+
+      const result = await deleteWithFinalizers();
+
+      expect(writes().map(({ method }) => method)).toEqual(["patch", "del"]);
+      expect(cluster.objects).not.toHaveProperty(FINALIZER_POD_PATH);
+      expect(result).toBe('Pod "finalizer-pod" deleted and its finalizers removed');
+    });
+
+    it("reports the pod still there with its finalizers when the patch fails", async () => {
+      cluster.api.patch.mockRejectedValueOnce({ code: 403, reason: "Forbidden", message: "patch is forbidden" });
+
+      const result = await deleteWithFinalizers();
+
+      expect(writes().map(({ method }) => method)).toEqual(["del"]);
+      expect(result).toBe(
+        `Pod "finalizer-pod" was not deleted: it is terminating since ${DELETED_AT}, ` +
+          "with the finalizers freelens.app/ai-check. " +
+          'Removing its finalizers failed: {"code":403,"reason":"Forbidden","message":"patch is forbidden"}.',
+      );
+    });
+
+    it("tells a new pod with the same name from the deleted one", async () => {
+      cluster.api.del.mockImplementationOnce(async (path: string) => {
+        cluster.objects[path] = {
+          ...FINALIZER_POD,
+          metadata: { ...FINALIZER_POD.metadata, uid: "uid-2", finalizers: [] },
+        };
+        return {};
+      });
+
+      const result = await deleteWithFinalizers();
+
+      expect(result).toBe(
+        'Pod "finalizer-pod" deleted and its finalizers removed; a new pod with the same name has been created in its place',
+      );
+    });
+
+    it("sends nothing for a pod that does not exist", async () => {
+      delete cluster.objects[FINALIZER_POD_PATH];
+
+      const result = await deleteWithFinalizers();
+
+      expect(writes()).toEqual([]);
+      expect(result).toBe('The pod "finalizer-pod" you want to delete does not exist');
+    });
   });
 
   it("restarts a workload with the restartedAt annotation of its pod template", async () => {

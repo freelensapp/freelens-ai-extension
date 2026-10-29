@@ -662,8 +662,9 @@ export async function deleteKubernetesResource(
  *   PodDisruptionBudget (POST to the pod's `eviction` subresource).
  * - `force_delete`: delete immediately with a zero grace period, useful for pods
  *   stuck on an unreachable node.
- * - `delete_with_finalizers`: clear the pod's finalizers, then force delete it,
- *   so a pod stuck in `Terminating` is removed.
+ * - `delete_with_finalizers`: remove the pod's finalizers with a JSON merge
+ *   patch, then force delete it, so a pod stuck in `Terminating` is removed;
+ *   the answer says whether the pod is gone (see `deletePodWithFinalizers`).
  */
 export async function deletePod({ name, namespace, mode }: DeletePodInput, config?: RunnableConfig): Promise<string> {
   console.log("[Tool invocation: deletePod] - name:", name, "namespace:", namespace, "mode:", mode);
@@ -691,20 +692,116 @@ export async function deletePod({ name, namespace, mode }: DeletePodInput, confi
       case "force_delete":
         await deleteObject(api, path, true);
         return `Pod "${name}" force-deleted successfully`;
-      case "delete_with_finalizers":
-        try {
-          await mergePatch(api, path, { metadata: { finalizers: [] } }, STRATEGIC_MERGE_PATCH_CONTENT_TYPE);
-        } catch (error) {
-          // As the host does: when the patch fails, force delete anyway.
-          console.warn("Failed to remove finalizers, proceeding with force delete", error);
-        }
-        await deleteObject(api, path, true);
-        return `Pod "${name}" deleted and finalizers cleared successfully`;
+      case "delete_with_finalizers": {
+        const result = await deletePodWithFinalizers(api, path, name);
+        console.log("[Tool invocation result: deletePod] - ", result);
+        return result;
+      }
     }
   } catch (error) {
     console.error("[Tool invocation error: deletePod] - ", error);
     return JSON.stringify(error);
   }
+}
+
+interface PodMetadata {
+  uid?: string;
+  deletionTimestamp?: string;
+  finalizers?: string[];
+}
+
+// The HTTP status of a failed request. The host's JsonApi throws a
+// `JsonApiErrorParsed`, which keeps the API server's Status as `error`; a GET
+// answered with 403 throws the Status itself.
+function statusCodeOf(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+  const { code, error: status } = error as { code?: unknown; error?: { code?: unknown } };
+  if (typeof code === "number") {
+    return code;
+  }
+  return typeof status?.code === "number" ? status.code : undefined;
+}
+
+const isNotFound = (error: unknown) => statusCodeOf(error) === 404;
+
+// The metadata of the pod at the path, or `undefined` when there is none.
+async function loadPodMetadata(api: KubeJsonApi, path: string): Promise<PodMetadata | undefined> {
+  try {
+    const pod = await api.get<{ metadata?: PodMetadata }>(path);
+    return pod?.metadata ?? {};
+  } catch (error) {
+    if (isNotFound(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Remove the finalizers of a pod, force delete it, and answer with what the
+ * cluster did, read back from the API server.
+ *
+ * The finalizers are removed with a JSON merge patch that sets them to `null`.
+ * In a strategic merge patch `metadata.finalizers` has the patch strategy
+ * `merge`, so an empty list there adds nothing and removes nothing: that is
+ * what the host's `PodApi.deleteWithFinalizers` sends, and the pod stays in
+ * `Terminating` with its finalizers (freelensapp/freelens#2759).
+ *
+ * A pod that is already terminating is removed by the API server as soon as
+ * its finalizers are gone, so the delete that follows may find nothing. A
+ * controller such as a StatefulSet may create a new pod with the same name, so
+ * the pod is still there only when its uid is the one it had before.
+ */
+async function deletePodWithFinalizers(api: KubeJsonApi, path: string, name: string): Promise<string> {
+  const before = await loadPodMetadata(api, path);
+  if (!before) {
+    return `The pod "${name}" you want to delete does not exist`;
+  }
+
+  let patchError: unknown;
+  try {
+    await mergePatch(api, path, { metadata: { finalizers: null } });
+  } catch (error) {
+    if (!isNotFound(error)) {
+      console.warn("[Tool invocation: deletePod] - failed to remove the finalizers, force deleting anyway", error);
+      patchError = error;
+    }
+  }
+  const patchFailure =
+    patchError === undefined ? "" : ` Removing its finalizers failed: ${JSON.stringify(patchError)}.`;
+
+  try {
+    await deleteObject(api, path, true);
+  } catch (error) {
+    if (!isNotFound(error)) {
+      return `Pod "${name}" was not deleted: the force delete failed: ${JSON.stringify(error)}.${patchFailure}`;
+    }
+  }
+
+  let after: PodMetadata | undefined;
+  try {
+    after = await loadPodMetadata(api, path);
+  } catch (error) {
+    return (
+      `Pod "${name}" was force deleted, but whether it is gone could not be checked: ${JSON.stringify(error)}.` +
+      patchFailure
+    );
+  }
+  const removed = patchError === undefined ? " and its finalizers removed" : "";
+  if (!after) {
+    return `Pod "${name}" deleted${removed}`;
+  }
+  if (after.uid !== before.uid) {
+    return `Pod "${name}" deleted${removed}; a new pod with the same name has been created in its place`;
+  }
+  const finalizers = after.finalizers ?? [];
+  const state = [
+    after.deletionTimestamp ? `it is terminating since ${after.deletionTimestamp}` : "it is not terminating",
+    finalizers.length > 0 ? `with the finalizers ${finalizers.join(", ")}` : "without finalizers",
+  ].join(", ");
+  return `Pod "${name}" was not deleted: ${state}.${patchFailure}`;
 }
 
 /**

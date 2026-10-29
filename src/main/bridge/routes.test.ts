@@ -1,11 +1,49 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BRIDGE_TOKEN_HEADER, BridgeRoute } from "../../common/bridge/protocol";
 import { readSseEvents } from "../../common/bridge/sse";
+import { AgentStateStore, PreferencesStore } from "../../common/store";
+import { AgentRuntime } from "../agents/agent-runtime";
 import { createBridgeRoutes, parseAgentRunRequest, parseConversationRequest, parseExplainRequest } from "./routes";
 import { type BridgeServer, startBridgeServer } from "./server";
 
 import type { AgentRunRequest } from "../../common/bridge/protocol";
-import type { AgentRuntime } from "../agents/agent-runtime";
+
+// The agents of a real runtime, reduced to the structure of the MCP agent: a
+// model node that asks for a tool when the prompt names one, and a node that
+// asks for its approval with `interrupt()` before anything runs. No model and
+// no tool is called.
+vi.mock("../agents/freelens-agent-system", async () => {
+  const { AIMessage } = await import("@langchain/core/messages");
+  const { interrupt, MemorySaver, MessagesAnnotation, StateGraph } = await import("@langchain/langgraph");
+  const buildAgentSystem = () =>
+    new StateGraph(MessagesAnnotation)
+      .addNode("agent", (state) => {
+        const prompt = String(state.messages[state.messages.length - 1]?.content);
+        return {
+          messages: prompt.includes("pods")
+            ? [new AIMessage({ content: "", tool_calls: [{ id: "call-1", name: "kubectl_get", args: {} }] })]
+            : [new AIMessage(`answer to: ${prompt}`)],
+        };
+      })
+      .addNode("shouldContinue", (state) => {
+        const lastMessage = state.messages[state.messages.length - 1] as InstanceType<typeof AIMessage>;
+        if (!lastMessage.tool_calls?.length) {
+          return {};
+        }
+        const review = interrupt({
+          question: "The agent has requested to use a tool",
+          options: ["yes", "no"],
+          actionToApprove: { action: ["kubectl_get"] },
+          requestString: "The agent wants to use this tool: kubectl_get",
+        });
+        return { messages: [new AIMessage(`approved: ${review}`)] };
+      })
+      .addEdge("__start__", "agent")
+      .addEdge("agent", "shouldContinue")
+      .addEdge("shouldContinue", "__end__")
+      .compile({ checkpointer: new MemorySaver() });
+  return { useFreeLensAgentSystem: () => ({ buildAgentSystem, availableTools: [] }) };
+});
 
 describe("parseAgentRunRequest", () => {
   it("reads a message run", () => {
@@ -132,6 +170,66 @@ describe("createBridgeRoutes over HTTP", () => {
     expect(response.ok).toBe(false);
     expect(await response.json()).toEqual({ error: 'The request has no "clusterId".' });
     expect(runtime.run).not.toHaveBeenCalled();
+  });
+
+  describe("with the agents of a runtime", () => {
+    let runtime: AgentRuntime | undefined;
+
+    afterEach(async () => {
+      await runtime?.dispose();
+      runtime = undefined;
+      PreferencesStore.resetInstance();
+      AgentStateStore.resetInstance();
+    });
+
+    const startRuntime = async () => {
+      runtime = new AgentRuntime();
+      bridge = await startBridgeServer({
+        token: TOKEN,
+        routes: createBridgeRoutes({ runtime, fetchModelPricing: async () => ({}) }),
+      });
+      return `http://127.0.0.1:${bridge.port}`;
+    };
+
+    const run = async (base: string, input: AgentRunRequest["input"]) => {
+      const response = await post(base, BridgeRoute.run, { clusterId: "c1", conversationId: "t1", input });
+      const events: { type: string }[] = [];
+      for await (const event of readSseEvents<{ type: string }>(response.body as ReadableStream<Uint8Array>)) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    const textOf = (events: { type: string; text?: string }[]) => events.map(({ text }) => text ?? "").join("");
+
+    it("answers a pending approval", async () => {
+      const base = await startRuntime();
+
+      expect(await run(base, { kind: "message", text: "list the pods" })).toContainEqual(
+        expect.objectContaining({ type: "interrupt" }),
+      );
+      const resumed = await run(base, { kind: "resume", answer: "yes" });
+
+      expect(textOf(resumed)).toContain("approved: yes");
+      expect(resumed.at(-1)).toEqual({ type: "done" });
+    });
+
+    it("refuses a resume with no pending approval, after a clear, and runs the next prompt", async () => {
+      const base = await startRuntime();
+      await run(base, { kind: "message", text: "list the pods" });
+      await post(base, BridgeRoute.clear, { clusterId: "c1", conversationId: "t1" });
+
+      expect(await run(base, { kind: "resume", answer: "hello" })).toEqual([
+        {
+          type: "error",
+          error: { message: "There is no pending approval to answer.", code: "no-pending-approval" },
+        },
+      ]);
+
+      const next = await run(base, { kind: "message", text: "hello" });
+      expect(textOf(next)).toContain("answer to: hello");
+      expect(next.at(-1)).toEqual({ type: "done" });
+    });
   });
 
   it("answers compact, clear, the tools and the pricing with JSON", async () => {

@@ -352,6 +352,12 @@ export const ApplicationContextProvider = observer(({ extension, children }: App
   };
 
   const clearChat = async () => {
+    // A cleared chat has no approval to answer and no run to wait for. Both
+    // flags outlive a reload of the frame in sessionStorage, and a stale
+    // interrupted flag sends every next message as the answer to the cleared
+    // approval, so they are reset whatever the bridge answers below.
+    setConversationInterrupted(false);
+    setLoading(false);
     // Zero the per-session token counter and context-size estimate alongside the
     // transcript, and drop any lingering compaction status.
     _setTokenUsage(emptyTokenUsage());

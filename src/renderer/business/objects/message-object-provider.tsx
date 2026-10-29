@@ -13,9 +13,10 @@ export function getTextMessage(message: string, sent: boolean): MessageObject {
   };
 }
 
-// Error message shown after a failed agent run. It carries a `retryContext` so
-// the chat can offer a "Retry" button that re-runs the original query.
-export function getErrorMessage(message: string, retryContext: RetryContext): MessageObject {
+// Error message shown after a failed agent run. A `retryContext` lets the chat
+// offer a "Retry" button that re-runs the original query; without one, a retry
+// could not succeed and the error offers none.
+export function getErrorMessage(message: string, retryContext?: RetryContext): MessageObject {
   return {
     messageId: generateUuid(),
     type: MessageType.MESSAGE,

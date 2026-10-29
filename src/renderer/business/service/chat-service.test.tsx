@@ -1,149 +1,181 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BridgeRoute } from "../../../common/bridge/protocol";
+import { encodeSseEvent } from "../../../common/bridge/sse";
 import { ChatSessionStore, PreferencesStore } from "../../../common/store";
+import { Message } from "../../components/message";
 import { ApplicationContextProvider, useApplicationStatusStore } from "../../context/application-context";
-import { streamFromBridge } from "../bridge/bridge-client";
-import { getExplainMessage, getTextMessage } from "../objects/message-object-provider";
-import useChatService, { CANCELLED_NOTICE } from "./chat-service";
+import { IS_CONVERSATION_INTERRUPTED_KEY } from "../../context/chat-session-storage";
+import { getTextMessage } from "../objects/message-object-provider";
+import useChatService from "./chat-service";
 
 import type { Renderer } from "@freelensapp/extensions";
 
-import type { AgentRunEvent } from "../../../common/bridge/protocol";
+import type { AgentRunEvent, AgentRunRequest, ApprovalRequest } from "../../../common/bridge/protocol";
 
-vi.mock("../bridge/bridge-client", () => ({
-  streamFromBridge: vi.fn(),
-  getFromBridge: vi.fn(),
-  postToBridge: vi.fn(),
-}));
-
-const streamMock = vi.mocked(streamFromBridge);
-
-// Answers the next stream request with `events`, then fails with `error` if
-// one is given, as a body cut by the network does.
-const answerWith = (events: AgentRunEvent[], error?: Error) => {
-  streamMock.mockImplementationOnce(async function* () {
-    for (const event of events) {
-      yield event as never;
-    }
-    if (error) {
-      throw error;
-    }
-  });
+const APPROVAL: ApprovalRequest = {
+  question: "The agent has requested to use a tool",
+  options: ["yes", "no"],
+  actionToApprove: { action: ["kubectl_get"] },
+  requestString: "The agent wants to use this tool: kubectl_get",
 };
 
-// Shows the transcript, one element per message, and starts the requests.
+// The bridge in main, reduced to what the chat sends: every run request is
+// recorded and answered with the next stream of `runs`.
+let runs: AgentRunEvent[][];
+let runRequests: AgentRunRequest[];
+let clearRequests: number;
+
+const answer = (body: unknown) =>
+  new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+
+const bridgeFetch = async (input: string | URL | Request, init?: RequestInit) => {
+  const { pathname } = new URL(String(input));
+  if (pathname === BridgeRoute.run) {
+    runRequests.push(JSON.parse(String(init?.body)));
+    // Main ends a stream with `done`, or with the `error` that ends it early.
+    const events: { type: string }[] = runs.shift() ?? [];
+    if (events.at(-1)?.type !== "error") {
+      events.push({ type: "done" });
+    }
+    return new Response(events.map(encodeSseEvent).join(""), { headers: { "content-type": "text/event-stream" } });
+  }
+  if (pathname === BridgeRoute.clear) {
+    clearRequests += 1;
+    return answer({});
+  }
+  return answer({});
+};
+
 const Chat = () => {
-  const { chatMessages, isLoading } = useApplicationStatusStore();
-  const chatService = useChatService();
+  const { sendMessageToAgent } = useChatService();
+  const { clearChat, chatMessages } = useApplicationStatusStore();
   return (
     <>
-      {chatMessages?.map((message) => (
-        <p key={message.messageId} data-testid={message.notice ? "notice" : message.error ? "error" : "message"}>
-          {message.text}
-        </p>
-      ))}
-      <span>{isLoading ? "loading" : "idle"}</span>
-      <button type="button" onClick={() => chatService.sendMessageToAgent(getTextMessage("Hello", true))}>
-        Send
+      <button type="button" onClick={() => sendMessageToAgent(getTextMessage("list the pods", true))}>
+        Ask for a tool
       </button>
-      <button type="button" onClick={() => chatService.sendMessageToAgent(getExplainMessage("BackOff"))}>
-        Explain
+      <button type="button" onClick={() => sendMessageToAgent(getTextMessage("hello", true))}>
+        Say hello
       </button>
-      <button type="button" onClick={() => chatService.resumeInterrupt("yes")}>
-        Approve
+      <button type="button" onClick={() => clearChat()}>
+        Clear chat
       </button>
+      <div>
+        {chatMessages?.map((message) => (
+          <Message key={message.messageId} message={message} />
+        ))}
+      </div>
     </>
   );
 };
 
-const extension = { navigateToPreferences: vi.fn() } as unknown as Renderer.LensExtension;
-
 const renderChat = () =>
   render(
-    <ApplicationContextProvider extension={extension}>
+    <ApplicationContextProvider extension={{} as Renderer.LensExtension}>
       <Chat />
     </ApplicationContextProvider>,
   );
 
-const texts = (testId: string) => screen.queryAllByTestId(testId).map((element) => element.textContent);
+const isInterrupted = () => window.sessionStorage.getItem(IS_CONVERSATION_INTERRUPTED_KEY) === "true";
+
+beforeEach(() => {
+  runs = [];
+  runRequests = [];
+  clearRequests = 0;
+  vi.stubGlobal("fetch", vi.fn(bridgeFetch));
+  const preferences = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+  preferences.aiProxyPort = 4321;
+  preferences.aiProxyToken = "token";
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  window.sessionStorage.clear();
+  PreferencesStore.resetInstance();
+  ChatSessionStore.resetInstance();
+});
 
 describe("useChatService", () => {
-  let consoleError: MockInstance<typeof console.error>;
-
-  // The lines the chat logs at error level, which DevTools shows as errors.
-  // React's own development warnings are left out: the transcript's state
-  // updaters write ChatSessionStore, which React's development build reports
-  // when two updates of one tick are applied in a render.
-  const loggedErrors = () =>
-    consoleError.mock.calls.map((call) => String(call[0])).filter((line) => line.startsWith("[useChatService]"));
-
-  beforeEach(() => {
-    consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-  });
-
-  afterEach(() => {
-    cleanup();
-    consoleError.mockRestore();
-    streamMock.mockReset();
-    window.sessionStorage.clear();
-    PreferencesStore.resetInstance();
-    ChatSessionStore.resetInstance();
-  });
-
-  it("ends a run cancelled by the bridge with a note, and logs no error", async () => {
-    answerWith([{ type: "text", text: "Half an" }, { type: "cancelled" }]);
+  it("answers a pending approval with the next message", async () => {
+    runs = [[{ type: "interrupt", value: APPROVAL }]];
     renderChat();
 
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask for a tool" }));
+    await waitFor(() => expect(isInterrupted()).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
 
-    expect(await screen.findByTestId("notice")).toHaveProperty("textContent", CANCELLED_NOTICE);
-    await screen.findByText("idle");
-    expect(texts("message")).toEqual(["Hello", "Half an"]);
-    expect(texts("error")).toEqual([]);
-    expect(loggedErrors()).toEqual([]);
+    await waitFor(() => expect(runRequests).toHaveLength(2));
+    expect(runRequests[1]?.input).toEqual({ kind: "resume", answer: "hello" });
   });
 
-  it("ends an Explain cancelled by the bridge with a note, and logs no error", async () => {
-    answerWith([{ type: "cancelled" }]);
+  it("sends the next message as a new prompt once the chat with a pending approval is cleared", async () => {
+    runs = [[{ type: "interrupt", value: APPROVAL }], [{ type: "text", text: "Hi there" }]];
     renderChat();
 
-    fireEvent.click(screen.getByRole("button", { name: "Explain" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask for a tool" }));
+    await waitFor(() => expect(isInterrupted()).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+    await waitFor(() => expect(clearRequests).toBe(1));
 
-    expect(await screen.findByTestId("notice")).toHaveProperty("textContent", CANCELLED_NOTICE);
-    expect(texts("error")).toEqual([]);
-    expect(loggedErrors()).toEqual([]);
+    expect(isInterrupted()).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
+
+    await screen.findByText(/Hi there/);
+    expect(runRequests[1]?.input).toEqual({ kind: "message", text: "hello", summary: null });
   });
 
-  it("starts the next answer after the note rather than in it", async () => {
-    answerWith([{ type: "text", text: "Half an" }, { type: "cancelled" }]);
-    answerWith([{ type: "text", text: "Applied." }, { type: "done" }]);
+  it("sends the next message as a new prompt when main has no approval to answer", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    runs = [
+      [{ type: "interrupt", value: APPROVAL }],
+      [{ type: "error", error: { message: "There is no pending approval to answer.", code: "no-pending-approval" } }],
+      [{ type: "text", text: "Hi there" }],
+    ];
     renderChat();
 
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    await screen.findByTestId("notice");
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask for a tool" }));
+    await waitFor(() => expect(isInterrupted()).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
 
-    await screen.findByText("Applied.");
-    expect(texts("notice")).toEqual([CANCELLED_NOTICE]);
-    expect(texts("message")).toEqual(["Hello", "Half an", "Applied."]);
+    await screen.findByText(/There is no pending approval to answer/);
+    expect(runRequests[1]?.input).toEqual({ kind: "resume", answer: "hello" });
+    expect(isInterrupted()).toBe(false);
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
+
+    await screen.findByText(/Hi there/);
+    expect(runRequests[2]?.input).toEqual({ kind: "message", text: "hello", summary: null });
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
-  it("keeps a stream cut by the network an error", async () => {
-    answerWith([{ type: "text", text: "Half an" }], new TypeError("network error"));
+  it("offers a retry of a run that failed", async () => {
+    runs = [[{ type: "error", error: { message: "The AI endpoint answered with a server error." } }]];
     renderChat();
 
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
 
-    expect(await screen.findByTestId("error")).toHaveProperty(
-      "textContent",
-      "Error while running Freelens Agent: network error",
-    );
-    expect(texts("notice")).toEqual([]);
-    expect(consoleError).toHaveBeenCalledWith(
-      "[useChatService] Error while running Freelens Agent: ",
-      expect.any(TypeError),
-    );
+    await screen.findByText(/answered with a server error/);
+    expect(screen.getByRole("button", { name: "Retry" })).toBeDefined();
+  });
+
+  it("resets the approval state even when main cannot clear the conversation", async () => {
+    runs = [[{ type: "interrupt", value: APPROVAL }]];
+    renderChat();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ask for a tool" }));
+    await waitFor(() => expect(isInterrupted()).toBe(true));
+    PreferencesStore.getInstanceOrCreate<PreferencesStore>().aiProxyPort = null;
+    fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+
+    await waitFor(() => expect(screen.queryByText(/kubectl_get/)).toBeNull());
+    expect(isInterrupted()).toBe(false);
+    expect(clearRequests).toBe(0);
   });
 });
