@@ -11,13 +11,23 @@ import { estimateNextPromptTokens, shouldCompactSession } from "../../../common/
 import { useApplicationStatusStore } from "../../context/application-context";
 import useLog from "../../utils/logger/logger-service";
 import { streamFromBridge } from "../bridge/bridge-client";
-import { getErrorMessage, getExplainMessage, getInterruptMessage } from "../objects/message-object-provider";
+import {
+  getErrorMessage,
+  getExplainMessage,
+  getInterruptMessage,
+  getNoticeMessage,
+} from "../objects/message-object-provider";
 
 import type { MessageObject, RetryContext } from "../../../common/objects/message-object";
 
 // The message of an error of the bridge or of a run. Main already words the
 // errors of the model endpoint; see src/main/agents/describe-error.ts.
 const getReadableErrorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+// Shown when the bridge ends a stream with `cancelled`: the extension stopped,
+// or reloaded, in main before the answer was complete. An expected end, so it
+// is a note rather than an error with a "Retry" button.
+export const CANCELLED_NOTICE = "Stopped: the extension was stopped or reloaded before the answer was complete.";
 
 const useChatService = () => {
   const { log } = useLog("useChatService");
@@ -138,6 +148,9 @@ const useChatService = () => {
           applicationStatusStore.updateLastMessage(event.text);
         } else if (event.type === "error") {
           throw new Error(event.error.message);
+        } else if (event.type === "cancelled") {
+          log.info("AI analysis stopped: the extension stopped");
+          _sendMessage(getNoticeMessage(CANCELLED_NOTICE));
         }
       }
     } catch (error) {
@@ -160,6 +173,7 @@ const useChatService = () => {
       });
       let endedWithInterrupt = false;
       let autoApproveAndResume = false;
+      let cancelled = false;
       for await (const event of events) {
         switch (event.type) {
           case "text":
@@ -212,10 +226,18 @@ const useChatService = () => {
             throw new Error(event.error.message);
           case "done":
             break;
+          // The bridge closed before the run ended, because the extension
+          // stopped or reloaded in main; the run is cancelled there.
+          case "cancelled":
+            cancelled = true;
+            break;
         }
       }
       applicationStatusStore.setConversationInterrupted(endedWithInterrupt);
-      if (autoApproveAndResume) {
+      if (cancelled) {
+        log.info("Freelens Agent stopped: the extension stopped");
+        _sendMessage(getNoticeMessage(CANCELLED_NOTICE));
+      } else if (autoApproveAndResume) {
         await runAgent({ kind: "resume", answer: "yes" }, retryContext);
       }
     } catch (error) {

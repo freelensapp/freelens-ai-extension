@@ -5,8 +5,8 @@
 // reload of the extension, which starts a new bridge, needs no page reload.
 //
 // Every body is plain JSON. A run is the response to the request that started
-// it: an SSE stream of the events below, ended by `done` or `error`. Closing the
-// request cancels the run.
+// it: an SSE stream of the events below, ended by `done` or `error`, or by
+// `cancelled` when the bridge closes first. Closing the request cancels the run.
 
 import type { ModelPricingMap } from "../provider/model-pricing";
 import type { TokenUsage } from "../service/token-usage";
@@ -102,6 +102,13 @@ export interface BridgeError {
   code?: BridgeErrorCode;
 }
 
+// The last event of a stream that the bridge closed before it ended, because
+// the extension stopped or reloaded in main. It comes in place of `done`: the
+// work behind the stream is cancelled, and the connection closes after it.
+export interface BridgeCancelledEvent {
+  type: "cancelled";
+}
+
 export type AgentRunEvent =
   // Answer text, in the order it is generated.
   | { type: "text"; text: string }
@@ -115,9 +122,14 @@ export type AgentRunEvent =
   // A pending approval; the run ends after it.
   | { type: "interrupt"; value: ApprovalRequest }
   | { type: "error"; error: BridgeError }
-  | { type: "done" };
+  | { type: "done" }
+  | BridgeCancelledEvent;
 
-export type ExplainEvent = { type: "text"; text: string } | { type: "error"; error: BridgeError } | { type: "done" };
+export type ExplainEvent =
+  | { type: "text"; text: string }
+  | { type: "error"; error: BridgeError }
+  | { type: "done" }
+  | BridgeCancelledEvent;
 
 export const isApprovalRequest = (value: unknown): value is ApprovalRequest =>
   typeof value === "object" &&

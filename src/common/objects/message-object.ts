@@ -32,5 +32,8 @@ export interface MessageObject {
   // `retryContext` carries everything needed to re-run the failed query.
   error?: boolean;
   retryContext?: RetryContext;
+  // Marks a note of the chat itself, such as a run stopped by the extension
+  // stopping; the next answer starts a message of its own after it.
+  notice?: boolean;
   sent: boolean;
 }
