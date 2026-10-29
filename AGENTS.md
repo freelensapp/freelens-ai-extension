@@ -605,7 +605,7 @@ does; without `dist/` that problem does not show.
 | `check.yaml`             | `pnpm build`, `pnpm lint:check`, `pnpm knip:check`                            |
 | `unit-tests.yaml`        | `pnpm test:unit`                                                              |
 | `trunk-check.yaml`       | `trunk check` over every file (`check-mode: all`)                             |
-| `integration-tests.yaml` | the integration tests in `integration/`, against a Freelens build of `main`   |
+| `integration-tests.yaml` | the integration tests in `integration/`, against a build of Freelens v2.0.0   |
 | `mise-lock-check.yaml`   | on a change to `mise.lock`: no checksum changed for an unchanged tool version |
 | `release.yaml`           | on a tag: build, pack, publish to npm, the release with `.tgz` and `.sha256`  |
 
