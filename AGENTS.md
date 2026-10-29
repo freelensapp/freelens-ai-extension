@@ -973,13 +973,24 @@ run in main (`src/main/mcp/`), never in the renderer, which cannot spawn a
 process; an MCP tool call never leaves main, and the renderer sees only the
 agent's stream and its approvals, through the bridge.
 
-- **One client per cluster.** `McpClients` keeps one `MultiServerMCPClient` of
+- **One client per cluster.** `McpClients` keeps one `MCPAdapter` of
   `@langchain/mcp-adapters` per cluster id, built from the `mcpServers` of the
-  `mcpConfiguration` preference (`mcp-configuration.ts`). The servers start on
-  the first request for a cluster, a run or the tool list, and keep running
-  for the next ones. A failed start leaves nothing running, and the next
-  request tries again; an empty or invalid configuration has no servers, and
-  the client refuses it with "No MCP servers provided", which the chat shows.
+  `mcpConfiguration` preference (`mcp-configuration.ts`), which it hands to
+  the adapter as its `servers`. The servers start on the first request for a
+  cluster, a run or the tool list, and keep running for the next ones. A
+  failed start leaves nothing running, and the next request tries again; an
+  empty or invalid configuration has no servers, and `McpClients` refuses it
+  with "No MCP servers provided", which the chat shows, before it creates an
+  adapter: the adapter's own error for it is a Zod union error that names
+  none of that. The tools keep the names their servers give them
+  (`prefixToolNameWithServerName: false`), so two servers with a tool of the
+  same name fail the start.
+- **No elicitation.** A modern MCP server can ask the user for input, and the
+  adapter then pauses the run with a LangGraph interrupt of its own, which the
+  chat cannot show or answer. `withoutElicitation()` sets `elicitation: false`
+  on every server that takes the option, that is all but SSE servers and
+  servers in `mode: "legacy"`, which the adapter refuses it for, so the
+  adapter does not offer elicitation to the servers.
 - **The environment.** A stdio server is a child process of main, started with
   `Main.Shell.getEnvironment(clusterId)` under the server's own `env`, where a
   variable the user set wins. That environment has the `KUBECONFIG` and
@@ -997,7 +1008,7 @@ agent's stream and its approvals, through the bridge.
   it is no longer connected, since a disconnect removes the files of its
   environment: a `reaction` on the statuses of `Main.Catalog.getAllClusters()`,
   which the host computes with its mobx. They start again, with a fresh
-  environment, on the next request. `MultiServerMCPClient#close()` ends the
+  environment, on the next request. `MCPAdapter#close()` ends the
   process of every stdio server.
 - **The agent.** The MCP agent of a cluster is built from the tools of its
   client and rebuilt when the servers were started again, since its tools call

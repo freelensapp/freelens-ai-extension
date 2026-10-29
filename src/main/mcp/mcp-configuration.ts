@@ -3,7 +3,7 @@
 // dependencies so they are unit-tested directly.
 
 // The servers of the configuration by name, each as the user wrote it.
-// `MultiServerMCPClient` validates every connection itself when it is created.
+// `MCPAdapter` validates every connection itself when it is created.
 export type McpServers = Record<string, unknown>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -11,7 +11,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 /**
  * The servers of the configuration. An empty or invalid configuration has no
- * servers; the MCP client then refuses to start with "No MCP servers
+ * servers; the MCP adapter then refuses to start with "No MCP servers
  * provided", which the chat shows.
  */
 export const parseMcpServers = (configuration: string): McpServers => {
@@ -33,7 +33,7 @@ export const parseMcpServers = (configuration: string): McpServers => {
 
 /**
  * Whether a server runs as a child process: an explicit stdio transport, or
- * no transport and a command, as `MultiServerMCPClient` infers it.
+ * no transport and a command, as `MCPAdapter` infers it.
  */
 export const isStdioServer = (server: unknown): server is Record<string, unknown> => {
   if (!isRecord(server)) {
@@ -45,6 +45,25 @@ export const isStdioServer = (server: unknown): server is Record<string, unknown
   }
   return typeof server.command === "string";
 };
+
+/**
+ * The servers with MCP elicitation turned off. A modern server that asks the
+ * user for input makes `MCPAdapter` pause the run with a LangGraph interrupt
+ * of its own, which the chat cannot show or answer: it knows only the approvals
+ * of the agents. A server with elicitation off is not offered it and runs its
+ * tools without asking. An SSE server and a server in `legacy` mode have no
+ * elicitation, and the adapter refuses the option for them, so they are left as
+ * they are.
+ */
+export const withoutElicitation = (servers: McpServers): McpServers =>
+  Object.fromEntries(
+    Object.entries(servers).map(([name, server]) => {
+      if (!isRecord(server) || (server.transport ?? server.type) === "sse" || server.mode === "legacy") {
+        return [name, server];
+      }
+      return [name, { ...server, elicitation: false }];
+    }),
+  );
 
 /**
  * The servers with the environment of the chat's cluster under the `env` of
