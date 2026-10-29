@@ -35,6 +35,7 @@ This guide installs the extension in Freelens and sets up its API key.
      `pnpm build`. Freelens asks whether to load the extension in place;
      confirm it. It then runs from the files in `dist/`, and a rebuild reloads
      it.
+
    ![The Extensions page with the install field](./images/extensions_page.png)
 3. The extension is listed, enabled. An extension installed from a directory
    is listed as "in place, unverified".

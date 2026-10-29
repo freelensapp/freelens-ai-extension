@@ -1,20 +1,26 @@
-// The MCP servers of the preferences, run in main: one `MultiServerMCPClient`
-// per cluster, so each chat's servers talk to its own cluster. A stdio server is
+// The MCP servers of the preferences, run in main: one `MCPAdapter` per
+// cluster, so each chat's servers talk to its own cluster. A stdio server is
 // a child process of main, started with the environment of the cluster's
 // terminal (`Main.Shell.getEnvironment`); HTTP and SSE servers are reached from
 // main too. Nothing of an MCP server leaves main: the renderer sees only the
 // agent's stream and its approvals, through the bridge.
 
 import { Common, Main } from "@freelensapp/extensions";
-import { MultiServerMCPClient } from "@langchain/mcp-adapters";
+import { MCPAdapter } from "@langchain/mcp-adapters";
 import useLog from "../utils/logger";
-import { isStdioServer, type McpServers, parseMcpServers, withClusterEnvironment } from "./mcp-configuration";
+import {
+  isStdioServer,
+  type McpServers,
+  parseMcpServers,
+  withClusterEnvironment,
+  withoutElicitation,
+} from "./mcp-configuration";
 
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { Connection } from "@langchain/mcp-adapters";
 
 export interface McpClient {
-  getTools(): Promise<StructuredToolInterface[]>;
+  listTools(): Promise<StructuredToolInterface[]>;
   // Stops every server of the client; a stdio server's process ends with it.
   close(): Promise<void>;
 }
@@ -30,13 +36,13 @@ const hostDependencies: McpClientsDependencies = {
     Main.Catalog.getClusterById(clusterId)?.status === Common.Clusters.ClusterConnectionStatus.CONNECTED,
   getEnvironment: (clusterId) => Main.Shell.getEnvironment(clusterId),
   createClient: (servers) =>
-    new MultiServerMCPClient({
+    new MCPAdapter({
       throwOnLoadError: true,
+      // The tools keep the names their servers give them, which the custom
+      // agent rules of the preferences may name.
       prefixToolNameWithServerName: false,
-      additionalToolNamePrefix: "",
-      useStandardContentBlocks: true,
-      // The connections are the user's JSON; the client validates them.
-      mcpServers: servers as Record<string, Connection>,
+      // The connections are the user's JSON; the adapter validates them.
+      servers: withoutElicitation(servers) as Record<string, Connection>,
     }),
 };
 
@@ -73,14 +79,21 @@ export class McpClients {
     }
 
     const entry: Entry = { configuration, closed: false, tools: Promise.resolve([]) };
-    entry.tools = this.start(clusterId, entry);
+    // Kept before the start, which removes it again when it fails before its
+    // first await.
     this.entries.set(clusterId, entry);
+    entry.tools = this.start(clusterId, entry);
     return entry.tools;
   }
 
   private async start(clusterId: string, entry: Entry): Promise<StructuredToolInterface[]> {
     try {
       const servers = parseMcpServers(entry.configuration);
+      // The adapter refuses an empty map too, but with a Zod error over every
+      // shape of its configuration, which says nothing the user can act on.
+      if (Object.keys(servers).length === 0) {
+        throw new Error("No MCP servers provided");
+      }
       // Only a process needs the environment, which needs a connected cluster.
       const environment = Object.values(servers).some(isStdioServer)
         ? await this.dependencies.getEnvironment(clusterId)
@@ -89,7 +102,7 @@ export class McpClients {
         throw new Error("The MCP servers were stopped while they started.");
       }
       entry.client = this.dependencies.createClient(withClusterEnvironment(servers, environment));
-      const tools = await entry.client.getTools();
+      const tools = await entry.client.listTools();
       for (const tool of tools) {
         this.log.debug(`Loaded MCP tool ${tool.name} for cluster ${clusterId}: ${tool.description}`);
       }
