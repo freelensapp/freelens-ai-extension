@@ -1,7 +1,5 @@
 # @freelensapp/ai-extension
 
-<!-- markdownlint-disable MD013 -->
-
 [![Home](https://img.shields.io/badge/%F0%9F%8F%A0-freelens.app-02a7a0)](https://freelens.app)
 [![GitHub](https://img.shields.io/github/stars/freelensapp/freelens-ai-extension?style=flat&label=GitHub%20%E2%AD%90)](https://github.com/freelensapp/freelens-ai-extension)
 [![Release](https://img.shields.io/github/v/release/freelensapp/freelens-ai-extension?display_name=tag&sort=semver)](https://github.com/freelensapp/freelens-ai-extension)
@@ -113,8 +111,11 @@ the cluster tools, structured output, and human-in-the-loop approvals) runs
 inside the extension, in the main process of Freelens, and only the model
 inference is delegated to the provider.
 
-- **Talks the OpenAI Chat Completions API.** The extension is built on the
-  OpenAI client and the OpenAI-compatible wire format. It works with OpenAI
+- **Talks the OpenAI Chat Completions and Responses APIs.** The extension is
+  built on the OpenAI client and the OpenAI-compatible wire format. Most models
+  are reached through Chat Completions; the GPT-6 models, which take tools only
+  through the Responses API, are reached through Responses (see [Available
+  Models](#available-models)). It works with OpenAI
   directly, and with any endpoint that implements the same API — either natively
   or through an OpenAI-compatible gateway such as
   [LiteLLM](https://github.com/BerriAI/litellm) (see [Using other providers
@@ -150,26 +151,44 @@ use it with Freelens AI you would need an OpenAI-compatible endpoint and a
 standard API key (directly or through a gateway).
 
 ## Available Models
+
 The list of models is fully editable in the extension preferences. You can add
 or remove any model offered by the configured provider; the model name you enter
 is sent directly to the provider API.
 
-The list comes seeded with these OpenAI models, which you can change at any time:
+The list comes seeded with the flagship models of the OpenAI API, which you can
+change at any time:
 
-- ***gpt-5.5***
-- ***gpt-5.4***
-- ***gpt-5.4-mini***
+- _**gpt-6.1-sol**_, selected at first: near GPT-6 Astra at a fifth of its cost
+- _**gpt-6-astra**_, the most capable, for complex reasoning and coding
+- _**gpt-6.1-terra**_, fast and efficient
+- _**gpt-6-luna**_, the cheapest, for high-volume tasks
+
+A list saved by an earlier version is kept as it is; **Reset to defaults** in
+the preferences replaces it with the list above. Older models, such as
+_**gpt-5.5**_, can be added back by name.
 
 Model-specific behavior (for example, sending a reasoning effort instead of a
 temperature) is decided by heuristics on the model name, so adding a new model
 needs no code changes.
 
+The GPT-6 models (and GPT-5.6, the GPT-5.x Pro models and the Codex models)
+call tools only through the OpenAI **Responses API**, so the extension sends
+their requests to `/responses` instead of `/chat/completions`. As with Chat
+Completions, the conversation is kept by the extension and sent with every
+request: the requests set `store: false`, so OpenAI keeps no copy of them, and
+the model's reasoning is carried from one tool call to the next in its
+encrypted form. A gateway in front of these models has to implement
+`/v1/responses` too.
+
 > Currently the **OpenAI** provider is the only one enabled. Google/Gemini
 > support is temporarily disabled and will return after further refactoring.
 
 ### Using other providers through an OpenAI-compatible gateway
+
 Although OpenAI is the only built-in provider, the extension talks to any
-endpoint that implements the OpenAI Chat Completions API. That means you can put
+endpoint that implements the OpenAI Chat Completions API (and, for the models
+that need it, the Responses API). That means you can put
 a gateway such as [LiteLLM](https://github.com/BerriAI/litellm) in front of the
 extension and reach providers like Anthropic, Google/Gemini, DeepSeek, Qwen, and
 many others through a single OpenAI-compatible API.
@@ -180,6 +199,7 @@ by that gateway. The requests are sent by the main process of Freelens, so the
 proxy and certificate settings of the Freelens preferences apply to them.
 
 ### DeepSeek and other "thinking" models
+
 Some models reached through a gateway need extra handling, which the extension
 applies automatically based on the model name:
 
@@ -188,7 +208,7 @@ applies automatically based on the model name:
   parser leak this markup into the assistant text instead of returning
   structured tool calls. For these models the extension uses a client that
   recovers the tool calls from the markup so tools still run.
-- **Forced tool choice**: DeepSeek and Qwen reasoning models reject a *forced*
+- **Forced tool choice**: DeepSeek and Qwen reasoning models reject a _forced_
   `tool_choice` while thinking mode is on; the extension requests
   `tool_choice: "auto"` for them instead.
 - **Disable thinking mode**: some providers (for example DeepSeek via LiteLLM)
@@ -197,6 +217,7 @@ applies automatically based on the model name:
   tool_choice` error, enable **Disable thinking mode** in the OpenAI preferences.
 
 ### Ollama
+
 [Ollama](https://ollama.com) exposes a natively OpenAI-compatible endpoint, so
 no gateway is needed to reach a model running on your own machine.
 
@@ -221,6 +242,7 @@ On networks with TLS inspection, the first `ollama pull` may need the corporate
 root certificate to be trusted by Ollama's environment.
 
 ### Connecting a model
+
 Open the preferences page and, in the OpenAI section, set your API key and
 (optionally) a custom base URL. You can also provide the key through an
 environment variable of the Freelens process instead, which takes precedence
@@ -403,23 +425,75 @@ pnpm build
 pnpm knip:check
 ```
 
-and, for the formats that Biome does not cover:
+and, for the formats that Biome does not cover (TOML, shell scripts, workflows):
 
 ```sh
 pnpm trunk:check
 ```
+
+### Integration tests
+
+The integration tests drive Freelens dev, started from a
+[freelensapp/freelens](https://github.com/freelensapp/freelens) checkout,
+against a [kind](https://kind.sigs.k8s.io/) cluster. In the Freelens checkout:
+
+```sh
+pnpm dev
+```
+
+Freelens dev lists no cluster until a kubeconfig is added in Preferences >
+Kubernetes > Kubeconfig Syncs. Add one with the kind cluster, for example:
+
+```sh
+kubectl config view --minify --flatten --context kind-kind > ~/kind-kind.kubeconfig
+```
+
+Then, with the kind cluster running, in the extension repository:
+
+```sh
+pnpm build
+pnpm test:integration
+```
+
+The tests install the checkout in place, replacing any other installation of
+the extension in Freelens dev. They create the namespace `integration-tests`
+with a Warning event, and delete it afterwards. They clear the chat of the
+kind cluster and set the API key, the base URL and the model in the
+extension's preferences. Without Freelens dev or the cluster the tests are
+skipped.
+
+Two prompts, one in the chat and one from "Explain", are sent to a model
+endpoint given by three variables, in the environment or in a `.env` file of
+the repository:
+
+```sh
+LLM_API_URL=http://localhost:4000
+LLM_API_KEY=sk-...
+LLM_API_MODEL=gpt-5.4-mini
+```
+
+Without them the prompts are skipped and the API key is left empty.
+
+Optional variables:
+
+- `TEST_KIND_CLUSTER_NAME`: the kind cluster, `kind` by default, used
+  through the context `kind-<name>`.
+- `FREELENS_CDP_URL`: the CDP endpoint of Freelens dev,
+  `http://127.0.0.1:9223` by default.
+- `FREELENS_MAIN_LOG`: a log of the main process to check for errors, such
+  as its `lens.log`. Without it only the renderer's errors are checked.
 
 How the extension is built, type-checked and tested, and why, is described in
 [AGENTS.md](AGENTS.md).
 
 ## Additional Resources
 
-- [***Contribute***](CONTRIBUTING.md)
-- [***Build the extension***](./docs/BUILD.md)
-- [***Set up the extension in Freelens***](./docs/SET_UP_EXTENSION.md)
+- [**_Contribute_**](CONTRIBUTING.md)
+- [**_Build the extension_**](./docs/BUILD.md)
+- [**_Set up the extension in Freelens_**](./docs/SET_UP_EXTENSION.md)
 
 If you find this project useful, please consider giving it a star on
-[***GitHub***](https://github.com/freelensapp/freelens-ai-extension)!
+[**_GitHub_**](https://github.com/freelensapp/freelens-ai-extension)!
 
 ## License
 

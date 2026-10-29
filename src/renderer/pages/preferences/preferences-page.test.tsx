@@ -51,7 +51,7 @@ describe("PreferencesPage", () => {
     render(<PreferencesPage />);
 
     fireEvent.click(within(selects()[1]).getByRole("button", { name: "Clear" }));
-    fireEvent.change(screen.getByPlaceholderText("Model name, e.g. gpt-5.5"), { target: { value: " o4-mini " } });
+    fireEvent.change(screen.getByPlaceholderText("Model name, e.g. gpt-6.1-sol"), { target: { value: " o4-mini " } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
 
     expect(store().models.at(-1)).toEqual({ provider: AIProviders.OPEN_AI, name: "o4-mini" });

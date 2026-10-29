@@ -4,13 +4,15 @@
 // those objects as the API server does, and records every request, so a test
 // asserts what the tools would put on the wire and what it did.
 
+import { type ParsedUrlQuery, parse, stringify } from "node:querystring";
 import { Main } from "@freelensapp/extensions";
 import { vi } from "vitest";
 
 export interface RecordedKubeRequest {
   method: "get" | "post" | "put" | "patch" | "del" | "getResponse";
   path: string;
-  query?: Record<string, unknown>;
+  // The query as the API server reads it, every value a string.
+  query?: ParsedUrlQuery;
   data?: unknown;
   headers?: Record<string, string>;
 }
@@ -86,6 +88,15 @@ interface ObjectWithMetadata {
   metadata?: { deletionTimestamp?: string; finalizers?: string[] };
 }
 
+/**
+ * The query of a request as the host sends it. Its `JsonApi` builds the query
+ * string with `stringify` of `node:querystring`, which sends an `undefined` or
+ * `null` value as an empty one, and the API server reads an empty boolean
+ * parameter as `true`.
+ */
+const serializeQuery = (query?: Record<string, unknown>) =>
+  query === undefined ? undefined : { ...parse(stringify(query as Parameters<typeof stringify>[0])) };
+
 export const createFakeKubeJsonApi = (
   objects: Record<string, unknown> = {},
   { logs = {} }: { logs?: Record<string, { status: number; text: string }> } = {},
@@ -94,7 +105,7 @@ export const createFakeKubeJsonApi = (
   const known: Record<string, unknown> = structuredClone({ ...DISCOVERY, ...objects });
 
   const record = (method: RecordedKubeRequest["method"], path: string, params?: Params, init?: Init) => {
-    requests.push({ method, path, query: params?.query, data: params?.data, headers: init?.headers });
+    requests.push({ method, path, query: serializeQuery(params?.query), data: params?.data, headers: init?.headers });
   };
 
   // As the API server does: an object that is being deleted is removed once

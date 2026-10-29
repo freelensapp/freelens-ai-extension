@@ -3,14 +3,14 @@
 // reasoning-effort vs temperature heuristic) can be unit-tested without the
 // MobX store or instantiating a real client.
 
-import { isReasoningModel } from "./model-capabilities";
+import { isReasoningModel, requiresResponsesApi } from "./model-capabilities";
 
 import type { ChatOpenAIFields } from "@langchain/openai";
 
 type ClientFetch = NonNullable<NonNullable<ChatOpenAIFields["configuration"]>["fetch"]>;
 
 export interface OpenAIChatFieldsOptions {
-  // Model id sent to the OpenAI API (e.g. "gpt-5.5").
+  // Model id sent to the OpenAI API (e.g. "gpt-6.1-sol").
   modelName: string;
   // API key used for the request.
   apiKey: string;
@@ -58,6 +58,21 @@ export const buildOpenAIChatFields = ({
     }
   } else {
     fields.temperature = 0;
+  }
+
+  // Models that take their tools only through the Responses API. The
+  // conversation is kept in the extension's checkpoints and re-sent with every
+  // request, as on Chat Completions, so nothing is stored by OpenAI
+  // (`zdrEnabled` sends `store: false` and replays no item ids), and the
+  // reasoning of a tool loop is replayed from its encrypted content. Function
+  // tools are strict by default on Responses, and a strict schema must require
+  // every property, so the tools are sent non-strict, as on Chat Completions,
+  // and keep their optional arguments.
+  if (requiresResponsesApi(modelName)) {
+    fields.useResponsesApi = true;
+    fields.zdrEnabled = true;
+    fields.supportsStrictToolCalling = false;
+    fields.modelKwargs = { ...fields.modelKwargs, include: ["reasoning.encrypted_content"] };
   }
 
   // Sent via `modelKwargs` so it reaches the upstream request body verbatim
