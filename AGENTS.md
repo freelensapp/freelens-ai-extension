@@ -682,8 +682,12 @@ The endpoint is `LLM_API_URL`, `LLM_API_KEY` and `LLM_API_MODEL`, an
 OpenAI-compatible API such as a LiteLLM proxy. `vitest.integration.config.ts`
 reads them with `loadEnv` of Vite, from the environment or from a local
 `.env`, which is git-ignored; without any of them both prompts are skipped and
-the API key stays cleared. The workflow sets none, so CI runs everything but
-the prompts. The session sets only these three preferences and leaves the
+the API key stays cleared. The workflow passes the endpoint of the repository,
+the variables `LLM_API_URL` and `LLM_API_MODEL` and the secret `LLM_API_KEY`,
+to the step of the tests only, which type them into the preferences; Freelens
+dev runs without them. A pull request from this repository gets them too, a
+Renovate branch included, and runs the prompts; one from a fork gets no
+secrets and skips them. The session sets only these three preferences and leaves the
 others as they are, so a model that needs another one, such as "Disable
 thinking mode" for DeepSeek through LiteLLM, needs it set in the profile once.
 The key is typed into its input and never logged.

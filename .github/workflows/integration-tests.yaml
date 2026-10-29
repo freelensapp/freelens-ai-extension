@@ -308,9 +308,12 @@ jobs:
       # The tests run two sessions against the one app: the install test, and
       # the cluster session, which applies the test objects to the kind cluster
       # named by TEST_KIND_CLUSTER_NAME, opens the chat, the preferences and the
-      # Events page, and removes the objects again. The workflow sets no model
-      # endpoint (LLM_API_URL, LLM_API_KEY, LLM_API_MODEL), so the prompts to
-      # the model are skipped.
+      # Events page, and removes the objects again. With the model endpoint of
+      # the repository, the variables LLM_API_URL and LLM_API_MODEL and the
+      # secret LLM_API_KEY, the session sets it in the preferences and sends
+      # two prompts; without it, as in a pull request from a fork, which gets
+      # no secrets, the prompts are skipped. Only this step needs them: the
+      # tests type them into the preferences, so Freelens dev runs without.
       #
       # The tests are deterministic, so a failure is not retried. A failing view
       # costs one view timeout.
@@ -319,6 +322,9 @@ jobs:
         env:
           FREELENS_MAIN_LOG: ${{ runner.temp }}/freelens-dev.log
           TEST_KIND_CLUSTER_NAME: freelens
+          LLM_API_URL: ${{ vars.LLM_API_URL }}
+          LLM_API_MODEL: ${{ vars.LLM_API_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
 
       - name: Show Freelens dev output
         if: always()
