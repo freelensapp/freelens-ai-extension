@@ -203,6 +203,22 @@ mechanism; this is the list to check a change against.
   unobservable in mobx's production build; an `@observable accessor` field
   moves the value behind a getter, which `toJSON()`, `toJS()` and spreading do
   not see ("Decorators and the stores").
+- **A memo over a store's items is keyed on something that changes with
+  them.** The host keeps one observable array per store and updates it in
+  place, with `replace` and `splice`, so `store.items` stays the same array
+  while the objects in it change. A `useMemo` keyed on it, or on a prop that
+  holds it, is computed once, and an open view keeps the objects it was opened
+  with. An `observer` that reads the items while it renders follows them; a
+  memo needs a key such as the ids and `resourceVersion`s of the objects. It
+  shows only on a cluster whose objects change while the view is open.
+- **An effect creates what its cleanup aborts or releases.** Freelens dev
+  renders in `React.StrictMode`, which runs an effect, cleans it up and runs
+  it again on the same instance. An `AbortController` kept in a `useRef` is
+  aborted by the first cleanup, and every request of the second run with it:
+  a bridge request or a run's event stream that is aborted for no failure
+  ends at once, and the view shows nothing. Create the controller, and
+  whatever else the cleanup releases, inside the effect. The production build
+  has no `StrictMode`, so only Freelens dev shows it.
 - **No Node or Electron in renderer and common code.** They are `undefined` in
   the renderer. The build fails on an import, `pnpm type:check` on a global
   ("Process-specific settings").
@@ -862,6 +878,17 @@ MCP writes its snapshots to `.playwright-mcp/`, which is git-ignored.
   Flux and workloads deployed by it), and a model endpoint with a key, set in
   the preferences; an OpenAI-compatible gateway such as LiteLLM works as the
   base URL. MCP needs `npx` on the login shell's `PATH`.
+- **The kubeconfig of a dev profile.** A profile of Freelens dev syncs no
+  kubeconfig until one is added in "Kubeconfig Syncs" of the Kubernetes
+  preferences, so its catalog lists none of the developer's clusters;
+  `KUBECONFIG` does not change that. For the checks, add a kubeconfig with the
+  test cluster alone, such as the output of
+  `kubectl config view --minify --flatten --context kind-kind`. A fresh
+  profile, in a `FREELENS_INTEGRATION_TESTING_DIR` under the system's
+  temporary directory, can start with it already in place: seed
+  `FreelensDev/lens-user-store.json` there with
+  `preferences.syncKubeconfigEntries`, whose `filePath` is absolute
+  ("Kubeconfig syncs of the dev profile" in Freelens's `DEVELOPMENT.md`).
 - **Frames.** Every cluster renders in a cross-origin
   `<clusterId>.renderer.freelens.app` iframe; the chat page, the sidebar entry
   and the "Explain" item live in that frame, the preferences in the root frame.
@@ -875,10 +902,20 @@ MCP writes its snapshots to `.playwright-mcp/`, which is git-ignored.
   and never paste the full console into a PR, an issue or a report. React
   reports a missing `key` and a prop the DOM does not take as console errors;
   they count as failures of the "no error in DevTools" check.
+- **Failed loads.** The renderer's requests, to Kubernetes and to the bridge,
+  go through Chromium, which logs every response that is not a success as a
+  console error, `Failed to load resource: the server responded with a status
+  of N`, also one that the code that sent it handles. The text names no URL;
+  the location of the message does. Leave out such an error by its status and
+  URL only where the response is expected, not every "Failed to load
+  resource".
 - **Main.** The agents, the bridge and the MCP servers log in main: in the
   terminal running Freelens, and in its log file (on macOS
-  `~/Library/Logs/Freelens/lens.log`). The process list shows whether an MCP
-  server is still running, and its environment which cluster it reaches.
+  `~/Library/Logs/Freelens/lens.log`, with the renderer's `lens-renderer-*.log`
+  next to it); when the terminal is not at hand, the file shows the
+  extension's activation, its reloads and its own lines. Filter it as the
+  console. The process list shows whether an MCP server is still running, and
+  its environment which cluster it reaches.
 - **Disabling and enabling.** Without a restart of Freelens, disabling and
   enabling the extension leaves two instances of its store in main, which
   overwrite the bridge token in an endless save loop (freelensapp/freelens#2721).
