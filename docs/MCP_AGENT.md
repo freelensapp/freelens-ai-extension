@@ -29,26 +29,26 @@ next message starts them again.
 Freelens-AI allows you to configure MCP agents directly from its Preferences page.
 
 1. Open Freelens-AI Preferences<br/>
-Launch Freelens-AI and go to the Preferences page then locate the MCP Configuration
-section.
+   Launch Freelens-AI and go to the Preferences page then locate the MCP Configuration
+   section.
 
 2. Enable MCP Support<br/>
-Toggle the Enable MCP Agent option.<br />
-This enables Freelens-AI to communicate with MCP agents running on your machine or cluster.
+   Toggle the Enable MCP Agent option.<br />
+   This enables Freelens-AI to communicate with MCP agents running on your machine or cluster.
 
 3. Add an MCP Server Configuration<br/>
-Inside the dedicated JSON textarea, add your MCP server configuration.<br />
-Below is the pre-built configuration for the MCP server for Kubernetes, included in Freelens-AI.
+   Inside the dedicated JSON textarea, add your MCP server configuration.<br />
+   Below is the pre-built configuration for the MCP server for Kubernetes, included in Freelens-AI.
 
 ```json
-{ 
-    "mcpServers": { 
-        "kubernetes": { 
-            "command": "npx", 
-            "args": ["mcp-server-kubernetes"] 
-        } 
-    } 
-} 
+{
+  "mcpServers": {
+    "kubernetes": {
+      "command": "npx",
+      "args": ["mcp-server-kubernetes"]
+    }
+  }
+}
 ```
 
 This uses npx to launch the mcp-server-kubernetes module. You can replace
@@ -143,11 +143,11 @@ and then reference the command directly in the MCP configuration:
 
 ```json
 {
-    "mcpServers": {
-        "kubernetes": {
-            "command": "mcp-server-kubernetes"
-        }
+  "mcpServers": {
+    "kubernetes": {
+      "command": "mcp-server-kubernetes"
     }
+  }
 }
 ```
 
@@ -158,11 +158,11 @@ command with the Windows command interpreter:
 
 ```json
 {
-    "mcpServers": {
-        "kubernetes": {
-            "command": "cmd",
-            "args": ["/c", "npx", "mcp-server-kubernetes"]
-        }
+  "mcpServers": {
+    "kubernetes": {
+      "command": "cmd",
+      "args": ["/c", "npx", "mcp-server-kubernetes"]
     }
+  }
 }
 ```

@@ -25,13 +25,14 @@ Library and tool versions follow the Freelens stack: the libraries the
 extension shares with Freelens (`react`, `mobx`, `mobx-react`,
 `monaco-editor`, `typescript`, `vite`, `vitest`, `electron`, `zod`, ...) are
 pinned to the versions of the Freelens `pnpm-workspace.yaml` catalog at the
-commit the pinned `@freelensapp/extensions` nightly was built from; the tools
+commit the pinned release of `@freelensapp/extensions` was built from; the tools
 run with `pnpm dlx` (Biome, knip, the Trunk launcher) to the root
 `package.json` scripts of Freelens; Node and the other mise tools to Freelens's
 `mise.toml` and `.nvmrc`. Renovate keeps them there: custom datasources in
 `.renovaterc.json` read the versions from the same Freelens files on `main`,
 so an update arrives only once Freelens has adopted it, at that version, in
-one "Freelens dependencies" group together with the nightly. A bundled library
+one "Freelens dependencies" group together with a release of
+`@freelensapp/extensions`. A bundled library
 that Freelens does not have is excluded from the catalog rule and updated as
 usual (see "Modules provided by the host"). After changing `mise.toml`, run `mise lock`, which re-locks every
 platform, not only `mise install`.
@@ -40,8 +41,8 @@ pnpm settings live in `pnpm-workspace.yaml`. A dependency runs its install
 scripts only when `allowBuilds` sets it to `true`, and a new dependency with
 install scripts that is not listed there fails `pnpm install`, so add it with
 `true` or `false` deliberately. `@freelensapp/extensions` is excluded from
-`minimumReleaseAge`, because its pinned nightly is often adopted on the day it
-is published. `strictPeerDependencies: true` makes `pnpm install` fail when
+`minimumReleaseAge`, because a Freelens release is adopted on the day it is
+published, together with the stack it was built with. `strictPeerDependencies: true` makes `pnpm install` fail when
 the extension's own copy of a library it shares with the host (`react`,
 `react-dom`, their types, `mobx`, `mobx-react`, `monaco-editor`, `electron`)
 is outside the peer range `@freelensapp/extensions` declares for it; without
@@ -62,11 +63,11 @@ pnpm type:check:tooling        # Vite and Vitest configs, build plugins
 pnpm type:check:environments   # Environment tests
 
 # Linting & formatting
-pnpm biome:check          # TypeScript/TSX/SCSS (biome) — prefer this for TS/TSX/SCSS
-pnpm biome:fix            # Auto-fix TypeScript/TSX/SCSS
-pnpm trunk:check          # Markdown, YAML, SCSS and other formats not covered by biome (modified files)
+pnpm biome:check          # TypeScript/TSX, JS, JSON, CSS, SCSS, HTML, YAML, Markdown (biome)
+pnpm biome:fix            # Auto-fix the formats above
+pnpm trunk:check          # TOML, shell, workflows, yamllint, and Biome again (modified files)
 pnpm trunk:check:all      # The same over every file, as trunk-check.yaml runs it
-pnpm trunk:fix            # Auto-fix Markdown, YAML, SCSS, etc.
+pnpm trunk:fix            # Auto-fix TOML, shell, and the Biome formats
 pnpm lint:check           # biome check (all biome formats)
 pnpm lint:fix             # biome fix (all biome formats)
 pnpm knip:check           # Unused files and dependencies; run after `pnpm build`
@@ -202,6 +203,22 @@ mechanism; this is the list to check a change against.
   unobservable in mobx's production build; an `@observable accessor` field
   moves the value behind a getter, which `toJSON()`, `toJS()` and spreading do
   not see ("Decorators and the stores").
+- **A memo over a store's items is keyed on something that changes with
+  them.** The host keeps one observable array per store and updates it in
+  place, with `replace` and `splice`, so `store.items` stays the same array
+  while the objects in it change. A `useMemo` keyed on it, or on a prop that
+  holds it, is computed once, and an open view keeps the objects it was opened
+  with. An `observer` that reads the items while it renders follows them; a
+  memo needs a key such as the ids and `resourceVersion`s of the objects. It
+  shows only on a cluster whose objects change while the view is open.
+- **An effect creates what its cleanup aborts or releases.** Freelens dev
+  renders in `React.StrictMode`, which runs an effect, cleans it up and runs
+  it again on the same instance. An `AbortController` kept in a `useRef` is
+  aborted by the first cleanup, and every request of the second run with it:
+  a bridge request or a run's event stream that is aborted for no failure
+  ends at once, and the view shows nothing. Create the controller, and
+  whatever else the cleanup releases, inside the effect. The production build
+  has no `StrictMode`, so only Freelens dev shows it.
 - **No Node or Electron in renderer and common code.** They are `undefined` in
   the renderer. The build fails on an import, `pnpm type:check` on a global
   ("Process-specific settings").
@@ -243,6 +260,11 @@ mechanism; this is the list to check a change against.
   `pnpm dev` runs.** The host refuses to reload a CommonJS main and logs why,
   and it watches only the entries it started with, so a manifest change needs
   Freelens restarted.
+- **A bundled CommonJS package loads in the ESM main.** Main is built for
+  Rolldown's `node` platform, which gives it a `require`, and defines
+  `__dirname` and `__filename`. Without either, the package throws when
+  Freelens evaluates `dist/main.js`, and the extension does not activate;
+  `pnpm build` and `pnpm type:check` pass ("Process-specific settings").
 
 Neither `pnpm build` nor `pnpm dev` runs the type check, so a Node global in
 renderer code passes them; `pnpm type:check` and `type-check.yaml` catch it.
@@ -322,6 +344,13 @@ since that rule takes every other version from the Freelens catalog.
   throws ``Calling `require` for "node:assert" in an environment that doesn't
   expose the `require` function`` as soon as the bundle is evaluated, and for
   `node` it defines `__require` with `createRequire(import.meta.url)`.
+  `__dirname` and `__filename` are the other half: Node passes them to a
+  CommonJS module, Rolldown leaves them as they are on either platform, and
+  the ES module throws `ReferenceError: __dirname is not defined in ES module
+  scope`. Main defines them (`define`) as `import.meta.dirname` and
+  `import.meta.filename`, the directory and file of `dist/main.js`, not of the
+  package: a library that loads a file next to itself, such as a `.wasm`,
+  finds it only when the build puts it in `dist/`.
   `pnpm build` and `pnpm type:check` pass either way, and nothing before
   Freelens evaluates `dist/main.js`, so on the wrong platform the extension
   fails only when Freelens loads it.
@@ -552,7 +581,12 @@ migration are one pull request. The commit is by `github-actions[bot]`, which
 `gitIgnoredAuthors` in `.renovaterc.json` lists, so that Renovate does not take
 it for a manual edit and stop updating the branch.
 
-Biome does not read SCSS; Trunk formats it with Prettier.
+Biome formats SCSS, YAML and Markdown too, as in Freelens, so Trunk runs no
+Prettier, markdownlint or yamlfmt; yamllint still checks YAML. `biome.jsonc`
+leaves out `pnpm-lock.yaml` and `pnpm-workspace.yaml`, which pnpm writes, and
+`.trunk/`, whose `trunk.yaml` `trunk upgrade` rewrites. The Markdown rules are
+in `nursery`. Trunk takes actionlint from the maintained fork of kjanat, which
+continues the releases of rhysd/actionlint with the same file names.
 
 ### Knip
 
@@ -581,15 +615,15 @@ does; without `dist/` that problem does not show.
 
 ### Workflows
 
-| Workflow                 | Runs                                                                            |
-| ------------------------ | ------------------------------------------------------------------------------- |
-| `type-check.yaml`        | `pnpm type:check`                                                               |
-| `check.yaml`             | `pnpm build`, `pnpm lint:check`, `pnpm knip:check`                              |
-| `unit-tests.yaml`        | `pnpm test:unit`                                                                |
-| `trunk-check.yaml`       | `trunk check` over every file (`check-mode: all`)                               |
-| `integration-tests.yaml` | the integration tests in `integration/`, against a Freelens build of `main`     |
-| `mise-lock-check.yaml`   | on a change to `mise.lock`: no checksum changed for an unchanged tool version   |
-| `release.yaml`           | on a tag: build, pack, publish to npm, the release with `.tgz` and `.sha256`    |
+| Workflow                 | Runs                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------- |
+| `type-check.yaml`        | `pnpm type:check`                                                             |
+| `check.yaml`             | `pnpm build`, `pnpm lint:check`, `pnpm knip:check`                            |
+| `unit-tests.yaml`        | `pnpm test:unit`                                                              |
+| `trunk-check.yaml`       | `trunk check` over every file (`check-mode: all`)                             |
+| `integration-tests.yaml` | the integration tests in `integration/`, against a build of Freelens v2.0.0   |
+| `mise-lock-check.yaml`   | on a change to `mise.lock`: no checksum changed for an unchanged tool version |
+| `release.yaml`           | on a tag: build, pack, publish to npm, the release with `.tgz` and `.sha256`  |
 
 The type check has a workflow of its own, on pull requests and on pushes to
 `main`, as in Freelens. It runs every program, tests, tooling and environment
@@ -718,14 +752,14 @@ The caller's `Origin` is reflected, not `*`: the frames are served from
 a wrong method `405`, and a failure before a stream starts `500` with
 `{ "error": message }`.
 
-| Route                | Request                                       | Answer                                               |
-| -------------------- | --------------------------------------------- | ---------------------------------------------------- |
-| `POST /agent/run`     | `{ clusterId, conversationId, input }`        | SSE of run events                                    |
-| `POST /agent/explain` | `{ clusterId, text }`                         | SSE of `text` events                                 |
-| `POST /agent/compact` | `{ clusterId, conversationId }`               | `{ summary, contextTokens }`                         |
-| `POST /agent/clear`   | `{ clusterId, conversationId }`               | `{}`                                                 |
-| `GET /agent/tools`    | `?clusterId=`                                 | `{ tools: [{ name, description }] }`                 |
-| `GET /model/pricing`  |                                               | the pricing of the models of the preferences         |
+| Route                 | Request                                | Answer                                       |
+| --------------------- | -------------------------------------- | -------------------------------------------- |
+| `POST /agent/run`     | `{ clusterId, conversationId, input }` | SSE of run events                            |
+| `POST /agent/explain` | `{ clusterId, text }`                  | SSE of `text` events                         |
+| `POST /agent/compact` | `{ clusterId, conversationId }`        | `{ summary, contextTokens }`                 |
+| `POST /agent/clear`   | `{ clusterId, conversationId }`        | `{}`                                         |
+| `GET /agent/tools`    | `?clusterId=`                          | `{ tools: [{ name, description }] }`         |
+| `GET /model/pricing`  |                                        | the pricing of the models of the preferences |
 
 The `input` of a run is `{ kind: "message", text, summary? }`, a prompt, where
 `summary` seeds a just compacted session, or `{ kind: "resume", answer }`, the
@@ -844,6 +878,17 @@ MCP writes its snapshots to `.playwright-mcp/`, which is git-ignored.
   Flux and workloads deployed by it), and a model endpoint with a key, set in
   the preferences; an OpenAI-compatible gateway such as LiteLLM works as the
   base URL. MCP needs `npx` on the login shell's `PATH`.
+- **The kubeconfig of a dev profile.** A profile of Freelens dev syncs no
+  kubeconfig until one is added in "Kubeconfig Syncs" of the Kubernetes
+  preferences, so its catalog lists none of the developer's clusters;
+  `KUBECONFIG` does not change that. For the checks, add a kubeconfig with the
+  test cluster alone, such as the output of
+  `kubectl config view --minify --flatten --context kind-kind`. A fresh
+  profile, in a `FREELENS_INTEGRATION_TESTING_DIR` under the system's
+  temporary directory, can start with it already in place: seed
+  `FreelensDev/lens-user-store.json` there with
+  `preferences.syncKubeconfigEntries`, whose `filePath` is absolute
+  ("Kubeconfig syncs of the dev profile" in Freelens's `DEVELOPMENT.md`).
 - **Frames.** Every cluster renders in a cross-origin
   `<clusterId>.renderer.freelens.app` iframe; the chat page, the sidebar entry
   and the "Explain" item live in that frame, the preferences in the root frame.
@@ -857,10 +902,20 @@ MCP writes its snapshots to `.playwright-mcp/`, which is git-ignored.
   and never paste the full console into a PR, an issue or a report. React
   reports a missing `key` and a prop the DOM does not take as console errors;
   they count as failures of the "no error in DevTools" check.
+- **Failed loads.** The renderer's requests, to Kubernetes and to the bridge,
+  go through Chromium, which logs every response that is not a success as a
+  console error, `Failed to load resource: the server responded with a status
+  of N`, also one that the code that sent it handles. The text names no URL;
+  the location of the message does. Leave out such an error by its status and
+  URL only where the response is expected, not every "Failed to load
+  resource".
 - **Main.** The agents, the bridge and the MCP servers log in main: in the
   terminal running Freelens, and in its log file (on macOS
-  `~/Library/Logs/Freelens/lens.log`). The process list shows whether an MCP
-  server is still running, and its environment which cluster it reaches.
+  `~/Library/Logs/Freelens/lens.log`, with the renderer's `lens-renderer-*.log`
+  next to it); when the terminal is not at hand, the file shows the
+  extension's activation, its reloads and its own lines. Filter it as the
+  console. The process list shows whether an MCP server is still running, and
+  its environment which cluster it reaches.
 - **Disabling and enabling.** Without a restart of Freelens, disabling and
   enabling the extension leaves two instances of its store in main, which
   overwrite the bridge token in an endless save loop (freelensapp/freelens#2721).
@@ -868,8 +923,8 @@ MCP writes its snapshots to `.playwright-mcp/`, which is git-ignored.
 
 ## Code Style
 
-- **Biome** formats **TypeScript/TSX, JavaScript and JSON**: double quotes, semicolons, trailing commas, 2-space indent, 120 char line width
-- **Trunk** formats **Markdown, YAML, SCSS** (with Prettier), and other formats not covered by biome — use `pnpm trunk:fix`
+- **Biome** formats **TypeScript/TSX, JavaScript, JSON, CSS, SCSS, HTML, YAML and Markdown**: double quotes, semicolons, trailing commas, 2-space indent, 120 char line width — use `pnpm biome:fix`
+- **Trunk** formats **TOML and shell scripts**, and runs the linters for formats not covered by Biome (yamllint, actionlint, shellcheck) — use `pnpm trunk:fix`
 - Import order (enforced by biome organizeImports): built-in modules → `@freelensapp/**` → packages → relative paths
 - React 19, provided by the Freelens host
 - **No emoji** in Markdown files (`.md`), comments, or any source code
@@ -935,8 +990,8 @@ Code in `src/common/` is shared between both processes.
 2. **Follow existing patterns** — grep for similar implementations before creating new ones
 3. **Test changes** before committing
 4. **Run validation before committing:** `pnpm lint:fix && pnpm type:check && pnpm test:unit`
-5. **For TypeScript/TSX, JavaScript and JSON files:** run `pnpm biome:fix` (or `biome check` directly if `biome` is installed locally)
-6. **For Markdown, YAML, SCSS and other formats:** run `pnpm trunk:fix` (or `trunk check` directly if `trunk` is installed locally), and `pnpm trunk:check:all` before pushing
+5. **For TypeScript/TSX, JavaScript, JSON, CSS, SCSS, HTML, YAML and Markdown files:** run `pnpm biome:fix` (or `biome check` directly if `biome` is installed locally)
+6. **For other formats:** run `pnpm trunk:fix` (or `trunk check` directly if `trunk` is installed locally), and `pnpm trunk:check:all` before pushing
 7. **Full build** when in doubt about cached state: `pnpm clean:all && pnpm install && pnpm build`
 8. **Do not use Anthropic Fable for coding tasks** — Fable may be used only for planning,
    analysis, and thinking through problems. When writing or editing code,
@@ -966,6 +1021,7 @@ When reviewing code and proposing fixes:
    ```
 
    You can generate this from the terminal with:
+
    ```bash
    git diff -u -- path/to/file
    ```
@@ -997,9 +1053,9 @@ When reviewing code and proposing fixes:
    - Use GitHub's `suggestion` block for small targeted fixes so the PR
      author can accept the change with a single click:
 
-     ````suggestion
+     ```suggestion
      <same unified-diff format as shown above>
-     ````
+     ```
 
    - For larger multi-file changes, use `diff -u` blocks in a regular
      comment instead, with the proposed commit subject shown first
