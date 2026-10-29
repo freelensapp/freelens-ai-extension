@@ -89,8 +89,17 @@ export interface ApprovalRequest {
   resourcesString?: string;
 }
 
+// Marks an error the renderer acts on, rather than only shows.
+export const BridgeErrorCode = {
+  // A `resume` run for a conversation with no pending approval.
+  noPendingApproval: "no-pending-approval",
+} as const;
+
+export type BridgeErrorCode = (typeof BridgeErrorCode)[keyof typeof BridgeErrorCode];
+
 export interface BridgeError {
   message: string;
+  code?: BridgeErrorCode;
 }
 
 export type AgentRunEvent =

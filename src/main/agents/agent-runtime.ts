@@ -5,9 +5,11 @@ import { Main } from "@freelensapp/extensions";
 import { RemoveMessage } from "@langchain/core/messages";
 import { Command } from "@langchain/langgraph";
 import { compareStructural, reaction } from "mobx";
+import { BridgeErrorCode } from "../../common/bridge/protocol";
 import { DEFAULT_OPENAI_BASE_URL } from "../../common/provider/ai-models";
 import { approximateTokenCount } from "../../common/provider/token-estimate";
 import { AgentStateStore, PreferencesStore } from "../../common/store";
+import { BridgeRequestError } from "../bridge/bridge-error";
 import { McpClients } from "../mcp/mcp-clients";
 import useLog from "../utils/logger";
 import { type AgentServiceEvent, useAgentService } from "./agent-service";
@@ -127,9 +129,20 @@ export class AgentRuntime {
     }
   }
 
+  // Whether a task of the conversation waits on an `interrupt()`, the approval
+  // that a `resume` answers. A clear removes the messages, not the next task:
+  // that task still runs on a resume, with no messages and no interrupt.
+  private async hasPendingApproval(agent: Agent, conversationId: string) {
+    const { tasks } = await agent.getState({ configurable: { thread_id: conversationId } });
+    return tasks.some((task) => task.interrupts.length > 0);
+  }
+
   async *run({ clusterId, conversationId, input }: AgentRunRequest, signal: AbortSignal) {
     try {
       const agent = await this.getActiveAgent(clusterId);
+      if (input.kind === "resume" && !(await this.hasPendingApproval(agent, conversationId))) {
+        throw new BridgeRequestError("There is no pending approval to answer.", BridgeErrorCode.noPendingApproval);
+      }
       const events: AsyncGenerator<AgentServiceEvent> = useAgentService(agent).run(buildAgentInput(input), {
         clusterId,
         conversationId,
@@ -137,6 +150,10 @@ export class AgentRuntime {
       });
       yield* events;
     } catch (error) {
+      if (error instanceof BridgeRequestError) {
+        this.log.warn(error.message, { clusterId, conversationId });
+        throw error;
+      }
       this.log.error("Error while running the agent: ", error);
       throw this.describeError(error);
     }
