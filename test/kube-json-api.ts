@@ -1,7 +1,8 @@
 // A stand-in for the host's `KubeJsonApi` of one cluster, for the tests of the
 // Kubernetes tools. It answers a GET from a map of paths to objects (the
-// discovery documents included) and records every request, so a test asserts
-// what the tools would put on the wire.
+// discovery documents included), applies a JSON merge patch and a delete to
+// those objects as the API server does, and records every request, so a test
+// asserts what the tools would put on the wire and what it did.
 
 import { type ParsedUrlQuery, parse, stringify } from "node:querystring";
 import { Main } from "@freelensapp/extensions";
@@ -49,6 +50,44 @@ export const DISCOVERY = {
   },
 };
 
+// What the host's JsonApi throws for a path the API server does not have: a
+// `JsonApiErrorParsed`, which keeps the API server's Status as `error`.
+const notFound = (path: string) => {
+  const message = `${path} not found`;
+  return {
+    isUsedForNotification: false,
+    error: { kind: "Status", apiVersion: "v1", status: "Failure", reason: "NotFound", code: 404, message },
+    messages: [message],
+  };
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+// A JSON merge patch (RFC 7386): objects merge, `null` removes a key, and any
+// other value, a list included, replaces the target.
+const applyMergePatch = (target: unknown, patch: unknown): unknown => {
+  if (!isPlainObject(patch)) {
+    return patch;
+  }
+  const result: Record<string, unknown> = isPlainObject(target) ? { ...target } : {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) {
+      delete result[key];
+    } else {
+      result[key] = applyMergePatch(result[key], value);
+    }
+  }
+  return result;
+};
+
+// The deletionTimestamp a delete sets on an object with finalizers.
+export const DELETED_AT = "2026-10-16T07:54:46Z";
+
+interface ObjectWithMetadata {
+  metadata?: { deletionTimestamp?: string; finalizers?: string[] };
+}
+
 /**
  * The query of a request as the host sends it. Its `JsonApi` builds the query
  * string with `stringify` of `node:querystring`, which sends an `undefined` or
@@ -63,18 +102,26 @@ export const createFakeKubeJsonApi = (
   { logs = {} }: { logs?: Record<string, { status: number; text: string }> } = {},
 ) => {
   const requests: RecordedKubeRequest[] = [];
-  const known: Record<string, unknown> = { ...DISCOVERY, ...objects };
+  const known: Record<string, unknown> = structuredClone({ ...DISCOVERY, ...objects });
 
   const record = (method: RecordedKubeRequest["method"], path: string, params?: Params, init?: Init) => {
     requests.push({ method, path, query: serializeQuery(params?.query), data: params?.data, headers: init?.headers });
+  };
+
+  // As the API server does: an object that is being deleted is removed once
+  // it has no finalizers left.
+  const removeWhenFinalized = (path: string) => {
+    const metadata = (known[path] as ObjectWithMetadata | undefined)?.metadata;
+    if (metadata?.deletionTimestamp && !metadata.finalizers?.length) {
+      delete known[path];
+    }
   };
 
   const api = {
     get: vi.fn(async (path: string, params?: Params, init?: Init) => {
       record("get", path, params, init);
       if (!(path in known)) {
-        // The shape of a JsonApi error: the API server's Status.
-        throw { code: 404, reason: "NotFound", message: `${path} not found` };
+        throw notFound(path);
       }
       return structuredClone(known[path]);
     }),
@@ -86,12 +133,28 @@ export const createFakeKubeJsonApi = (
       record("put", path, params, init);
       return params?.data ?? {};
     }),
+    // A JSON merge patch of a known object changes it; any other patch, a
+    // strategic merge patch included, is only recorded.
     patch: vi.fn(async (path: string, params?: Params, init?: Init) => {
       record("patch", path, params, init);
+      if (path in known && init?.headers?.["content-type"] === "application/merge-patch+json") {
+        known[path] = applyMergePatch(known[path], params?.data);
+        const patched = structuredClone(known[path]);
+        removeWhenFinalized(path);
+        return patched;
+      }
       return params?.data ?? {};
     }),
+    // A delete removes a known object, or marks it as being deleted while it
+    // has finalizers.
     del: vi.fn(async (path: string, params?: Params, init?: Init) => {
       record("del", path, params, init);
+      const object = known[path] as ObjectWithMetadata | undefined;
+      if (!object) {
+        throw notFound(path);
+      }
+      object.metadata = { ...object.metadata, deletionTimestamp: object.metadata?.deletionTimestamp ?? DELETED_AT };
+      removeWhenFinalized(path);
       return {};
     }),
     getResponse: vi.fn(async (path: string, params?: Params, init?: Init) => {
@@ -108,7 +171,7 @@ export const createFakeKubeJsonApi = (
   // The requests other than the discovery reads, which every tool makes first.
   const actions = () => requests.filter((entry) => !(entry.method === "get" && entry.path in DISCOVERY));
 
-  return { api, requests, actions };
+  return { api, requests, actions, objects: known };
 };
 
 /**
