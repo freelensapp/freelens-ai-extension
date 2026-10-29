@@ -821,9 +821,21 @@ endpoint. The rest is in `src/main/provider/`:
 
 - `model-capabilities.ts` — name heuristics (regex) deciding model behavior.
   Add new model families here rather than hardcoding ids. Reasoning models
-  (`o<n>`, `gpt-5.x`) take a reasoning effort and reject `temperature`.
+  (`o<n>`, `gpt-5.x`, `gpt-6.x`) take a reasoning effort and reject
+  `temperature`. `requiresResponsesApi` names the models that take tools only
+  through the Responses API: GPT-6, and the ones `@langchain/openai` already
+  sends there on its own (`gpt-5.6`, `gpt-5.x-pro`, `codex`), so that they all
+  get the same request options.
 - `openai-fields.ts` — pure `buildOpenAIChatFields` builder (endpoint, fetch,
-  reasoning-effort/temperature heuristic), unit-tested in isolation.
+  reasoning-effort/temperature heuristic), unit-tested in isolation. A model of
+  `requiresResponsesApi` gets `useResponsesApi`, `zdrEnabled` (`store: false`,
+  no item ids: the conversation is replayed from the checkpoints, as on Chat
+  Completions), `include: ["reasoning.encrypted_content"]`, so the reasoning
+  of a tool loop is replayed, and `supportsStrictToolCalling: false`, since
+  Responses makes function tools strict by default and a strict schema must
+  require every property. Its answer streams as content blocks, not a string:
+  read its text with `flattenContentText` of `stream-merge.ts`, never with
+  `String(content)`.
 - `model-provider.ts` — `getModel()` resolves the selected model's provider and
   builds the LangChain client for the base URL of the preferences; throws when
   no model or no key is configured. `resolveOpenAIKey()` takes
