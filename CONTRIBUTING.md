@@ -19,11 +19,11 @@ provide.
 
 ### Additional Resources
 
-- [***README***](./README.md)
-- [***Build freelens-ai extension***](./docs/BUILD.md)
-- [***Set up extension on freelens***](./docs/SET_UP_EXTENSION.md)
-- [***AGENTS.md***](./AGENTS.md): how the extension is built, type-checked and
+- [**_README_**](./README.md)
+- [**_Build freelens-ai extension_**](./docs/BUILD.md)
+- [**_Set up extension on freelens_**](./docs/SET_UP_EXTENSION.md)
+- [**_AGENTS.md_**](./AGENTS.md): how the extension is built, type-checked and
   tested, and the rules a change is checked against
 
 If you find this project useful, please consider giving it a star on
-[***GitHub***](https://github.com/freelensapp/freelens-ai-extension)!
+[**_GitHub_**](https://github.com/freelensapp/freelens-ai-extension)!

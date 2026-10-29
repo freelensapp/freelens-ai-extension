@@ -28,7 +28,7 @@ const createFakes = () => {
       const record = { servers, closed: false, tools: [{ name: `tool-${clients.length}` } as StructuredToolInterface] };
       clients.push(record);
       return {
-        getTools: async () => record.tools,
+        listTools: async () => record.tools,
         close: async () => {
           record.closed = true;
         },
@@ -103,8 +103,8 @@ describe("McpClients", () => {
     const failing = new McpClients({
       getEnvironment: async () => ({}),
       createClient: () => ({
-        getTools: async () => {
-          throw new Error("No MCP servers provided");
+        listTools: async () => {
+          throw new Error("Connection closed");
         },
         close: async () => {
           closed = true;
@@ -112,9 +112,20 @@ describe("McpClients", () => {
       }),
     });
 
-    await expect(failing.getTools("cluster-a", "")).rejects.toThrow("No MCP servers provided");
+    await expect(failing.getTools("cluster-a", STDIO)).rejects.toThrow("Connection closed");
     expect(closed).toBe(true);
     expect(failing.clusterIds).toEqual([]);
+  });
+
+  it.each([
+    ["an empty configuration", ""],
+    ["a configuration without servers", JSON.stringify({ mcpServers: {} })],
+  ])("refuses %s and starts nothing", async (_name, configuration) => {
+    const { dependencies, mcpClients } = createFakes();
+
+    await expect(mcpClients.getTools("cluster-a", configuration)).rejects.toThrow("No MCP servers provided");
+    expect(dependencies.createClient).not.toHaveBeenCalled();
+    expect(mcpClients.clusterIds).toEqual([]);
   });
 
   it("starts nothing when the servers are stopped while they start", async () => {
