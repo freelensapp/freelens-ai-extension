@@ -412,6 +412,58 @@ and, for the formats that Biome does not cover (TOML, shell scripts, workflows):
 pnpm trunk:check
 ```
 
+### Integration tests
+
+The integration tests drive Freelens dev, started from a
+[freelensapp/freelens](https://github.com/freelensapp/freelens) checkout,
+against a [kind](https://kind.sigs.k8s.io/) cluster. In the Freelens checkout:
+
+```sh
+pnpm dev
+```
+
+Freelens dev lists no cluster until a kubeconfig is added in Preferences >
+Kubernetes > Kubeconfig Syncs. Add one with the kind cluster, for example:
+
+```sh
+kubectl config view --minify --flatten --context kind-kind > ~/kind-kind.kubeconfig
+```
+
+Then, with the kind cluster running, in the extension repository:
+
+```sh
+pnpm build
+pnpm test:integration
+```
+
+The tests install the checkout in place, replacing any other installation of
+the extension in Freelens dev. They create the namespace `integration-tests`
+with a Warning event, and delete it afterwards. They clear the chat of the
+kind cluster and set the API key, the base URL and the model in the
+extension's preferences. Without Freelens dev or the cluster the tests are
+skipped.
+
+Two prompts, one in the chat and one from "Explain", are sent to a model
+endpoint given by three variables, in the environment or in a `.env` file of
+the repository:
+
+```sh
+LLM_API_URL=http://localhost:4000
+LLM_API_KEY=sk-...
+LLM_API_MODEL=gpt-5.4-mini
+```
+
+Without them the prompts are skipped and the API key is left empty.
+
+Optional variables:
+
+- `TEST_KIND_CLUSTER_NAME`: the kind cluster, `kind` by default, used
+  through the context `kind-<name>`.
+- `FREELENS_CDP_URL`: the CDP endpoint of Freelens dev,
+  `http://127.0.0.1:9223` by default.
+- `FREELENS_MAIN_LOG`: a log of the main process to check for errors, such
+  as its `lens.log`. Without it only the renderer's errors are checked.
+
 How the extension is built, type-checked and tested, and why, is described in
 [AGENTS.md](AGENTS.md).
 
