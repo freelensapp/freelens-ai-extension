@@ -82,7 +82,7 @@
     "esbuild": "0.28.2",
     "jsdom": "30.1.3",
     "loglevel": "^1.9.2",
-    "lucide-react": "^1.63.0",
+    "lucide-react": "^1.65.0",
     "mobx": "7.0.6",
     "mobx-react": "10.0.2",
     "monaco-editor": "0.57.0",
