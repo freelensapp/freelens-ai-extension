@@ -658,23 +658,26 @@ the workflow does.
 
 ### Integration tests
 
-The integration tests follow the pattern of freelensapp/freelens-example-extension.
-They run in this repository, under its own Vitest
-(`vitest.integration.config.ts`, `pnpm test:integration`), against Freelens
-started with `pnpm dev` from a freelensapp/freelens checkout. They attach to
-it with Playwright's `chromium.connectOverCDP` on the port that script opens
-(see "Checking the Extension in Freelens Dev"), so they need no package of
+The integration tests follow the pattern of
+freelensapp/freelens-example-extension. They run in this repository, under its
+own Vitest (`vitest.integration.config.ts`, `pnpm test:integration`), against
+Freelens started with `pnpm dev` from a freelensapp/freelens checkout. They
+attach to it with Playwright's `chromium.connectOverCDP` on the port that script
+opens (see "Checking the Extension in Freelens Dev"), so they need no package of
 Freelens and no file of its checkout; Freelens dev is the only dependency, and
 it is not in `package.json`. `playwright` is a devDependency at the version of
 Freelens's catalog. The workflow builds the extension, checks out Freelens at
 each release tag of its matrix (`v2.0.0`), starts `pnpm dev` there in the
 background under `xvfb-run`, with its output in a file and a fresh profile in
 `FREELENS_INTEGRATION_TESTING_DIR`, waits until the CDP endpoint answers, and
-runs `pnpm test:integration` here. A profile of Freelens dev syncs no
-kubeconfig by default, so the workflow seeds the fresh one with a single sync
-entry, a file with the kind cluster alone, and the catalog lists that cluster
-and nothing else. Every test file is a session of its own on the one app, and
-fails on any error logged by either process:
+runs `pnpm test:integration` here. The job `integration tests` waits for every
+job of the matrix and fails when one of them did not succeed; the branch rules
+require it rather than the jobs of the matrix, whose names change with the
+matrix. A profile of Freelens dev syncs no kubeconfig by default, so the
+workflow seeds the fresh one with a single sync entry, a file with the kind
+cluster alone, and the catalog lists that cluster and nothing else. Every test
+file is a session of its own on the one app, and fails on any error logged by
+either process:
 
 - `extensions.tests.ts` uninstalls whatever installation of the extension the
   app has, installs this checkout in place from the Extensions page and opens
@@ -714,7 +717,27 @@ The key is typed into its input and never logged.
 The tests are deterministic, so nothing retries them: the config sets no
 `retry`, and the workflow runs the step once, under `timeout 600`. A retry
 repeats the same failure, and every view of a session waits its full timeout
-before it fails.
+before it fails. The one exception is the cluster frame, which `openKindCluster`
+loads a second time when it did not render and the dev file route of Freelens
+failed a request meanwhile (see below); that failure is of Freelens dev, not of
+a test.
+
+The dev file route of Freelens dev, which serves the renderer's modules from
+the Vite dev server, logs a request that fails as a warning
+(`[DEV-FILE-ROUTE]: request for … failed`): its keep-alive agent at times
+reuses a socket that the dev server is closing, and the request fails with
+`ECONNRESET`. The route answers such a request with a 502, and Chromium logs
+`Failed to load resource: the server responded with a status of 502`; that
+error is left out when the main log has the failed request for its URL. When
+the module belongs to Monaco's editor worker, which a YAML view starts, the
+worker does not load, and Monaco rethrows its `error` event, an `Event` with
+no name, which is left out when the main log has a failed request. An uncaught
+value that is not an `Error` reaches the session as a page error with an empty
+stack, and is described by its name and message, with its time. When the
+module belongs to the cluster frame, such as one of Freelens's own
+stylesheets, the frame does not render its sidebar, and `openKindCluster`,
+after its timeout, loads the frame again once, only if the main log has a
+failed request since the cluster was opened.
 
 The sessions reach the app through its renderer only; the main process, and
 with it the application menu, is out of reach of CDP. They navigate the root
