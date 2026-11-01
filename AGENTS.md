@@ -639,6 +639,7 @@ does; without `dist/` that problem does not show.
 | `trunk-check.yaml`       | `trunk check` over every file (`check-mode: all`)                             |
 | `integration-tests.yaml` | the integration tests in `integration/`, against Freelens dev v2.0.0          |
 | `mise-lock-check.yaml`   | on a change to `mise.lock`: no checksum changed for an unchanged tool version |
+| `cleanup-cache.yaml`     | on a closed pull request: deletes the caches of its merge ref                 |
 | `release.yaml`           | on a tag: build, pack, publish to npm, the release with `.tgz` and `.sha256`  |
 
 The type check has a workflow of its own, on pull requests and on pushes to
