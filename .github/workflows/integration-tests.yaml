@@ -329,3 +329,18 @@ jobs:
       - name: Show Freelens dev output
         if: always()
         run: cat "${{ runner.temp }}/freelens-dev.log" || true
+
+  integration-tests:
+    name: integration tests
+
+    needs: test-integration
+    if: always()
+
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
+
+    steps:
+      - name: Check the result of the matrix
+        run: test "${RESULT}" = success
+        env:
+          RESULT: ${{ needs.test-integration.result }}
