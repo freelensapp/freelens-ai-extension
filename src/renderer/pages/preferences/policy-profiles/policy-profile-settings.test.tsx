@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FLOOR_ENTRIES } from "../../../../common/invocation-policy/floor";
 import { STANDARD_PROFILE } from "../../../../common/invocation-policy/shipped-profiles";
 import { PreferencesStore } from "../../../../common/store";
 import { PolicyProfileSettings } from "./policy-profile-settings";
@@ -481,5 +482,33 @@ describe("Test box", () => {
     typeCommandLine("   ");
 
     expect(testBox().getByRole("status").textContent).toBe("");
+  });
+});
+
+describe("Floor", () => {
+  const floor = () => within(screen.getByRole("region", { name: "Floor" }));
+
+  it("lists every entry of the policy's floor, read-only", () => {
+    render(<PolicyProfileSettings />);
+
+    const entries = floor().getByRole("list", { name: "Floor entries" });
+    expect([...entries.children].map((item) => item.firstElementChild?.textContent)).toEqual(
+      Object.values(FLOOR_ENTRIES).map((entry) => entry.title),
+    );
+    expect(floor().queryByRole("textbox")).toBeNull();
+    expect(floor().queryByRole("button")).toBeNull();
+  });
+
+  it("shows the reason of each entry and what it rejects", () => {
+    render(<PolicyProfileSettings />);
+
+    const entry = within(floor().getByText("Flags that change the cluster or the identity").parentElement!);
+    expect(
+      entry.getByText(
+        "An invocation stays on the chat's cluster, with the connection and the user Freelens has for it.",
+      ),
+    ).toBeDefined();
+    expect(entry.getByText("--kubeconfig")).toBeDefined();
+    expect(entry.getByText("--server, -s")).toBeDefined();
   });
 });

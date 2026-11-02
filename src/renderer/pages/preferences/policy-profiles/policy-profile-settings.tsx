@@ -4,6 +4,7 @@ import * as React from "react";
 import { findPolicyProfile } from "../../../../common/invocation-policy/profile-assignment";
 import { SHIPPED_PROFILES, STANDARD_PROFILE } from "../../../../common/invocation-policy/shipped-profiles";
 import { PreferencesStore } from "../../../../common/store";
+import { FloorList } from "./floor-list";
 import { NewProfileForm } from "./new-profile-form";
 import {
   addUserProfile,
@@ -38,8 +39,8 @@ const deleteQuestion = (profile: PolicyProfile, isDefault: boolean): string =>
 /**
  * The policy profiles of the preferences: the default profile picker, the list
  * of the shipped and user profiles, the rules and fallback level of the
- * profile chosen in the list, which the user edits for a user profile, and its
- * test box.
+ * profile chosen in the list, which the user edits for a user profile, its test
+ * box, and the floor.
  */
 export const PolicyProfileSettings = observer(() => {
   const store = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
@@ -126,6 +127,8 @@ export const PolicyProfileSettings = observer(() => {
           onTestCommandLineChange={setTestCommandLine}
         />
       </div>
+
+      <FloorList />
     </>
   );
 });

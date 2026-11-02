@@ -29,5 +29,11 @@ declare const classNames: {
   readonly testBox: "testBox";
   readonly testResult: "testResult";
   readonly resultHeadline: "resultHeadline";
+  readonly floor: "floor";
+  readonly floorList: "floorList";
+  readonly floorEntry: "floorEntry";
+  readonly floorTitle: "floorTitle";
+  readonly floorReason: "floorReason";
+  readonly floorCovers: "floorCovers";
 };
 export = classNames;
