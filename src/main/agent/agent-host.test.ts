@@ -2232,7 +2232,7 @@ describe("AgentHost", () => {
       await ask(host);
 
       expect(sectionsSeen[0].preamble).toContain("Freelens AI");
-      expect(sectionsSeen[0].preamble).toContain("<log_reading>");
+      expect(sectionsSeen[0].preamble).toContain("<kubectl>");
     });
   });
 
