@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { formatCanonicalForm } from "./canonical-form";
+import { DRY_RUN_VERBS } from "./dry-run-verbs";
 import { evaluateInvocationPolicy, type InvocationPolicyResult } from "./invocation-policy";
 import { BUILT_IN_RESOURCE_CATALOG } from "./resource-catalog";
+import { PERMISSIVE_PROFILE, READ_ONLY_PROFILE, SHIPPED_PROFILES, STANDARD_PROFILE } from "./shipped-profiles";
 
 import type { FloorEntryId } from "./floor";
 import type { PolicyLevel, PolicyProfile, PolicyRule } from "./policy-profile";
@@ -575,5 +577,149 @@ describe("policy rules", () => {
       "allow",
     );
     expect(decide("get pods a", profile).level).toBe("allow");
+  });
+});
+
+const NAMESPACE = "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: web\n";
+
+describe("the shipped profiles", () => {
+  it("have fixed ids and names", () => {
+    expect(SHIPPED_PROFILES.map((profile) => [profile.id, profile.name, profile.fallbackLevel])).toEqual([
+      ["read-only", "Read only", "deny"],
+      ["standard", "Standard", "ask"],
+      ["permissive", "Permissive", "ask"],
+    ]);
+  });
+
+  it.each<[string, string, EvaluateOptions, PolicyLevel]>([
+    [READ_ONLY_PROFILE.id, "get pods -A", {}, "allow"],
+    [READ_ONLY_PROFILE.id, "describe deploy api", {}, "allow"],
+    [READ_ONLY_PROFILE.id, "top pod", {}, "allow"],
+    [READ_ONLY_PROFILE.id, "events", {}, "allow"],
+    [READ_ONLY_PROFILE.id, "explain pods", {}, "allow"],
+    [READ_ONLY_PROFILE.id, "api-resources", {}, "allow"],
+    [READ_ONLY_PROFILE.id, "api-versions", {}, "allow"],
+    [READ_ONLY_PROFILE.id, "version", {}, "allow"],
+    [READ_ONLY_PROFILE.id, "auth can-i delete pods", {}, "allow"],
+    [READ_ONLY_PROFILE.id, "diff", { manifest: NAMESPACE }, "allow"],
+    [READ_ONLY_PROFILE.id, "rollout status deploy/api", {}, "allow"],
+    [READ_ONLY_PROFILE.id, "rollout history deploy/api", {}, "allow"],
+    [READ_ONLY_PROFILE.id, "logs api", {}, "ask"],
+    [READ_ONLY_PROFILE.id, "get secrets db", { revealSecrets: true }, "ask"],
+    [READ_ONLY_PROFILE.id, "scale deploy api --replicas=2", {}, "deny"],
+    [READ_ONLY_PROFILE.id, "delete pod api", {}, "deny"],
+    [STANDARD_PROFILE.id, "get pods", {}, "allow"],
+    [STANDARD_PROFILE.id, "logs api", {}, "ask"],
+    [STANDARD_PROFILE.id, "get secrets db", { revealSecrets: true }, "ask"],
+    [STANDARD_PROFILE.id, "scale deploy api --replicas=2", {}, "ask"],
+    [STANDARD_PROFILE.id, "delete pod api", {}, "ask"],
+    [STANDARD_PROFILE.id, "exec api -- ls", {}, "alwaysAsk"],
+    [STANDARD_PROFILE.id, "drain node-1", {}, "alwaysAsk"],
+    [STANDARD_PROFILE.id, "delete ns web", {}, "alwaysAsk"],
+    [STANDARD_PROFILE.id, "delete", { manifest: NAMESPACE }, "alwaysAsk"],
+    [PERMISSIVE_PROFILE.id, "get pods", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "logs api", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "apply", { manifest: DEPLOYMENT_AND_ROLE }, "allow"],
+    [PERMISSIVE_PROFILE.id, "create deployment api --image=nginx", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "replace", { manifest: DEPLOYMENT_AND_ROLE }, "allow"],
+    [PERMISSIVE_PROFILE.id, "patch deploy api -p {}", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "delete pods -l app=web", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "scale deploy api --replicas=2", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "label pods api a=b", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "annotate pods api a=b", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "set image deploy/api app=nginx", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "rollout restart deploy/api", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "rollout undo deploy/api", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "rollout pause deploy/api", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "rollout resume deploy/api", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "cordon node-1", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "uncordon node-1", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "taint nodes node-1 a=b:NoSchedule", {}, "allow"],
+    [PERMISSIVE_PROFILE.id, "get secrets db", { revealSecrets: true }, "ask"],
+    [PERMISSIVE_PROFILE.id, "run debug --image=busybox", {}, "ask"],
+    [PERMISSIVE_PROFILE.id, "exec api -- ls", {}, "alwaysAsk"],
+    [PERMISSIVE_PROFILE.id, "drain node-1", {}, "alwaysAsk"],
+    [PERMISSIVE_PROFILE.id, "delete", { manifest: NAMESPACE }, "alwaysAsk"],
+  ])("%s gives kubectl %s (%o) the level %s", (profileId, args, options, level) => {
+    const profile = SHIPPED_PROFILES.find((shipped) => shipped.id === profileId);
+    expect(profile && decide(args, profile, options).level).toBe(level);
+  });
+
+  it.each([
+    "namespaces",
+    "nodes",
+    "customresourcedefinitions",
+    "persistentvolumes",
+    "clusterroles",
+    "clusterrolebindings",
+    "storageclasses",
+    "priorityclasses",
+    "ingressclasses",
+    "apiservices",
+    "mutatingwebhookconfigurations",
+    "validatingwebhookconfigurations",
+  ])("always ask before a delete of %s in Standard and Permissive", (resource) => {
+    expect(decide(`delete ${resource} x`, STANDARD_PROFILE).level).toBe("alwaysAsk");
+    expect(decide(`delete ${resource} x`, PERMISSIVE_PROFILE).level).toBe("alwaysAsk");
+  });
+});
+
+const dryRunVerbOf = (verb: string) => DRY_RUN_VERBS.kubectl.find((candidate) => candidate.verb === verb);
+
+describe("the dry-run verbs", () => {
+  it.each<[string, string | undefined]>([
+    ["apply", DEPLOYMENT_AND_ROLE],
+    ["create", DEPLOYMENT_AND_ROLE],
+    ["create deployment api --image=nginx", undefined],
+    ["create namespace web", undefined],
+    ["replace", DEPLOYMENT_AND_ROLE],
+    ["patch deploy api -p {}", undefined],
+    ["delete pod api", undefined],
+    ["delete", DEPLOYMENT_AND_ROLE],
+    ["scale deploy api --replicas=2", undefined],
+    ["label pods api a=b", undefined],
+    ["annotate pods api a=b", undefined],
+    ["set env deploy/api A=b", undefined],
+    ["set image deploy/api app=nginx", undefined],
+    ["set resources deploy/api --limits=cpu=1", undefined],
+    ["set selector svc api app=web", undefined],
+    ["set serviceaccount deploy api robot", undefined],
+    ["set subject rolebinding admin --user=alice", undefined],
+    ["rollout undo deploy/api", undefined],
+    ["cordon node-1", undefined],
+    ["uncordon node-1", undefined],
+    ["drain node-1", undefined],
+    ["taint nodes node-1 a=b:NoSchedule", undefined],
+  ])("name the verb of kubectl %s, which accepts --dry-run=server", (args, manifest) => {
+    const options = manifest === undefined ? {} : { manifest };
+    const result = evaluate(`${args} --dry-run=server`, options);
+    if (result.kind !== "policy") throw new Error(`rejected by the floor: ${result.reason}`);
+    const verb = result.targets[0]?.form.verb ?? "";
+    expect(dryRunVerbOf(verb)).toBeDefined();
+    if (dryRunVerbOf(verb)?.acceptsYamlOutput)
+      expect(floorEntryOf(`${args} --dry-run=server -o yaml`, options)).toBe("passes");
+  });
+
+  it.each(["cordon node-1", "uncordon node-1", "drain node-1"])("say that kubectl %s takes no -o", (args) => {
+    expect(dryRunVerbOf(args.split(" ")[0] ?? "")?.acceptsYamlOutput).toBe(false);
+    expect(floorEntryOf(`${args} --dry-run=server -o yaml`)).toBe("unparseable");
+  });
+
+  it("say that kubectl delete takes no -o yaml", () => {
+    expect(dryRunVerbOf("delete")?.acceptsYamlOutput).toBe(false);
+  });
+
+  it.each(["get pods", "logs api", "exec api -- ls", "rollout pause deploy/api", "run debug --image=busybox"])(
+    "leave out the verb of kubectl %s",
+    (args) => {
+      const result = evaluate(args);
+      if (result.kind !== "policy") throw new Error(`rejected by the floor: ${result.reason}`);
+      expect(result.targets.some((target) => dryRunVerbOf(target.form.verb))).toBe(false);
+    },
+  );
+
+  it("leave out kubectl rollout restart, which has no --dry-run", () => {
+    expect(dryRunVerbOf("rollout restart")).toBeUndefined();
+    expect(floorEntryOf("rollout restart deploy/api --dry-run=server")).toBe("unparseable");
   });
 });
