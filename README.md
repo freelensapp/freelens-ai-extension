@@ -215,8 +215,7 @@ context of the conversation.
 **Safe, human-in-the-loop changes**
 
 - **Approval gate**: every change is shown for review — rendered as YAML — and
-  applied only after you approve it. Which tools ask can be set per tool in the
-  settings; reading pod logs asks too by default.
+  applied only after you approve it; reading pod logs asks too by default.
 - **Approve all in this chat**: skip the approvals for the rest of one chat,
   until you turn it off or start a new chat.
 - **Backups**: the current state of a resource is presented before it is
