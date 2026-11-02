@@ -37,14 +37,16 @@ const deleteQuestion = (profile: PolicyProfile, isDefault: boolean): string =>
 
 /**
  * The policy profiles of the preferences: the default profile picker, the list
- * of the shipped and user profiles, and the rules and fallback level of the
- * profile chosen in the list, which the user edits for a user profile.
+ * of the shipped and user profiles, the rules and fallback level of the
+ * profile chosen in the list, which the user edits for a user profile, and its
+ * test box.
  */
 export const PolicyProfileSettings = observer(() => {
   const store = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
   const defaultProfile = findPolicyProfile(store.userProfiles, store.defaultProfileId) ?? STANDARD_PROFILE;
   const [selectedId, setSelectedId] = useState(defaultProfile.id);
   const [creating, setCreating] = useState(false);
+  const [testCommandLine, setTestCommandLine] = useState("");
 
   const profiles: readonly PolicyProfile[] = [...SHIPPED_PROFILES, ...store.userProfiles];
   // A deleted profile leaves the default profile chosen.
@@ -120,6 +122,8 @@ export const PolicyProfileSettings = observer(() => {
           onChange={(profile) => replaceUserProfile(store, profile)}
           onDuplicate={() => create(copyPolicyProfile(selected, `Copy of ${selected.name}`))}
           onDelete={() => remove(selected)}
+          testCommandLine={testCommandLine}
+          onTestCommandLineChange={setTestCommandLine}
         />
       </div>
     </>

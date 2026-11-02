@@ -22,3 +22,12 @@ export const formatCanonicalForm = (form: CanonicalForm): string =>
   [form.program, form.verb, form.resource, form.name, ...(form.namespace === undefined ? [] : ["-n", form.namespace])]
     .filter((part) => part !== undefined)
     .join(" ");
+
+/** Each program once; the type check fails here until a program added to `CliProgram` is listed. */
+const KNOWN_CLI_PROGRAMS = { kubectl: true } satisfies Record<CliProgram, true>;
+
+/** The names of the CLIs the agent runs, for messages: `kubectl`. */
+export const CLI_PROGRAM_NAMES: readonly string[] = Object.keys(KNOWN_CLI_PROGRAMS);
+
+/** Whether a word, such as the first of a typed command line, names a CLI the agent runs. */
+export const isCliProgram = (word: string): word is CliProgram => Object.hasOwn(KNOWN_CLI_PROGRAMS, word);

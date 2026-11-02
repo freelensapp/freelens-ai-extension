@@ -8,6 +8,7 @@ import {
 import { POLICY_LEVEL_OPTIONS } from "./policy-level-options";
 import styles from "./policy-profiles.module.scss";
 import { ProfileRules } from "./profile-rules";
+import { ProfileTestBox } from "./profile-test-box";
 
 import type { SingleValue } from "react-select";
 
@@ -26,10 +27,24 @@ interface ProfileDetailsProps {
   onChange: (profile: PolicyProfile) => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  /** The command line of the test box. */
+  testCommandLine: string;
+  onTestCommandLineChange: (commandLine: string) => void;
 }
 
-/** The name, fallback level and rules of one policy profile, editable for a user profile. */
-export const ProfileDetails = ({ profile, shipped, onChange, onDuplicate, onDelete }: ProfileDetailsProps) => {
+/**
+ * The name, fallback level and rules of one policy profile, editable for a
+ * user profile, and the test box of the profile.
+ */
+export const ProfileDetails = ({
+  profile,
+  shipped,
+  onChange,
+  onDuplicate,
+  onDelete,
+  testCommandLine,
+  onTestCommandLineChange,
+}: ProfileDetailsProps) => {
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(profile.name);
 
@@ -97,6 +112,7 @@ export const ProfileDetails = ({ profile, shipped, onChange, onDuplicate, onDele
       </div>
 
       <ProfileRules rules={profile.rules} editable={!shipped} onChange={(rules) => onChange({ ...profile, rules })} />
+      <ProfileTestBox profile={profile} commandLine={testCommandLine} onCommandLineChange={onTestCommandLineChange} />
     </section>
   );
 };

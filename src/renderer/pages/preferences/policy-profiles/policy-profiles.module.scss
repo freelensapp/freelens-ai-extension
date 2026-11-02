@@ -186,3 +186,22 @@
   justify-content: flex-end;
   margin-top: 12px;
 }
+
+.muted {
+  opacity: 0.7;
+}
+
+.test-box {
+  margin-top: 20px;
+}
+
+// Below the field, with room for the result; empty until a command line is typed.
+.test-result {
+  display: block;
+  margin-top: 8px;
+}
+
+.result-headline {
+  margin-bottom: 4px;
+  font-weight: bold;
+}

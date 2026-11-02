@@ -61,7 +61,12 @@ describe("PolicyProfileSettings", () => {
     expect(details().getByText(/cannot be changed/)).toBeDefined();
     expect(details().getByText("kubectl get *")).toBeDefined();
     expect(details().getByText("Fallback level").parentElement?.textContent).toContain("Deny");
-    expect(details().queryByRole("textbox")).toBeNull();
+    // Only the test box takes input.
+    expect(
+      details()
+        .getAllByRole("textbox")
+        .map((field) => field.getAttribute("aria-label")),
+    ).toEqual(["Command line"]);
     expect(details().queryByRole("button", { name: "Rename" })).toBeNull();
     expect(details().queryByRole("button", { name: "Delete" })).toBeNull();
   });
@@ -348,5 +353,133 @@ describe("Default profile", () => {
     );
 
     expect(store.defaultProfileId).toBe("standard");
+  });
+});
+
+describe("Test box", () => {
+  const testBox = () => within(details().getByRole("region", { name: "Test a command line" }));
+
+  const typeCommandLine = (line: string) =>
+    fireEvent.change(testBox().getByRole("textbox", { name: "Command line" }), { target: { value: line } });
+
+  const result = () => within(testBox().getByRole("status"));
+
+  const targetRows = () =>
+    result()
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) =>
+        within(row)
+          .getAllByRole("cell")
+          .map((cell) => cell.textContent),
+      );
+
+  it("shows the canonical form, the rule that matched it and the level Allow", () => {
+    render(<PolicyProfileSettings />);
+
+    typeCommandLine("kubectl get pods -n web");
+
+    expect(result().getByText("Policy level:").parentElement?.textContent).toBe("Policy level: Allow");
+    expect(targetRows()).toEqual([["kubectl get pods * -n web", "kubectl get *", "Allow"]]);
+  });
+
+  it("shows the Ask of a specific rule over the Allow of a broad one", () => {
+    store.userProfiles = [
+      {
+        id: "production",
+        name: "Production",
+        rules: [
+          { pattern: "kubectl delete *", level: "allow" },
+          { pattern: "kubectl delete pods * -n prod", level: "ask" },
+        ],
+        fallbackLevel: "deny",
+      },
+    ];
+    render(<PolicyProfileSettings />);
+    openProfile("Production");
+
+    typeCommandLine("kubectl delete pod web -n prod");
+
+    expect(result().getByText("Policy level:").parentElement?.textContent).toBe("Policy level: Ask");
+    expect(targetRows()).toEqual([["kubectl delete pods web -n prod", "kubectl delete pods * -n prod", "Ask"]]);
+  });
+
+  it("shows the fallback level for a form that no rule matches", () => {
+    render(<PolicyProfileSettings />);
+
+    typeCommandLine("kubectl scale deployment api --replicas=2");
+
+    expect(result().getByText("Policy level:").parentElement?.textContent).toBe("Policy level: Ask");
+    expect(targetRows()).toEqual([["kubectl scale deployments api -n default", "None, fallback level", "Ask"]]);
+  });
+
+  it("shows each target of a multi-target invocation with its rule, and the most restrictive level", () => {
+    render(<PolicyProfileSettings />);
+    openProfile("Nightly");
+
+    typeCommandLine("kubectl delete pod/web deployment/api -n dev");
+
+    expect(result().getByText("Policy level:").parentElement?.textContent).toBe("Policy level: Ask");
+    expect(targetRows()).toEqual([
+      ["kubectl delete pods web -n dev", "kubectl delete pods * -n dev", "Allow"],
+      ["kubectl delete deployments api -n dev", "None, fallback level", "Ask"],
+    ]);
+  });
+
+  it("shows the floor entry that rejects an invocation, what it rejected and why no profile lifts it", () => {
+    render(<PolicyProfileSettings />);
+    openProfile("Permissive");
+
+    typeCommandLine("kubectl get pods --kubeconfig /tmp/other");
+
+    expect(result().getByText("Rejected by the floor")).toBeDefined();
+    expect(
+      result().getByText("Flags that change the cluster or the identity: --kubeconfig is never allowed."),
+    ).toBeDefined();
+    expect(
+      result().getByText(
+        "An invocation stays on the chat's cluster, with the connection and the user Freelens has for it.",
+      ),
+    ).toBeDefined();
+    expect(result().queryByText("Policy level:")).toBeNull();
+    expect(result().queryByRole("table")).toBeNull();
+  });
+
+  it("splits the command line as a shell would, quotes included", () => {
+    render(<PolicyProfileSettings />);
+
+    typeCommandLine("kubectl get pods -l 'app in (web, api)' -n web");
+
+    expect(targetRows()).toEqual([["kubectl get pods * -n web", "kubectl get *", "Allow"]]);
+  });
+
+  it("says why a command line cannot be tested", () => {
+    render(<PolicyProfileSettings />);
+
+    typeCommandLine("kubectl get pods -l 'app=web");
+    expect(result().getByText("The single quote is not closed.")).toBeDefined();
+
+    typeCommandLine("oc get pods");
+    expect(result().getByText("Start the command line with kubectl.")).toBeDefined();
+  });
+
+  it("keeps the command line when another profile is chosen, and shows how that profile treats it", () => {
+    render(<PolicyProfileSettings />);
+    typeCommandLine("kubectl scale deployment api --replicas=2");
+
+    openProfile("Read only");
+
+    expect((testBox().getByRole("textbox", { name: "Command line" }) as HTMLInputElement).value).toBe(
+      "kubectl scale deployment api --replicas=2",
+    );
+    expect(targetRows()).toEqual([["kubectl scale deployments api -n default", "None, fallback level", "Deny"]]);
+  });
+
+  it("shows nothing for an empty command line", () => {
+    render(<PolicyProfileSettings />);
+
+    typeCommandLine("   ");
+
+    expect(testBox().getByRole("status").textContent).toBe("");
   });
 });

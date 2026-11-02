@@ -25,5 +25,9 @@ declare const classNames: {
   readonly formField: "formField";
   readonly formLabel: "formLabel";
   readonly formActions: "formActions";
+  readonly muted: "muted";
+  readonly testBox: "testBox";
+  readonly testResult: "testResult";
+  readonly resultHeadline: "resultHeadline";
 };
 export = classNames;
