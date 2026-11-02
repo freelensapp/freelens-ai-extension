@@ -824,7 +824,7 @@ describe("canonical forms of helm invocations", () => {
     ["list --all-namespaces -o json --filter ^web", ["helm list releases * -n *"]],
     ["list -nweb -f web -l owner=helm -q", ["helm list releases * -n web"]],
     ["status web", ["helm status releases web -n default"]],
-    ["status web --namespace=prod -o yaml --revision 2", ["helm status releases web -n prod"]],
+    ["status web --namespace=prod -o table --revision 2", ["helm status releases web -n prod"]],
     ["history web -n prod --max 5", ["helm history releases web -n prod"]],
     ["hist web", ["helm history releases web -n default"]],
     ["get values web -a -o json", ["helm get values releases web -n default"]],
@@ -852,11 +852,23 @@ describe("canonical forms of helm invocations", () => {
     expect(helmFormsOf(args)).toEqual(expected);
   });
 
-  it("ignores revealSecrets, which names no target of helm", () => {
-    const result = evaluateHelm("get values web", { revealSecrets: true });
-    expect(result.kind === "policy" && result.targets.map((target) => formatCanonicalForm(target.form))).toEqual([
-      "helm get values releases web -n default",
-    ]);
+  it.each([
+    ["get manifest web", ["helm reveal releases web -n default"]],
+    ["status web -n prod -o json", ["helm reveal releases web -n prod"]],
+    ["status web", ["helm reveal releases web -n default"]],
+    [
+      "upgrade web bitnami/nginx --reuse-values --set a=1 --dry-run",
+      ["helm upgrade releases web -n default", "helm reveal releases web -n default"],
+    ],
+    ["rollback web 2 --dry-run", ["helm rollback releases web -n default", "helm reveal releases web -n default"]],
+    ["get values web", ["helm get values releases web -n default"]],
+    ["list -A", ["helm list releases * -n *"]],
+    ["uninstall web", ["helm uninstall releases web -n default"]],
+  ])("helm %s with revealSecrets", (args, expected) => {
+    const result = evaluateHelm(args, { revealSecrets: true });
+    expect(result.kind === "policy" && result.targets.map((target) => formatCanonicalForm(target.form))).toEqual(
+      expected,
+    );
   });
 });
 
@@ -939,6 +951,9 @@ describe("the floor of helm", () => {
     ["list --no-such-flag", "unparseable"],
     ["list -n", "unparseable"],
     ["", "unparseable"],
+    ["status web -o json", "secret-output"],
+    ["status web --output=yaml", "secret-output"],
+    ["status web -ojson -n prod", "secret-output"],
   ])("helm %s is rejected by %s", (args, entry) => {
     expect(helmFloorEntryOf(args)).toBe(entry);
   });
@@ -959,6 +974,8 @@ describe("the floor of helm", () => {
     "upgrade web my-repo.example/nginx_chart --reuse-values",
     "uninstall web --dry-run --wait --cascade foreground",
     "rollback web --dry-run=server --cleanup-on-fail --force-replace --no-hooks --history-max 5",
+    "status web -o table",
+    "get manifest web",
   ])("helm %s passes the floor", (args) => {
     expect(helmFloorEntryOf(args)).toBe("passes");
   });
@@ -970,6 +987,12 @@ describe("the floor of helm", () => {
       "The user's disk and local code: frobnicate is not a helm verb, and helm would look for a plugin of that name.",
     ],
     ["list --kube-context prod", "Flags that change the cluster or the identity: --kube-context is never allowed."],
+    [
+      "status web -o json",
+      "Output that prints Secret values around the redaction: helm status -o json prints the manifest of the release, " +
+        "Secret values included, without revealSecrets; use -o table, or helm get manifest, whose Secret values are " +
+        "redacted.",
+    ],
     ["repo add bitnami https://charts.bitnami.com", "Credentials and configuration: helm repo add is never allowed."],
     [
       "upgrade web ./chart --reuse-values",

@@ -793,7 +793,7 @@ export class AgentHost {
     }
     if (decision.kind === "floor") return { block: true, reason: floorBlockReason(decision) };
     if (decision.level === "deny") return { block: true, reason: profileDenyReason(profile, decision) };
-    const secretRedaction = program === "kubectl" ? planSecretRedaction(input.args, decision.targets) : undefined;
+    const secretRedaction = planSecretRedaction(program, input.args, decision.targets);
     const pass = () => {
       agent.passedCliCalls.set(event.toolCallId, { program, ...(secretRedaction ? { secretRedaction } : {}) });
       return undefined;

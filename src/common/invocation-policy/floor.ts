@@ -104,10 +104,11 @@ export const FLOOR_ENTRIES: Readonly<Record<FloorEntryId, FloorEntry>> = {
     id: "secret-output",
     title: "Output that prints Secret values around the redaction",
     reason:
-      "Secret values reach the model only when the agent asks to reveal them and the profile allows it. Without revealSecrets, a get of Secrets takes no jsonpath, go-template, template or custom-columns output, a describe of Secrets, which prints the values of some of them, is not allowed, and any other verb on Secrets prints at most their names.",
+      "Secret values reach the model only when the agent asks to reveal them and the profile allows it. Without revealSecrets, a get of Secrets takes no jsonpath, go-template, template or custom-columns output, a describe of Secrets, which prints the values of some of them, is not allowed, any other verb on Secrets prints at most their names, and helm prints the manifest of a release only as text, whose Secrets are redacted.",
     covers: [
       "-o jsonpath, jsonpath-as-json, go-template, template, custom-columns and --template on a get of Secrets",
       "describe of Secrets",
+      "helm status -o json and -o yaml, which print the manifest of the release",
       "-o other than name, --template and --show-secrets on any other verb that targets Secrets",
     ],
   },

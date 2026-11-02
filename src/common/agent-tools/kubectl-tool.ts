@@ -39,7 +39,9 @@ export const cliToolParameters = (program: CliProgram) =>
     revealSecrets: Type.Optional(
       Type.Boolean({
         description:
-          program === "kubectl" ? "Ask for the values of Secrets unredacted" : "Has no effect on helm: leave it unset",
+          program === "kubectl"
+            ? "Ask for the values of Secrets unredacted"
+            : "Ask for the Secrets of a release's manifest unredacted (get manifest, status, upgrade, rollback)",
       }),
     ),
   });

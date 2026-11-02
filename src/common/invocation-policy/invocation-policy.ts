@@ -1,5 +1,6 @@
 import { type FloorRejection, rejectByFloor } from "./floor";
 import { helmCanonicalForms, parseHelmInvocation } from "./helm-canonical-forms";
+import { checkHelmSecretOutput } from "./helm-secret-output";
 import { kubectlCanonicalForms } from "./kubectl-canonical-forms";
 import { parseKubectlInvocation } from "./kubectl-invocation";
 import { checkSecretOutput } from "./kubectl-secret-output";
@@ -54,14 +55,20 @@ export function evaluateInvocationPolicy(input: InvocationPolicyInput): Invocati
   return { kind: "policy", level, targets };
 }
 
-/** The canonical forms of a helm invocation; helm takes no manifest, and `revealSecrets` names none of its targets. */
+/**
+ * The canonical forms of a helm invocation; helm takes no manifest, and a call
+ * whose output can carry a release's manifest gets a `reveal` form with
+ * `revealSecrets`.
+ */
 const helmForms = (input: InvocationPolicyInput): CanonicalForm[] | FloorRejection => {
   const invocation = parseHelmInvocation(input.args);
   if ("kind" in invocation) return invocation;
   if (input.manifest !== undefined) {
     return rejectByFloor("manifest", `helm ${invocation.command.path.join(" ")} takes no manifest`);
   }
-  return helmCanonicalForms(invocation, input.defaultNamespace);
+  const forms = helmCanonicalForms(invocation, input.defaultNamespace);
+  if ("kind" in forms) return forms;
+  return checkHelmSecretOutput(invocation, forms, input.revealSecrets);
 };
 
 /** The canonical forms of a kubectl invocation, with a `reveal` form for each Secret whose values it prints. */

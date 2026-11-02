@@ -27,7 +27,7 @@ export interface CliToolContext {
   podLogsTailLines: number;
   /** What the runner reports before the process starts, such as a kubectl download. */
   onProgress: (message: string) => void;
-  /** Set for a get of Secrets without revealSecrets. */
+  /** Set for a kubectl get of Secrets, or a helm call that can print a release's manifest, without revealSecrets. */
   secretRedaction?: SecretRedaction;
 }
 
@@ -69,7 +69,7 @@ export function prepareCliInvocation(
   podLogsTailLines: number,
   secretRedaction?: SecretRedaction,
 ): PreparedCliInvocation {
-  const args = secretRedaction?.args ?? input.args;
+  const args = secretRedaction?.kind === "objects" ? secretRedaction.args : input.args;
   const end = args.indexOf("--");
   const own = end < 0 ? [...args] : args.slice(0, end);
   const rest = end < 0 ? [] : args.slice(end);
@@ -128,19 +128,21 @@ const endLine = (program: CliProgram, result: CliResult, timeoutMs: number): str
 };
 
 // How it ended, the standard output, and the standard error when there is any.
-// The output of a get of Secrets is redacted before grep and the cap.
+// The output is redacted before grep and the cap.
 const resultText = (
   program: CliProgram,
   result: CliResult,
   invocation: { grep?: RegExp; timeoutMs: number; secretRedaction?: SecretRedaction },
 ): string => {
   const { grep, timeoutMs, secretRedaction } = invocation;
-  const output = secretRedaction ? redactSecretOutput(result.stdout, secretRedaction.print) : result.stdout;
-  const stdout = withoutFinalNewline(capOutput(grep ? grepLines(output, grep) : output));
+  const output = secretRedaction
+    ? redactSecretOutput(result.stdout, secretRedaction)
+    : { stdout: result.stdout, redacted: false };
+  const stdout = withoutFinalNewline(capOutput(grep ? grepLines(output.stdout, grep) : output.stdout));
   const stderr = withoutFinalNewline(capOutput(result.stderr));
   return [
     endLine(program, result, timeoutMs),
-    ...(secretRedaction ? [SECRET_REDACTION_NOTE] : []),
+    ...(output.redacted ? [SECRET_REDACTION_NOTE] : []),
     stdout ? `Standard output:\n${stdout}` : "Standard output: (empty)",
     ...(stderr ? [`Standard error:\n${stderr}`] : []),
   ].join("\n\n");

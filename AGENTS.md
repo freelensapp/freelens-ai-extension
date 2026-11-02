@@ -900,8 +900,7 @@ into an invocation for the runner, and its result into what the model reads.
 - **What runs.** The agent's arguments. For kubectl, `-f -` is added for a
   `manifest`, and `--tail=<pod logs tail lines preference>` to a `logs`
   without `--tail`, `--since` or `--since-time`; the arguments after `--`
-  belong to the command of `exec` and are left alone. helm takes no manifest,
-  and `revealSecrets` names none of its targets.
+  belong to the command of `exec` and are left alone. helm takes no manifest.
 - **Timeout and Stop.** 30 seconds when `timeoutSeconds` is unset, at most
   300. Stop aborts pi's signal, which kills the process, and the timeout kills
   it too; the result says which of the two did. A kubectl download in
@@ -927,6 +926,17 @@ into an invocation for the runner, and its result into what the model reads.
   full, is rejected by the floor without `revealSecrets`. With
   `revealSecrets` the call runs as asked, and the profile decides about its
   `reveal` targets. Nothing outside Secret objects is redacted.
+- **Secrets in a release's manifest.** The output of helm `get manifest`,
+  `status`, `upgrade` and `rollback`, which can carry the rendered manifest
+  (with `--dry-run` or `--debug`), has the Secret documents redacted the same
+  way, after their `# Source:` comment and printed as YAML; a Secret document
+  that does not parse is withheld, and the note is added only when a Secret
+  was found. The parts are split at `---` and at the headings of helm's table
+  output (`HOOKS:`, `MANIFEST:`, `NOTES:`). `status -o json` or `-o yaml`,
+  which prints the release as one object, is rejected by the floor without
+  `revealSecrets`. With `revealSecrets`, `get manifest` and `status` have the
+  verb `reveal`, and `upgrade` and `rollback` get a `reveal` form next to
+  their own. Helm values (`get values`) are not redacted.
 
 ### Approvals
 

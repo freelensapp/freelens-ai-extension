@@ -128,6 +128,27 @@ Decisions taken while building it:
    its command line, like kubectl; the approval card needed no change. The
    profile views and the rule hint name helm.
 
+Decision of the final fix pass, taken by the supervisor after the review of
+the integration branch:
+
+10. **Secrets in a release's manifest.** `helm get manifest` and the agent's
+    own `upgrade` with `--dry-run` print the rendered Secrets of the release,
+    and so do `status`, `upgrade` and `rollback` with `--debug`. Their output
+    has the Secret documents redacted with kubectl's redaction code (`data`,
+    `stringData` and the last-applied-configuration annotation replaced by
+    their sizes); the output is split at `---` and at the headings of helm's
+    table output (`HOOKS:`, `MANIFEST:`, `NOTES:`), a Secret document is
+    printed as YAML after its `# Source:` comment, one that does not parse is
+    withheld, and the redaction note is added only when a Secret was found.
+    `status -o json` and `-o yaml` print the release as one object, its
+    manifest and hooks included, so the floor rejects them without
+    `revealSecrets` (`secret-output`). With `revealSecrets`, `get manifest`
+    and `status` have the verb `reveal` (`helm reveal releases <release> -n
+    <ns>`), `upgrade` and `rollback` keep their form and get the `reveal` form
+    next to it, as kubectl's writes that print Secrets do, the profile
+    decides, and the output is unredacted. `helm get values` and `get notes`
+    stay as they are: Helm values are out of scope, as the spec says now.
+
 Open risk: the tool's timeout (30 s unless the call sets one) kills helm in
 the middle of a long upgrade, rollback or uninstall, which leaves the release
 pending (`another operation is in progress`). The helm tool's description

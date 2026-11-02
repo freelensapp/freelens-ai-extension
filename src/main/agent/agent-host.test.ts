@@ -2123,6 +2123,124 @@ describe("AgentHost", () => {
       expect(cli.invocations).toEqual([]);
     });
 
+    describe("Secrets in a release's manifest", () => {
+      const REDACTION_NOTE =
+        "Secret values are redacted: each value of data and stringData, and the annotation " +
+        "kubectl.kubernetes.io/last-applied-configuration, is replaced by its size. Set revealSecrets to read them.";
+      // "hunter22" in base64.
+      const SECRET_DOCUMENT =
+        "---\n# Source: app/templates/secret.yaml\napiVersion: v1\nkind: Secret\nmetadata:\n  name: web-db\n" +
+        '  annotations:\n    kubectl.kubernetes.io/last-applied-configuration: \'{"data":{"password":"aHVudGVyMjI="}}\'\n' +
+        "type: Opaque\ndata:\n  password: aHVudGVyMjI=\nstringData:\n  token: plain-token\n";
+      const REDACTED_SECRET_DOCUMENT =
+        "---\n# Source: app/templates/secret.yaml\napiVersion: v1\nkind: Secret\nmetadata:\n  name: web-db\n" +
+        "  annotations:\n    kubectl.kubernetes.io/last-applied-configuration: redacted, 36 bytes\n" +
+        "type: Opaque\ndata:\n  password: redacted, 8 bytes\nstringData:\n  token: redacted, 11 bytes\n";
+      const SERVICE_DOCUMENT =
+        "---\n# Source: app/templates/service.yaml\napiVersion: v1\nkind: Service\nmetadata:\n  name: web\n" +
+        "spec:\n  ports:\n  - port: 80\n";
+      const allowAll = () => helmHost({ getPolicyProfileSettings: () => everyClusterOn(ALLOW_ALL_PROFILE) });
+
+      it("redacts the Secrets of the manifest helm get manifest prints, and leaves the other documents as they are", async () => {
+        cli = createStandInCli({ answers: { "get manifest web": { stdout: SECRET_DOCUMENT + SERVICE_DOCUMENT } } });
+        faux.setResponses(callThenEcho("helm", { args: ["get", "manifest", "web"] }));
+        const host = allowAll();
+
+        await host.handleCommand("c1", { type: "prompt", message: "show the manifest of web" });
+        await waitFor(settled);
+
+        expect(cli.actions()).toEqual([expect.objectContaining({ program: "helm", args: ["get", "manifest", "web"] })]);
+        expect(toolResultTexts()).toEqual([
+          `Exit code: 0\n\n${REDACTION_NOTE}\n\nStandard output:\n${REDACTED_SECRET_DOCUMENT}${SERVICE_DOCUMENT.trimEnd()}`,
+        ]);
+      });
+
+      it("redacts the Secret documents of an upgrade's dry run, its hooks included, and keeps the rest of its output", async () => {
+        const upgrade = ["upgrade", "web", "bitnami/nginx", "--reuse-values", "--set", "replicaCount=2", "--dry-run"];
+        const header =
+          'Release "web" has been upgraded. Happy Helming!\nNAME: web\nLAST DEPLOYED: Tue Nov  3 00:44:14 2026\n' +
+          "NAMESPACE: default\nSTATUS: pending-upgrade\nREVISION: 2\nDESCRIPTION: Dry run complete\nHOOKS:\n";
+        const hook = (token: string) =>
+          "---\n# Source: app/templates/hook-secret.yaml\napiVersion: v1\nkind: Secret\nmetadata:\n  name: hook\n" +
+          `  annotations:\n    helm.sh/hook: pre-upgrade\nstringData:\n  token: ${token}\n\n`;
+        const notes = "\nNOTES:\nVisit http://web.example\n---\nkind: Secret means nothing here.\n";
+        cli = createStandInCli({
+          answers: {
+            [upgrade.join(" ")]: {
+              stdout: `${header}${hook("hook-token")}MANIFEST:\n${SECRET_DOCUMENT}${SERVICE_DOCUMENT}${notes}`,
+            },
+          },
+        });
+        faux.setResponses(callThenEcho("helm", { args: upgrade }));
+        const host = allowAll();
+
+        await host.handleCommand("c1", { type: "prompt", message: "what would the upgrade change?" });
+        await waitFor(settled);
+
+        expect(toolResultTexts()).toEqual([
+          `Exit code: 0\n\n${REDACTION_NOTE}\n\nStandard output:\n${header}${hook("redacted, 10 bytes")}MANIFEST:\n` +
+            `${REDACTED_SECRET_DOCUMENT}${SERVICE_DOCUMENT}${notes.trimEnd()}`,
+        ]);
+      });
+
+      it("withholds a Secret document it cannot parse, since its values cannot be found", async () => {
+        const broken =
+          "---\n# Source: app/templates/broken.yaml\napiVersion: v1\nkind: Secret\ndata:\n  password: aHVudGVyMjI=\n" +
+          "   bad: [unclosed\n";
+        cli = createStandInCli({ answers: { "get manifest web": { stdout: broken + SERVICE_DOCUMENT } } });
+        faux.setResponses(callThenEcho("helm", { args: ["get", "manifest", "web"] }));
+        const host = allowAll();
+
+        await host.handleCommand("c1", { type: "prompt", message: "show the manifest of web" });
+        await waitFor(settled);
+
+        expect(toolResultTexts()).toEqual([
+          `Exit code: 0\n\n${REDACTION_NOTE}\n\nStandard output:\n---\n# Source: app/templates/broken.yaml\n` +
+            "# withheld: a Secret document that could not be parsed, so its values could not be redacted\n" +
+            SERVICE_DOCUMENT.trimEnd(),
+        ]);
+      });
+
+      it("prints an output without Secrets as it is, without the redaction note", async () => {
+        cli = createStandInCli({ answers: { "get manifest web": { stdout: SERVICE_DOCUMENT } } });
+        faux.setResponses(callThenEcho("helm", { args: ["get", "manifest", "web"] }));
+        const host = allowAll();
+
+        await host.handleCommand("c1", { type: "prompt", message: "show the manifest of web" });
+        await waitFor(settled);
+
+        expect(toolResultTexts()).toEqual([`Exit code: 0\n\nStandard output:\n${SERVICE_DOCUMENT.trimEnd()}`]);
+      });
+
+      it("asks under Standard with a reveal target, and prints the manifest unredacted once approved", async () => {
+        cli = createStandInCli({ answers: { "get manifest web": { stdout: SECRET_DOCUMENT } } });
+        faux.setResponses(callThenEcho("helm", { args: ["get", "manifest", "web"], revealSecrets: true }));
+        const host = helmHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "what is the password of web?" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(uiRequests()[0]).toMatchObject({ canonicalForms: [releaseForm("reveal")], level: "ask" });
+        await answer(host, true);
+        await waitFor(settled);
+
+        expect(toolResultTexts()).toEqual([`Exit code: 0\n\nStandard output:\n${SECRET_DOCUMENT.trimEnd()}`]);
+      });
+
+      it("blocks helm status -o json without revealSecrets by the floor, and the call never runs", async () => {
+        faux.setResponses(callThenEcho("helm", { args: ["status", "web", "-o", "json"] }));
+        const host = allowAll();
+
+        await host.handleCommand("c1", { type: "prompt", message: "status of web" });
+        await waitFor(settled);
+
+        expect(toolResultTexts()[0]).toMatch(
+          /^Blocked by the floor.* helm status -o json prints the manifest of the release, Secret values included/,
+        );
+        expect(cli.actions()).toEqual([]);
+      });
+    });
+
     describe("the dry-run preview of an upgrade", () => {
       const upgradeWeb = ["upgrade", "web", "bitnami/nginx", "--reuse-values", "--set", "replicaCount=3"];
       const upgradeDryRun = [...upgradeWeb, "--dry-run=server", "-o", "json"].join(" ");

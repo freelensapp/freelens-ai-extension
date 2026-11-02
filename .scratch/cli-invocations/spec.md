@@ -356,6 +356,17 @@ the user controls per cluster:
 - With `revealSecrets`, the canonical form's verb of a `get` or a
   `describe` of Secrets is `reveal`, so a profile decides about reveals with
   rules such as `kubectl reveal secrets *`.
+- helm prints rendered Secrets in the output of `get manifest`, and of
+  `upgrade` and `rollback` with `--dry-run` (and `status`, `upgrade` and
+  `rollback` with `--debug`). The Secret documents of that output have
+  `data`, `stringData` and the last-applied-configuration annotation replaced
+  by their sizes, as kubectl's redaction does; `helm status -o json` and
+  `-o yaml`, which print the release as one object, are rejected by the floor
+  without `revealSecrets`. With `revealSecrets`, the canonical form's verb is
+  `reveal` (resource `releases`, the release's name; a change keeps its own
+  form next to it), the profile decides, and the output is unredacted.
+  `helm get values` and `get notes` stay as they are: Helm values are out of
+  scope.
 
 ### Policy profiles and their storage
 
@@ -551,9 +562,9 @@ helpers.
 - Interactive invocations: `exec -it`, `attach`, `edit`, `port-forward`,
   `proxy`, following logs and watches.
 - Helm `install`, `repo add`, local charts and chart URLs.
-- Redacting secrets outside Secret objects: Helm values, environment
-  variables in pod specs, ConfigMaps that hold credentials, and output of
-  `exec`.
+- Redacting secrets outside Secret objects: Helm values (`helm get values`
+  and the values `--debug` prints), environment variables in pod specs,
+  ConfigMaps that hold credentials, and output of `exec`.
 - Parallel reads.
 - Tools for AI Explain.
 - Changes to pi: per-call execution modes, a runtime-level `fetch`.
