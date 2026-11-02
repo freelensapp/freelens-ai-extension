@@ -58,6 +58,12 @@
   margin: 2px 0 0 20px;
 }
 
+.tool-call-reason {
+  margin: 2px 0 0 20px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .tool-call-fold-summary {
   cursor: pointer;
   user-select: none;

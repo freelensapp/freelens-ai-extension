@@ -10,6 +10,7 @@ declare const classNames: {
   readonly toolCallLine: "toolCallLine";
   readonly toolCallCommand: "toolCallCommand";
   readonly toolCallFold: "toolCallFold";
+  readonly toolCallReason: "toolCallReason";
   readonly toolCallFoldSummary: "toolCallFoldSummary";
   readonly toolCallStatus: "toolCallStatus";
   readonly toolCallLabel: "toolCallLabel";

@@ -34,6 +34,7 @@ export const Message = ({ message }: MessageProps) => {
             text={message.text}
             actionDetails={message.actionDetails}
             resources={message.resources}
+            cliApproval={message.cliApproval}
             options={message.options!}
             approved={message.approved!}
             onAction={(option) => {

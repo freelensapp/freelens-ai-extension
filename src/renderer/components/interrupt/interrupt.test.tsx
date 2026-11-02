@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Interrupt, { type InterruptProps } from "./interrupt";
 
+import type { CliApprovalRequest } from "../../../common/agent-protocol";
+
 let consoleError: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
@@ -61,5 +63,65 @@ describe("Interrupt", () => {
 
     expect(screen.queryByRole("button", { name: "yes" })).toBeNull();
     expect(screen.getByText("patchKubernetesResource")).toBeDefined();
+  });
+});
+
+describe("Interrupt of a kubectl call", () => {
+  const cliApproval: CliApprovalRequest = {
+    id: "k1",
+    toolCallId: "t1",
+    method: "confirm",
+    program: "kubectl",
+    args: ["delete", "pods", "web-1", "web-2", "-n", "web"],
+    canonicalForms: [
+      { program: "kubectl", verb: "delete", resource: "pods", name: "web-1", namespace: "web" },
+      { program: "kubectl", verb: "delete", resource: "pods", name: "web-2", namespace: "web" },
+    ],
+    level: "ask",
+    profileName: "Standard",
+  };
+  const cliProps = (request: Partial<CliApprovalRequest> = {}) =>
+    props({
+      header: "kubectl delete pods web-1 web-2 -n web",
+      text: "",
+      actionDetails: undefined,
+      resources: undefined,
+      cliApproval: { ...cliApproval, ...request },
+    });
+
+  it("shows the command line, every target, and the profile with its level", () => {
+    render(<Interrupt {...cliProps()} />);
+
+    expect(screen.getByText("kubectl delete pods web-1 web-2 -n web")).toBeDefined();
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "kubectl delete pods web-1 -n web",
+      "kubectl delete pods web-2 -n web",
+    ]);
+    expect(screen.getByText("Ask: the policy profile Standard asks before this invocation.")).toBeDefined();
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("says that an Always ask call asks every time", () => {
+    render(<Interrupt {...cliProps({ level: "alwaysAsk" })} />);
+
+    expect(
+      screen.getByText(
+        'Always ask: the policy profile Standard asks before this invocation every time, even with "Approve all in this chat".',
+      ),
+    ).toBeDefined();
+  });
+
+  it("shows the manifest the call sends", () => {
+    const manifest = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n";
+    render(<Interrupt {...cliProps({ args: ["apply"], manifest })} />);
+
+    expect(screen.getByText("Manifest")).toBeDefined();
+    expect(screen.getByText(/kind: ConfigMap/)).toBeDefined();
+  });
+
+  it("shows no manifest for a call without one", () => {
+    render(<Interrupt {...cliProps()} />);
+
+    expect(screen.queryByText("Manifest")).toBeNull();
   });
 });

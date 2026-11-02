@@ -141,21 +141,28 @@ describe("ToolCall of a kubectl call", () => {
     expect(folds()).toEqual([]);
   });
 
-  it("shows the reason a call that never ran was refused", () => {
+  it.each([
+    [
+      "the floor entry",
+      ["get", "pods", "--context", "prod"],
+      "Blocked by the floor, which no policy profile lifts. Flags that change the cluster or the identity: --context is never allowed.",
+    ],
+    [
+      "Deny of the profile",
+      ["scale", "deployment", "web", "--replicas=3"],
+      'Denied by the policy profile "Read only": kubectl scale deployments web -n default gets Deny from the profile\'s fallback level.',
+    ],
+    ["the user's denial", ["delete", "pod", "web-1"], "The user denied the action"],
+  ])("shows the reason of a call that was blocked by %s under its command line", (_case, args, reason) => {
     render(
-      <ToolCall
-        toolCall={kubectlCall({
-          args: { args: ["apply", "-f", "deploy.yaml"] },
-          result: "kubectl reads no files: send the objects in manifest instead of -f or --filename.",
-          isError: true,
-          invocation: undefined,
-        })}
-      />,
+      <ToolCall toolCall={kubectlCall({ args: { args }, result: reason, isError: true, invocation: undefined })} />,
     );
 
-    expect(commandLine()).toBe("kubectl apply -f deploy.yaml");
-    expect(folds()).toEqual([{ summary: "Error", open: false }]);
-    expect(screen.getByText(/^kubectl reads no files/)).toBeTruthy();
+    expect(commandLine()).toBe(`kubectl ${args.join(" ")}`);
+    expect(screen.getByText("blocked")).toBeTruthy();
+    expect(folds()).toEqual([]);
+    expect(screen.getByText(reason)).toBeTruthy();
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("says that a killed call has no exit code", () => {

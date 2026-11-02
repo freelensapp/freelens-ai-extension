@@ -1,9 +1,13 @@
 import { Renderer } from "@freelensapp/extensions";
 import { CheckCircle, TriangleAlert, XCircle } from "lucide-react";
 import * as React from "react";
+import { formatCanonicalForm } from "../../../common/invocation-policy/canonical-form";
+import { POLICY_LEVEL_LABELS } from "../../../common/invocation-policy/policy-profile";
 import { CodeBlock } from "../code-block";
 import { MarkdownViewer } from "../markdown-viewer";
 import styles from "./interrupt.module.scss";
+
+import type { CliApprovalRequest } from "../../../common/agent-protocol";
 
 const {
   Component: { Button },
@@ -15,10 +19,39 @@ export type InterruptProps = {
   text: string;
   actionDetails?: string;
   resources?: string;
+  // The approval of a kubectl call: its targets, its level and its manifest.
+  cliApproval?: CliApprovalRequest;
   options: string[];
   approved: boolean | null;
   onAction: (option: string) => void;
 };
+
+const levelLine = ({ level, profileName }: CliApprovalRequest) =>
+  level === "alwaysAsk"
+    ? `${POLICY_LEVEL_LABELS.alwaysAsk}: the policy profile ${profileName} asks before this invocation every time, even with "Approve all in this chat".`
+    : `${POLICY_LEVEL_LABELS.ask}: the policy profile ${profileName} asks before this invocation.`;
+
+// The body of a kubectl call's card, under its command line: one target per
+// resource, name or manifest object, the level and the profile that gave it,
+// and the manifest the call sends.
+const CliApprovalBody = ({ request }: { request: CliApprovalRequest }) => (
+  <>
+    <div className={styles.interruptLabel}>Targets</div>
+    <ul className={styles.interruptTargets}>
+      {request.canonicalForms.map((form, index) => (
+        <li key={index}>
+          <code>{formatCanonicalForm(form)}</code>
+        </li>
+      ))}
+    </ul>
+    <div className={styles.interruptLevel}>{levelLine(request)}</div>
+    {request.manifest !== undefined && (
+      <CodeBlock language="yaml" title="Manifest" collapsible props={{}}>
+        {request.manifest}
+      </CodeBlock>
+    )}
+  </>
+);
 
 const Interrupt = ({
   header,
@@ -26,6 +59,7 @@ const Interrupt = ({
   text,
   actionDetails,
   resources,
+  cliApproval,
   options,
   approved,
   onAction,
@@ -36,7 +70,9 @@ const Interrupt = ({
   // Structured Kubernetes approvals carry the action payload and a backup of the
   // resources to be changed as YAML; other interrupts fall back to markdown text.
   const renderBody = () =>
-    actionDetails ? (
+    cliApproval ? (
+      <CliApprovalBody request={cliApproval} />
+    ) : actionDetails ? (
       <>
         <CodeBlock language="yaml" title="Action details" collapsible props={{}}>
           {actionDetails}

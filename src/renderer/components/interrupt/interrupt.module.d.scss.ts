@@ -3,6 +3,9 @@ declare const classNames: {
   readonly interruptHeader: "interruptHeader";
   readonly interruptQuestion: "interruptQuestion";
   readonly interruptHeaderToggle: "interruptHeaderToggle";
+  readonly interruptLabel: "interruptLabel";
+  readonly interruptTargets: "interruptTargets";
+  readonly interruptLevel: "interruptLevel";
   readonly interruptDetails: "interruptDetails";
   readonly interruptStatusIcon: "interruptStatusIcon";
   readonly interruptStatusPending: "interruptStatusPending";

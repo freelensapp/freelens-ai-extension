@@ -1,5 +1,6 @@
 import { Loader2, Wrench, XCircle } from "lucide-react";
 import { kubectlTool } from "../../../common/agent-tools/kubectl-tool";
+import { formatCommandLine } from "../../business/cli/command-line";
 import styles from "./tool-call.module.scss";
 
 import type { ToolCallView } from "../../../common/objects/message-object";
@@ -33,10 +34,6 @@ const ToolCallIcon = ({ toolCall }: ToolCallProps) => {
   );
 };
 
-// An argument as a shell would read it back: quoted unless it holds only
-// characters a shell leaves alone. The line is only shown; no shell runs it.
-const quoteArg = (arg: string) => (/^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", "'\\''")}'`);
-
 // The arguments and the manifest the model called kubectl with.
 const kubectlInput = (args: unknown): { args: string[]; manifest?: string } => {
   const input = (typeof args === "object" && args !== null ? args : {}) as Record<string, unknown>;
@@ -46,18 +43,24 @@ const kubectlInput = (args: unknown): { args: string[]; manifest?: string } => {
   };
 };
 
+// A kubectl call that failed without running: the floor, the profile or the
+// user blocked it, or it could not start. Its result is the reason.
+const isBlocked = (toolCall: ToolCallView) => isFailed(toolCall) && !toolCall.invocation;
+
 const outputLabel = (toolCall: ToolCallView) => {
-  if (!toolCall.invocation) return isFailed(toolCall) ? "Error" : "Output";
+  if (!toolCall.invocation) return "Output";
   const { exitCode } = toolCall.invocation;
   return exitCode === null ? "Output, killed before it ended" : `Output, exit code ${exitCode}`;
 };
 
 // A kubectl call as its command line, the arguments it ran with once it has
-// run; the manifest and the output unfold under it.
+// run; the manifest and the output unfold under it. The reason of a blocked
+// call shows under the line.
 const KubectlCall = ({ toolCall }: ToolCallProps) => {
   const input = kubectlInput(toolCall.args);
-  const commandLine = [toolCall.toolName, ...(toolCall.invocation?.args ?? input.args)].map(quoteArg).join(" ");
-  const status = statusOf(toolCall);
+  const commandLine = formatCommandLine(toolCall.toolName, toolCall.invocation?.args ?? input.args);
+  const blocked = isBlocked(toolCall);
+  const status = blocked ? "blocked" : statusOf(toolCall);
   const failed = isFailed(toolCall);
 
   return (
@@ -73,7 +76,8 @@ const KubectlCall = ({ toolCall }: ToolCallProps) => {
           <pre className={styles.toolCallText}>{input.manifest}</pre>
         </details>
       )}
-      {toolCall.result !== undefined && (
+      {blocked && <div className={`${styles.toolCallReason} ${styles.toolCallFailed}`}>{toolCall.result}</div>}
+      {toolCall.result !== undefined && !blocked && (
         <details className={styles.toolCallFold}>
           <summary className={styles.toolCallFoldSummary}>{outputLabel(toolCall)}</summary>
           <pre className={`${styles.toolCallText}${failed ? ` ${styles.toolCallFailed}` : ""}`}>{toolCall.result}</pre>

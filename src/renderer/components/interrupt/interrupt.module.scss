@@ -26,6 +26,21 @@
   user-select: none;
 }
 
+.interrupt-label {
+  margin-bottom: 4px;
+  font-weight: bold;
+}
+
+.interrupt-targets {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  list-style: disc;
+}
+
+.interrupt-level {
+  margin-bottom: 10px;
+}
+
 .interrupt-details {
   margin-bottom: 10px;
 }
