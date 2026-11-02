@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createFakeKubeJsonApi } from "../../../test/kube-json-api";
+import { createStandInCli } from "../../../test/stand-in-cli";
 import { getClusterVersionTool } from "../../common/agent-tools";
 import { AgentHost } from "./agent-host";
 import { addCustomProvider } from "./custom-providers";
@@ -87,6 +88,7 @@ describe("AgentHost on a custom OpenAI-compatible endpoint", () => {
       tools: [getClusterVersionTool],
       getClusterStatus: () => "connected",
       getClusterApi: () => createFakeKubeJsonApi().api,
+      runCli: createStandInCli().run,
       getPodLogsTailLines: () => 500,
       getModelRef: () => ({ provider: "my-litellm", id: "qwen3" }),
       retry: false,

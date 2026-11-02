@@ -15,12 +15,14 @@ import {
 import { DEFAULT_CHAT_RETENTION_DAYS, errorText, failureResponse, successResponse } from "../../common/agent-protocol";
 import { prepareApproval } from "../../common/agent-tools/approval";
 import { requiresApproval, type ToolApprovalOverrides } from "../../common/agent-tools/approval-settings";
+import { kubectlTool } from "../../common/agent-tools/kubectl-tool";
 import { DEFAULT_THINKING_LEVEL, type ThinkingLevel } from "../../common/thinking-level";
 import useLog from "../utils/logger";
 import { toJsonEvent } from "./json-event";
 import { EXPLAIN_PROMPT, SYSTEM_PROMPT, withUserRules } from "./system-prompt";
 import { hasApprovalBackup, loadApprovalBackup } from "./tools/approval-backup";
 import { describeRequestError } from "./tools/describe-request-error";
+import { type KubectlToolInput, prepareKubectlInvocation, runKubectl } from "./tools/kubectl";
 import { READ_TOOL_RUNNERS } from "./tools/read-tools";
 import { WRITE_TOOL_RUNNERS } from "./tools/write-tools";
 
@@ -37,6 +39,7 @@ import type {
   TranscriptEntry,
 } from "../../common/agent-protocol";
 import type { AgentToolDefinition } from "../../common/agent-tools";
+import type { CliRunner } from "./cli-runner";
 import type { ClusterToolRunner, KubeJsonApi } from "./tools/cluster-api";
 
 const { log } = useLog("freelens-ai");
@@ -76,6 +79,8 @@ export interface AgentHostOptions {
   getClusterStatus: (clusterId: string) => string | undefined;
   /** The host's JSON client of a cluster, which the tools and the approval backups send their requests with. */
   getClusterApi: (clusterId: string) => KubeJsonApi;
+  /** Runs the CLI invocations of the kubectl tool against a cluster. */
+  runCli: CliRunner;
   /** The "pod logs tail lines" preference; read before every pod logs call. */
   getPodLogsTailLines: () => number;
   /** The model the next prompt runs on, or undefined when none is selected. */
@@ -674,6 +679,11 @@ export class AgentHost {
   ): Promise<ToolCallEventResult | undefined> {
     const tool = this.options.tools.find((candidate) => candidate.name === event.toolName);
     if (!tool) return undefined;
+    // A kubectl call that cannot run is rejected before anyone is asked.
+    if (tool.name === kubectlTool.name) {
+      const invocation = prepareKubectlInvocation(event.input as KubectlToolInput, this.options.getPodLogsTailLines());
+      if (!invocation.ok) return { block: true, reason: invocation.error };
+    }
     const ask = requiresApproval(tool, this.options.getApprovalOverrides?.() ?? {});
     if (!ask && !tool.mutating) return undefined;
 
@@ -871,8 +881,10 @@ export class AgentHost {
     }
   }
 
-  // Every tool runs here in main, on the host's client of the chat's cluster.
+  // Every tool runs here in main: kubectl through the CLI runner, the others on
+  // the host's client of the chat's cluster.
   private toPiTool(clusterId: string, tool: AgentToolDefinition) {
+    if (tool.name === kubectlTool.name) return this.toKubectlPiTool(clusterId, tool);
     const runner = Object.hasOwn(CLUSTER_TOOL_RUNNERS, tool.name) ? CLUSTER_TOOL_RUNNERS[tool.name] : undefined;
     return defineTool({
       name: tool.name,
@@ -884,6 +896,30 @@ export class AgentHost {
         if (!runner) throw new Error(`Unknown tool: ${tool.name}`);
         const text = await this.runClusterTool(clusterId, tool.name, runner, params as Record<string, unknown>, signal);
         return { content: [{ type: "text", text }], details: undefined };
+      },
+    });
+  }
+
+  private toKubectlPiTool(clusterId: string, tool: AgentToolDefinition) {
+    return defineTool({
+      name: tool.name,
+      label: tool.label,
+      description: tool.description,
+      parameters: tool.parameters,
+      executionMode: "sequential",
+      execute: async (_toolCallId, params, signal, onUpdate) => {
+        // No process starts for a cluster that is not connected.
+        if (this.options.getClusterStatus(clusterId) !== CONNECTED) {
+          throw new Error(CLUSTER_NOT_CONNECTED);
+        }
+        const result = await runKubectl(params as KubectlToolInput, {
+          clusterId,
+          runCli: this.options.runCli,
+          signal,
+          podLogsTailLines: this.options.getPodLogsTailLines(),
+          onProgress: (message) => onUpdate?.({ content: [{ type: "text", text: message }], details: undefined }),
+        });
+        return { content: [{ type: "text", text: result.text }], details: result.details, isError: result.isError };
       },
     });
   }

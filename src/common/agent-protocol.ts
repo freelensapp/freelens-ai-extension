@@ -62,6 +62,8 @@ export interface ToolResultMessage {
   toolCallId: string;
   toolName: string;
   content: (TextContent | ImageContent)[];
+  /** What the tool kept for the chat: `CliInvocationDetails` for a kubectl call that ran. */
+  details?: unknown;
   isError: boolean;
   timestamp: number;
 }
@@ -98,13 +100,22 @@ export type JsonAgentSessionEvent =
   | { type: "message_update"; assistantMessageEvent: AssistantMessageEvent }
   | { type: "message_end"; message: AgentMessage }
   | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: unknown }
-  | { type: "tool_execution_update"; toolCallId: string; toolName: string }
-  /** `result` is pi's `AgentToolResult`; an error result carries the error text as its content. */
+  /** `partialResult` is pi's `AgentToolResult` of a tool's progress, such as a kubectl download. */
+  | {
+      type: "tool_execution_update";
+      toolCallId: string;
+      toolName: string;
+      partialResult: { content?: (TextContent | ImageContent)[] };
+    }
+  /**
+   * `result` is pi's `AgentToolResult`; an error result carries the error text
+   * as its content. `details` is `CliInvocationDetails` for a kubectl call that ran.
+   */
   | {
       type: "tool_execution_end";
       toolCallId: string;
       toolName: string;
-      result: { content?: (TextContent | ImageContent)[] };
+      result: { content?: (TextContent | ImageContent)[]; details?: unknown };
       isError: boolean;
     }
   | { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
@@ -157,6 +168,25 @@ export interface SessionStats {
   cost: number;
   contextUsage?: ContextUsage;
 }
+
+/** The `details` of the result of a kubectl call that ran: what ran and how it ended. */
+export interface CliInvocationDetails {
+  /** The arguments kubectl ran with, `-f -` and a logs tail the tool added included. */
+  args: string[];
+  /** Null when the process was killed, by Stop or the timeout. */
+  exitCode: number | null;
+}
+
+/** Whether a tool result's `details` are those of a kubectl call that ran. */
+export const isCliInvocationDetails = (details: unknown): details is CliInvocationDetails => {
+  if (typeof details !== "object" || details === null) return false;
+  const { args, exitCode } = details as Record<string, unknown>;
+  return (
+    Array.isArray(args) &&
+    args.every((arg) => typeof arg === "string") &&
+    (exitCode === null || typeof exitCode === "number")
+  );
+};
 
 export const AGENT_COMMAND_CHANNEL = "agent:command";
 export const AGENT_ENVELOPE_CHANNEL = "agent:envelope";

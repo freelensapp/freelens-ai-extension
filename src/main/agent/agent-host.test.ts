@@ -11,12 +11,14 @@ import {
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createFakeKubeJsonApi } from "../../../test/kube-json-api";
+import { createStandInCli } from "../../../test/stand-in-cli";
 import {
   createKubernetesResourceTool,
   deleteKubernetesResourceTool,
   deletePodTool,
   getClusterVersionTool,
   getPodLogsTool,
+  kubectlTool,
   patchKubernetesResourceTool,
   restartKubernetesResourceTool,
   updateKubernetesResourceTool,
@@ -55,6 +57,8 @@ describe("AgentHost", () => {
   let host: AgentHost | undefined;
   // The cluster of every chat: "c1" and "c2" are connected, "gone" is not.
   let cluster: ReturnType<typeof createFakeKubeJsonApi>;
+  // The CLI runner of every chat; a test that needs answers replaces it before creating the host.
+  let cli: ReturnType<typeof createStandInCli>;
   const clusterStatus: Record<string, string> = { c1: "connected", c2: "connected", gone: "disconnected" };
 
   const standInCluster = (options: Parameters<typeof createFakeKubeJsonApi>[1] = {}) =>
@@ -73,6 +77,7 @@ describe("AgentHost", () => {
 
   beforeEach(async () => {
     cluster = standInCluster();
+    cli = createStandInCli();
     dataDir = mkdtempSync(join(tmpdir(), "agent-host-"));
     modelRuntime = await ModelRuntime.create({
       authPath: join(dataDir, "pi", "auth.json"),
@@ -99,6 +104,7 @@ describe("AgentHost", () => {
       getModelRef: () => ({ provider: model.provider, id: model.id }),
       getClusterStatus: (clusterId) => clusterStatus[clusterId],
       getClusterApi: () => cluster.api,
+      runCli: cli.run,
       getPodLogsTailLines: () => 500,
       retry: false,
       ...overrides,
@@ -240,6 +246,349 @@ describe("AgentHost", () => {
       expect(request?.signal?.aborted).toBe(true);
       expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "getClusterVersion", isError: true })]);
       expect((await snapshotOf(host)).isStreaming).toBe(false);
+    });
+  });
+
+  describe("kubectl tool", () => {
+    // The tool asks for approval by default; most tests turn that off.
+    const withoutApproval: Partial<AgentHostOptions> = {
+      tools: [kubectlTool],
+      getApprovalOverrides: () => ({ kubectl: false }),
+    };
+    // The text of the first tool result, as the model got it.
+    const toolResultText = () =>
+      (toolEnd()[0]?.result.content ?? []).map((part) => (part.type === "text" ? part.text : "")).join("");
+
+    it("runs the invocation on the chat's cluster and answers the model with the exit code and the output", async () => {
+      cli = createStandInCli({
+        answers: { "get pods -n flux-system": { stdout: "NAME                READY\nsource-controller   1/1\n" } },
+      });
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "pods", "-n", "flux-system"] }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "list the pods in flux-system" });
+      await waitFor(settled);
+
+      expect(cli.invocations).toEqual([
+        {
+          clusterId: "c1",
+          program: "kubectl",
+          args: ["get", "pods", "-n", "flux-system"],
+          timeoutMs: 30_000,
+          signal: expect.any(AbortSignal),
+        },
+      ]);
+      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "kubectl", isError: false })]);
+      expect(answerText()).toBe(
+        "Result: Exit code: 0\n\nStandard output:\nNAME                READY\nsource-controller   1/1",
+      );
+    });
+
+    it("asks for approval by default, with its arguments on the card, and runs only once approved", async () => {
+      cli = createStandInCli({ answers: { "get pods -n flux-system": { stdout: "source-controller\n" } } });
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "pods", "-n", "flux-system"] }));
+      const host = createHost({ tools: [kubectlTool] });
+
+      await host.handleCommand("c1", { type: "prompt", message: "list the pods in flux-system" });
+      await waitFor(() => envelopes.some((e) => e.kind === "ui_request"));
+      const request = envelopes.flatMap((e) => (e.kind === "ui_request" ? [e.payload] : []))[0]!;
+
+      expect(request).toMatchObject({ method: "confirm", title: "KUBECTL", approval: { tool: "kubectl" } });
+      expect(request.message).toContain("args:\n  - get\n  - pods\n  - -n\n  - flux-system\n");
+      expect(cli.invocations).toEqual([]);
+
+      await host.handleCommand("c1", { type: "ui_response", id: request.id, confirmed: true });
+      await waitFor(settled);
+      expect(cli.invocations).toEqual([expect.objectContaining({ args: ["get", "pods", "-n", "flux-system"] })]);
+      expect(answerText()).toBe("Result: Exit code: 0\n\nStandard output:\nsource-controller");
+    });
+
+    it("makes a non-zero exit code an error result with the standard error", async () => {
+      cli = createStandInCli({
+        answers: { "get pod gone": { stderr: 'Error from server (NotFound): pods "gone" not found\n', exitCode: 1 } },
+      });
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "pod", "gone"] }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "show the pod gone" });
+      await waitFor(settled);
+
+      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "kubectl", isError: true })]);
+      expect(answerText()).toBe(
+        'Result: Exit code: 1\n\nStandard output: (empty)\n\nStandard error:\nError from server (NotFound): pods "gone" not found',
+      );
+    });
+
+    it("keeps the standard error of a call that succeeded", async () => {
+      cli = createStandInCli({
+        answers: { "get pods": { stdout: "web-1\n", stderr: "Warning: v1 ComponentStatus is deprecated\n" } },
+      });
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "pods"] }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "list the pods" });
+      await waitFor(settled);
+
+      expect(toolEnd()).toEqual([expect.objectContaining({ isError: false })]);
+      expect(answerText()).toBe(
+        "Result: Exit code: 0\n\nStandard output:\nweb-1\n\nStandard error:\nWarning: v1 ComponentStatus is deprecated",
+      );
+    });
+
+    it("keeps only the lines of the standard output that match grep", async () => {
+      cli = createStandInCli({
+        answers: {
+          "get events -A": {
+            stdout: "NAMESPACE TYPE REASON\nweb Normal Pulled\nweb Warning BackOff\nflux-system Warning Failed\n",
+          },
+        },
+      });
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "events", "-A"], grep: "Warning" }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "any warnings?" });
+      await waitFor(settled);
+
+      expect(cli.invocations).toEqual([expect.objectContaining({ args: ["get", "events", "-A"] })]);
+      expect(answerText()).toBe(
+        "Result: Exit code: 0\n\nStandard output:\nweb Warning BackOff\nflux-system Warning Failed",
+      );
+    });
+
+    it("caps the output at 256 KiB, keeping its head and tail with a marker of how much was cut", async () => {
+      // 11 + 409,600 + 11 bytes: 147,478 more than 262,144.
+      const stdout = `first line\n${"x".repeat(400 * 1024)}\nlast line\n`;
+      cli = createStandInCli({ answers: { "get pods -A -o yaml": { stdout } } });
+      // Streaming the result back through the faux model would be slow, so the
+      // test reads the tool result itself.
+      faux.setResponses([
+        fauxAssistantMessage([fauxToolCall("kubectl", { args: ["get", "pods", "-A", "-o", "yaml"] })], {
+          stopReason: "toolUse",
+        }),
+        fauxAssistantMessage([fauxText("done")]),
+      ]);
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "everything" });
+      await waitFor(settled);
+
+      const text = toolResultText();
+      expect(text.startsWith("Exit code: 0\n\nStandard output:\nfirst line\nxxx")).toBe(true);
+      expect(text.endsWith("xxx\nlast line")).toBe(true);
+      expect(text).toContain("x\n[... 147478 of 409622 bytes cut ...]\nx");
+      // 131,072 bytes of the head and of the tail, each with 11 bytes of a line around the x.
+      expect([...text.matchAll(/x{2,}/g)].map((match) => match[0].length)).toEqual([131_061, 131_061]);
+    });
+
+    it("sends the manifest on standard input with -f - added", async () => {
+      const manifest = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n  namespace: web\n";
+      cli = createStandInCli({ answers: { "apply -f -": { stdout: "configmap/settings created\n" } } });
+      faux.setResponses(callThenEcho("kubectl", { args: ["apply"], manifest }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "create the config map" });
+      await waitFor(settled);
+
+      expect(cli.invocations).toEqual([expect.objectContaining({ args: ["apply", "-f", "-"], manifest })]);
+      expect(answerText()).toBe("Result: Exit code: 0\n\nStandard output:\nconfigmap/settings created");
+    });
+
+    it("leaves the arguments after -- to the command they belong to", async () => {
+      const args = ["exec", "web-1", "--", "tail", "-n", "5", "-f", "/var/log/app.log"];
+      cli = createStandInCli({ answers: { [args.join(" ")]: { stdout: "line\n" } } });
+      faux.setResponses(callThenEcho("kubectl", { args }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "tail the log" });
+      await waitFor(settled);
+
+      expect(cli.invocations).toEqual([expect.objectContaining({ args })]);
+    });
+
+    it.each<[string, Parameters<typeof fauxToolCall>[1], RegExp]>([
+      ["-f", { args: ["apply", "-f", "deploy.yaml"] }, /^kubectl reads no files/],
+      ["-f with its value attached", { args: ["apply", "-fdeploy.yaml"] }, /^kubectl reads no files/],
+      ["--filename", { args: ["delete", "--filename", "deploy.yaml"] }, /^kubectl reads no files/],
+      ["--filename=", { args: ["create", "--filename=deploy.yaml"] }, /^kubectl reads no files/],
+      ["-f - next to a manifest", { args: ["apply", "-f", "-"], manifest: "kind: List" }, /^kubectl reads no files/],
+      ["a manifest with get", { args: ["get", "pods"], manifest: "kind: Pod" }, /^A manifest is accepted only/],
+      [
+        "a manifest after a flag",
+        { args: ["-n", "web", "apply"], manifest: "kind: Pod" },
+        /^A manifest is accepted only/,
+      ],
+      ["an invalid grep", { args: ["get", "pods"], grep: "web-(" }, /^grep is not a valid regular expression/],
+    ])("rejects %s before asking, and starts no process", async (_case, input, reason) => {
+      faux.setResponses(callThenEcho("kubectl", input));
+      const host = createHost({ tools: [kubectlTool] });
+
+      await host.handleCommand("c1", { type: "prompt", message: "go" });
+      await waitFor(settled);
+
+      expect(envelopes.some((e) => e.kind === "ui_request")).toBe(false);
+      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "kubectl", isError: true })]);
+      expect(toolResultText()).toMatch(reason);
+      expect(cli.invocations).toEqual([]);
+    });
+
+    it.each<[string, number | undefined, number]>([
+      ["30 seconds when the call sets none", undefined, 30_000],
+      ["the call's own", 5, 5_000],
+      ["at most 300 seconds", 900, 300_000],
+    ])("runs with a timeout of %s", async (_case, timeoutSeconds, timeoutMs) => {
+      cli = createStandInCli({ answers: { version: { stdout: "v1.31.2\n" } } });
+      faux.setResponses(callThenEcho("kubectl", { args: ["version"], ...(timeoutSeconds ? { timeoutSeconds } : {}) }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "which version?" });
+      await waitFor(settled);
+
+      expect(cli.invocations).toEqual([expect.objectContaining({ timeoutMs })]);
+    });
+
+    it("says that the timeout killed kubectl, with the output it wrote until then", async () => {
+      cli = createStandInCli({
+        answers: {
+          "rollout status deployment/web": { stdout: "Waiting for rollout\n", exitCode: null, killed: "timeout" },
+        },
+      });
+      faux.setResponses(callThenEcho("kubectl", { args: ["rollout", "status", "deployment/web"], timeoutSeconds: 10 }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "wait for web" });
+      await waitFor(settled);
+
+      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "kubectl", isError: true })]);
+      expect(answerText()).toBe(
+        "Result: kubectl was killed after its timeout of 10 s.\n\nStandard output:\nWaiting for rollout",
+      );
+    });
+
+    it("kills the invocation in progress on Stop and says that Stop ended it", async () => {
+      cli = createStandInCli({ hang: ["rollout status deployment/web"] });
+      faux.setResponses(callThenEcho("kubectl", { args: ["rollout", "status", "deployment/web"] }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "wait for web" });
+      await waitFor(() => cli.invocations.length > 0);
+      expect(cli.invocations[0]?.signal?.aborted).toBe(false);
+
+      expect(await host.handleCommand("c1", { type: "abort" })).toMatchObject({ success: true });
+      await waitFor(settled);
+
+      expect(cli.invocations[0]?.signal?.aborted).toBe(true);
+      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "kubectl", isError: true })]);
+      expect(toolResultText()).toBe("kubectl was stopped before it ended.\n\nStandard output: (empty)");
+      expect((await snapshotOf(host)).isStreaming).toBe(false);
+    });
+
+    it.each<[string[], string[]]>([
+      [
+        ["logs", "deployment/web", "-c", "app"],
+        ["logs", "deployment/web", "-c", "app", "--tail=200"],
+      ],
+      [
+        ["logs", "web-1", "--tail", "20"],
+        ["logs", "web-1", "--tail", "20"],
+      ],
+      [
+        ["logs", "web-1", "--tail=20"],
+        ["logs", "web-1", "--tail=20"],
+      ],
+      [
+        ["logs", "web-1", "--since", "1h"],
+        ["logs", "web-1", "--since", "1h"],
+      ],
+      [
+        ["logs", "web-1", "--since=1h"],
+        ["logs", "web-1", "--since=1h"],
+      ],
+      [
+        ["logs", "web-1", "--since-time=2026-01-01T00:00:00Z"],
+        ["logs", "web-1", "--since-time=2026-01-01T00:00:00Z"],
+      ],
+      [
+        ["get", "pods"],
+        ["get", "pods"],
+      ],
+    ])("reads %j with the pod logs tail lines preference unless it sets a tail or a time window", async (args, ran) => {
+      faux.setResponses(callThenEcho("kubectl", { args }));
+      const host = createHost({ ...withoutApproval, getPodLogsTailLines: () => 200 });
+
+      await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
+      await waitFor(settled);
+
+      expect(cli.invocations).toEqual([expect.objectContaining({ args: ran })]);
+    });
+
+    it("forwards the progress of a kubectl download as partial tool updates", async () => {
+      cli = createStandInCli({
+        answers: { version: { stdout: "v1.31.2\n" } },
+        progress: ["Downloading kubectl 1.31.2", "Downloading kubectl 1.31.2: 50%"],
+      });
+      faux.setResponses(callThenEcho("kubectl", { args: ["version"] }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "which version?" });
+      await waitFor(settled);
+
+      const updates = envelopes.flatMap((e) =>
+        e.kind === "event" && e.payload.type === "tool_execution_update" ? [e.payload] : [],
+      );
+      expect(updates.map((update) => ({ toolName: update.toolName, content: update.partialResult.content }))).toEqual([
+        { toolName: "kubectl", content: [{ type: "text", text: "Downloading kubectl 1.31.2" }] },
+        { toolName: "kubectl", content: [{ type: "text", text: "Downloading kubectl 1.31.2: 50%" }] },
+      ]);
+    });
+
+    it("gives the chat the arguments that ran and the exit code with the result, also in the snapshot", async () => {
+      cli = createStandInCli({ answers: { "apply -f -": { stderr: "error: invalid object\n", exitCode: 1 } } });
+      faux.setResponses(callThenEcho("kubectl", { args: ["apply"], manifest: "kind: Nonsense" }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "apply it" });
+      await waitFor(settled);
+
+      const details = { args: ["apply", "-f", "-"], exitCode: 1 };
+      expect(toolEnd()).toEqual([expect.objectContaining({ result: expect.objectContaining({ details }) })]);
+      expect((await snapshotOf(host)).messages).toContainEqual(
+        expect.objectContaining({ role: "toolResult", toolName: "kubectl", isError: true, details }),
+      );
+    });
+
+    it("runs the calls of one answer one at a time", async () => {
+      cli = createStandInCli({ answers: { "get pods": { stdout: "web-1\n" } }, hang: ["get nodes"] });
+      faux.setResponses([
+        fauxAssistantMessage(
+          [fauxToolCall("kubectl", { args: ["get", "nodes"] }), fauxToolCall("kubectl", { args: ["get", "pods"] })],
+          { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage([fauxText("done")]),
+      ]);
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "nodes and pods" });
+      await waitFor(() => cli.invocations.length > 0);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(cli.invocations.map((invocation) => invocation.args)).toEqual([["get", "nodes"]]);
+
+      await host.handleCommand("c1", { type: "abort" });
+      await waitFor(settled);
+    });
+
+    it.each([
+      ["a cluster Freelens does not know", "nowhere"],
+      ["a disconnected cluster", "gone"],
+    ])("answers a call on %s with 'Cluster not connected' and starts no process", async (_case, clusterId) => {
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "pods"] }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand(clusterId, { type: "prompt", message: "list the pods" });
+      await waitFor(settled);
+
+      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "kubectl", isError: true })]);
+      expect(answerText()).toBe("Result: Cluster not connected");
+      expect(cli.invocations).toEqual([]);
     });
   });
 
