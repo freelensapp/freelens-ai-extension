@@ -1,4 +1,5 @@
 import { getClusterVersionTool } from "./cluster-version";
+import { kubectlTool } from "./kubectl-tool";
 import { getKubernetesResourceTool, listKubernetesResourcesTool } from "./kubernetes-resources";
 import { getNamespacesTool } from "./namespaces";
 import { getPodLogsTool } from "./pod-logs-tool";
@@ -42,6 +43,7 @@ export const AGENT_TOOLS: readonly AgentToolDefinition[] = [
   deleteKubernetesResourceTool,
   deletePodTool,
   restartKubernetesResourceTool,
+  kubectlTool,
 ];
 
 export {
@@ -53,6 +55,7 @@ export {
   getNamespacesTool,
   getPodLogsTool,
   getWarningEventsByNamespaceTool,
+  kubectlTool,
   listKubernetesResourcesTool,
   patchKubernetesResourceTool,
   restartKubernetesResourceTool,

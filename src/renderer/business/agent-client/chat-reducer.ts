@@ -1,3 +1,4 @@
+import { isCliInvocationDetails } from "../../../common/agent-protocol";
 import { MessageType } from "../../../common/objects/message-type";
 import { generateUuid } from "../../../common/utils/uuid";
 
@@ -80,6 +81,10 @@ const toolCallMessage = (toolCall: ToolCallView): MessageObject => ({
 const resultText = (content: (TextContent | ImageContent)[] = []) =>
   content.map((part) => (part.type === "text" ? part.text : "")).join("");
 
+// The arguments a kubectl call ran with and its exit code, kept by the tool in
+// its result's details.
+const invocationOf = (details: unknown) => (isCliInvocationDetails(details) ? { invocation: details } : {});
+
 const updateToolCalls = (messages: MessageObject[], update: (toolCall: ToolCallView) => ToolCallView) => {
   let changed = false;
   const updated = messages.map((message) => {
@@ -136,13 +141,21 @@ function reduceEvent(messages: MessageObject[], event: EventPayload): MessageObj
         toolCallMessage({ toolCallId: event.toolCallId, toolName: event.toolName, args: event.args, running: true }),
       ];
 
+    // A running call reports its progress, such as a kubectl download; the latest one is shown.
+    case "tool_execution_update": {
+      const progress = resultText(event.partialResult.content);
+      return updateToolCalls(messages, (toolCall) =>
+        toolCall.toolCallId === event.toolCallId && toolCall.running ? { ...toolCall, progress } : toolCall,
+      );
+    }
+
     case "tool_execution_end": {
       const result = resultText(event.result.content);
-      return updateToolCalls(messages, (toolCall) =>
-        toolCall.toolCallId === event.toolCallId
-          ? { ...toolCall, running: false, result, isError: event.isError }
-          : toolCall,
-      );
+      return updateToolCalls(messages, (toolCall) => {
+        if (toolCall.toolCallId !== event.toolCallId) return toolCall;
+        const { progress: _progress, ...ended } = toolCall;
+        return { ...ended, running: false, result, isError: event.isError, ...invocationOf(event.result.details) };
+      });
     }
 
     // A call still open when the run ends (stopped before it ran) gets no result.
@@ -301,7 +314,9 @@ export function chatFromSnapshot(clusterId: string, snapshot: AgentSnapshot): Ch
         toolName: part.name,
         args: part.arguments,
         running: !result && snapshot.isStreaming,
-        ...(result ? { result: resultText(result.content), isError: result.isError } : {}),
+        ...(result
+          ? { result: resultText(result.content), isError: result.isError, ...invocationOf(result.details) }
+          : {}),
       });
     });
 

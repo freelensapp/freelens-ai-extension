@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeKubeJsonApi, ParsedApiErrorStandIn } from "../../../../test/kube-json-api";
-import { AGENT_TOOLS } from "../../../common/agent-tools";
+import { AGENT_TOOLS, kubectlTool } from "../../../common/agent-tools";
 import { WRITE_TOOL_RUNNERS } from "./write-tools";
 
 const WEB = {
@@ -326,9 +326,10 @@ describe("write tools", () => {
     await expect(run("deletePod", { name: "web-1", namespace: "shop", mode: "evict" })).rejects.toBe(forbidden);
   });
 
+  // kubectl changes the cluster too, through the CLI runner rather than a write runner.
   it("has a runner for every write tool", () => {
     expect(Object.keys(WRITE_TOOL_RUNNERS).sort()).toEqual(
-      AGENT_TOOLS.filter((tool) => tool.mutating)
+      AGENT_TOOLS.filter((tool) => tool.mutating && tool.name !== kubectlTool.name)
         .map((tool) => tool.name)
         .sort(),
     );

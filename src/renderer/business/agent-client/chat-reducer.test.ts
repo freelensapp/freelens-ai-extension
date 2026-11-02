@@ -186,6 +186,61 @@ describe("reduceEnvelope", () => {
     expect(toolCalls(state)).toEqual([{ toolCallId: "t1", toolName: "getClusterVersion", args: {}, running: false }]);
   });
 
+  it("shows the latest progress of a running kubectl call, such as a kubectl download", () => {
+    const update = (text: string) => ({
+      type: "tool_execution_update",
+      toolCallId: "t1",
+      toolName: "kubectl",
+      partialResult: { content: [{ type: "text", text }] },
+    });
+    const running = reduceAll(
+      initial(),
+      stream("c1", [
+        toolStart("t1", "kubectl", { args: ["version"] }),
+        update("Downloading kubectl 1.31.2"),
+        update("Downloading kubectl: 50%"),
+      ]),
+    );
+
+    expect(toolCalls(running)).toEqual([
+      expect.objectContaining({ running: true, progress: "Downloading kubectl: 50%" }),
+    ]);
+
+    const [end] = stream("c1", [toolEnd("t1", "kubectl", "Exit code: 0")], 4);
+    expect(toolCalls(reduceEnvelope(running, end!))[0]).not.toHaveProperty("progress");
+  });
+
+  it("keeps the arguments a kubectl call ran with and its exit code", () => {
+    const state = reduceAll(
+      initial(),
+      stream("c1", [
+        toolStart("t1", "kubectl", { args: ["apply"], manifest: "kind: Pod" }),
+        {
+          type: "tool_execution_end",
+          toolCallId: "t1",
+          toolName: "kubectl",
+          result: {
+            content: [{ type: "text", text: "Exit code: 1" }],
+            details: { args: ["apply", "-f", "-"], exitCode: 1 },
+          },
+          isError: true,
+        },
+      ]),
+    );
+
+    expect(toolCalls(state)).toEqual([
+      {
+        toolCallId: "t1",
+        toolName: "kubectl",
+        args: { args: ["apply"], manifest: "kind: Pod" },
+        running: false,
+        result: "Exit code: 1",
+        isError: true,
+        invocation: { args: ["apply", "-f", "-"], exitCode: 1 },
+      },
+    ]);
+  });
+
   it("ignores envelopes for other clusters", () => {
     const before = initial();
     const after = reduceAll(before, stream("c2", [assistantStart, textDelta("not mine"), assistantEnd()]));
@@ -370,6 +425,33 @@ describe("chatFromSnapshot", () => {
     ]);
     expect(toolCalls(state)).toEqual([
       { toolCallId: "t1", toolName: "getClusterVersion", args: {}, running: false, result: "v1.31.2", isError: false },
+    ]);
+  });
+
+  it("rebuilds a kubectl call with the arguments it ran with and its exit code", () => {
+    const state = chatFromSnapshot(
+      "c1",
+      snapshot({
+        messages: [
+          user("show the logs"),
+          assistant([{ type: "toolCall", id: "t1", name: "kubectl", arguments: { args: ["logs", "web-1"] } }], {
+            stopReason: "toolUse",
+          }),
+          {
+            role: "toolResult",
+            toolCallId: "t1",
+            toolName: "kubectl",
+            content: [{ type: "text", text: "Exit code: 0" }],
+            details: { args: ["logs", "web-1", "--tail=500"], exitCode: 0 },
+            isError: false,
+            timestamp: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(toolCalls(state)).toEqual([
+      expect.objectContaining({ invocation: { args: ["logs", "web-1", "--tail=500"], exitCode: 0 } }),
     ]);
   });
 

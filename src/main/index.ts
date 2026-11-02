@@ -9,6 +9,7 @@ import { PreferencesStore } from "../common/store";
 import { legacyOpenAISettings } from "../common/store/legacy-preferences";
 import { AgentHost, type ModelRef } from "./agent/agent-host";
 import { migrateAzureCredential, renameAzureModelRef } from "./agent/azure-rename";
+import { createCliRunner } from "./agent/cli-runner";
 import { importLegacyCredentials, importLegacyCustomProvider } from "./agent/credentials-import";
 import { loadDeviceId } from "./agent/device-id";
 import { ProviderService } from "./agent/provider-service";
@@ -91,6 +92,12 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       // Every cluster tool runs here, on the host's client of the chat's cluster.
       getClusterStatus: (clusterId) => Main.Catalog.getClusterById(clusterId)?.status,
       getClusterApi: (clusterId) => Main.K8sApi.KubeJsonApi.forCluster(clusterId),
+      // kubectl runs here too: the binary and the environment Freelens uses for
+      // the cluster's terminal.
+      runCli: createCliRunner({
+        getKubectlPath: (clusterId, options) => Main.Shell.getKubectlPath(clusterId, options),
+        getEnvironment: (clusterId) => Main.Shell.getEnvironment(clusterId),
+      }),
       getPodLogsTailLines: () => preferencesStore.podLogsTailLines,
       // The host's client applies the Freelens proxy and CA settings to the model
       // requests; Node's global fetch, pi's default, ignores them. Read when

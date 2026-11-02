@@ -586,8 +586,8 @@ loaded, so it throws under Vitest. `vitest.config.ts` aliases the package to
   components it is given;
 - `vi.fn()` stand-ins for `Common.logger`, `Main.Catalog.getClusterById`,
   `Main.Catalog.getAllClusters`, `Main.K8sApi.KubeJsonApi.forCluster`,
-  `Main.Shell.getEnvironment`, `Main.Util.fetch` and the terminal of
-  `Renderer.Component`;
+  `Main.Shell.getEnvironment`, `Main.Shell.getKubectlPath`,
+  `Main.Util.fetch` and the terminal of `Renderer.Component`;
 - plain DOM stand-ins for the host components the views render (`Button`,
   `Icon`, `Input`, `Switch`, `HorizontalLine`, `MonacoEditor`, which shows its
   value as text, and `Select`, a button per option and one that clears it with
@@ -611,6 +611,17 @@ unanswered until their signal aborts, so a test can stop a run while a request
 is in progress; `answers` sets what a write answers, or the error it rejects
 with, by `"<method> <path>"`. The tool tests assert on the recorded requests.
 
+`test/stand-in-cli.ts` is a stand-in CLI runner for the `kubectl` tool of the
+agent host: `createStandInCli({ answers, hang, progress })` records every CLI
+invocation (`invocations`: cluster id, program, arguments, manifest, timeout
+and signal) and answers it by its arguments joined with spaces
+(`"get pods -n web"`) with standard output, standard error and exit code; an
+invocation without an answer exits with 1. `hang` leaves the given invocations
+running until their signal aborts, and `progress` sets the messages each
+invocation reports first, as a kubectl download does. `test/fake-kubectl.mjs`
+is a fake kubectl, a Node script that the extension entry test runs through
+the real CLI runner (its header lists what each first argument makes it do).
+
 The agent host tests (`src/main/agent/agent-host.test.ts`) drive the host
 through `handleCommand(clusterId, command)` with pi's faux provider as the
 model (`fauxProvider` of `@earendil-works/pi-ai`), the stand-in cluster client
@@ -621,7 +632,9 @@ request carries. The extension entry test (`src/main/index.test.ts`) drives
 registered on the `ModelRuntime` the entry creates (a spy on
 `ModelRuntime.create`): a deactivation and a new activation leave one handler
 per IPC channel and one agent host, and a deactivation during a run stops it
-without an error. It spies on `console.error` in `vi.hoisted`, because loglevel
+without an error. Its `Main.Shell` stand-in returns the path of the fake
+kubectl, the only test that starts a process. It spies on `console.error` in
+`vi.hoisted`, because loglevel
 binds the console methods when its level is set, at import.
 
 The root `tsconfig.json` checks the tooling files. It has `checkJs`, so the

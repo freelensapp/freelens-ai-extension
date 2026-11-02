@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -109,6 +109,8 @@ afterEach(async () => {
   vi.mocked(ModelRuntime.create).mockRestore();
   vi.mocked(Main.Catalog.getClusterById).mockReset();
   vi.mocked(Main.K8sApi.KubeJsonApi.forCluster).mockReset();
+  vi.mocked(Main.Shell.getKubectlPath).mockReset();
+  vi.mocked(Main.Shell.getEnvironment).mockReset();
   broadcast.mockRestore();
   rmSync(dataDir, { recursive: true, force: true });
 });
@@ -153,6 +155,159 @@ describe("LensExtensionAiMain", () => {
     expect(Main.K8sApi.KubeJsonApi.forCluster).toHaveBeenCalledWith("c1");
     expect(cluster.requests).toEqual([expect.objectContaining({ method: "get", path: "/version" })]);
     expect(agentEnvelopes().every((envelope) => envelope.kind === "event" || envelope.kind === "stats")).toBe(true);
+  });
+
+  describe("kubectl calls through the real CLI runner", () => {
+    const fakeKubectl = join(import.meta.dirname, "../../test/fake-kubectl.mjs");
+    let pidFile: string;
+
+    beforeEach(() => {
+      pidFile = join(dataDir, "fake-kubectl.pid");
+      vi.mocked(Main.Catalog.getClusterById).mockImplementation((id) =>
+        id === "c1"
+          ? {
+              id,
+              name: "dev",
+              kubeConfigPath: "/kube/config",
+              contextName: "dev",
+              status: Common.Clusters.ClusterConnectionStatus.CONNECTED,
+              labels: {},
+              isActive: true,
+            }
+          : undefined,
+      );
+      vi.mocked(Main.Shell.getKubectlPath).mockResolvedValue(fakeKubectl);
+      // The fake kubectl runs with node from PATH, and with none of main's own variables.
+      vi.mocked(Main.Shell.getEnvironment).mockResolvedValue({
+        PATH: process.env.PATH ?? "",
+        FAKE_KUBECTL_CLUSTER: "the environment of c1",
+        FAKE_KUBECTL_PID_FILE: pidFile,
+      });
+      vi.stubEnv("FAKE_KUBECTL_LEAK", "main's own environment");
+      PreferencesStore.getInstanceOrCreate<PreferencesStore>().toolApprovalOverrides = { kubectl: false };
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    // The model calls kubectl with `input`; resolves with the tool's result once the run settled.
+    const callKubectl = async (input: Parameters<typeof fauxToolCall>[1], whileRunning?: () => Promise<void>) => {
+      faux.setResponses([
+        fauxAssistantMessage([fauxToolCall("kubectl", input)], { stopReason: "toolUse" }),
+        fauxAssistantMessage([fauxText("done")]),
+      ]);
+      await load();
+      await invokeAgent("c1", { type: "prompt", message: "run kubectl" });
+      await whileRunning?.();
+      await waitFor(() => settledRuns() === 1, 10_000);
+      const [end] = agentEnvelopes().flatMap((envelope) =>
+        envelope.kind === "event" && envelope.payload.type === "tool_execution_end" ? [envelope.payload] : [],
+      );
+      if (!end) throw new Error("kubectl was not called");
+      const text = (end.result.content ?? []).map((part) => (part.type === "text" ? part.text : "")).join("");
+      return { text, isError: end.isError };
+    };
+
+    const isRunning = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    it("runs the cluster's kubectl with the argument array as it is and the cluster's environment, without a shell", async () => {
+      const args = ["get", "pods", "-l", "app=web; echo $HOME", "-o", "jsonpath={.items[*].metadata.name}"];
+
+      const result = await callKubectl({ args });
+
+      expect(Main.Shell.getKubectlPath).toHaveBeenCalledWith("c1", expect.anything());
+      expect(Main.Shell.getEnvironment).toHaveBeenCalledWith("c1");
+      expect(result.isError).toBe(false);
+      const output = JSON.parse(result.text.split("Standard output:\n")[1] ?? "");
+      expect(output).toEqual({ args, cluster: "the environment of c1", stdin: "" });
+      expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it("sends the manifest on standard input", async () => {
+      const manifest = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n";
+
+      const result = await callKubectl({ args: ["apply"], manifest });
+
+      const output = JSON.parse(result.text.split("Standard output:\n")[1] ?? "");
+      expect(output).toMatchObject({ args: ["apply", "-f", "-"], stdin: manifest });
+    });
+
+    it("turns a non-zero exit code into an error result with the standard error", async () => {
+      const result = await callKubectl({ args: ["fail"] });
+
+      expect(result).toEqual({
+        text: "Exit code: 3\n\nStandard output: (empty)\n\nStandard error:\nerror: failed on purpose",
+        isError: true,
+      });
+    });
+
+    it("caps the output", async () => {
+      const result = await callKubectl({ args: ["flood"] });
+
+      expect(result.text).toMatch(
+        /^Exit code: 0\n\nStandard output:\nhead\ny+\n\[\.\.\. 147467 of 409611 bytes cut \.\.\.\]\ny+\ntail$/,
+      );
+    });
+
+    it("kills the process on Stop", async () => {
+      const result = await callKubectl({ args: ["hang"] }, async () => {
+        await waitFor(() => existsSync(pidFile) && readFileSync(pidFile, "utf8") !== "", 10_000);
+        await invokeAgent("c1", { type: "abort" });
+      });
+
+      // Stop may come before the parent has read the line the fake kubectl wrote.
+      expect(result.isError).toBe(true);
+      expect(result.text).toMatch(/^kubectl was stopped before it ended\.\n\nStandard output:/);
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      await waitFor(() => !isRunning(pid));
+    });
+
+    it("kills the process on the timeout", async () => {
+      const result = await callKubectl({ args: ["hang"], timeoutSeconds: 0.5 });
+
+      expect(result).toEqual({
+        text: "kubectl was killed after its timeout of 0.5 s.\n\nStandard output:\nwaiting",
+        isError: true,
+      });
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      await waitFor(() => !isRunning(pid));
+    });
+
+    it("reports the phases and the progress of a kubectl download as partial tool updates", async () => {
+      vi.mocked(Main.Shell.getKubectlPath).mockImplementation(async (_clusterId, options) => {
+        const download = options as Main.Shell.KubectlDownloadOptions;
+        download.onPhase?.("Downloading kubectl 1.31.2");
+        download.onDownloadProgress?.({ transferred: 0, total: 1000 });
+        download.onDownloadProgress?.({ transferred: 1, total: 1000 });
+        download.onDownloadProgress?.({ transferred: 500, total: 1000 });
+        download.onDownloadProgress?.({ transferred: 3 * 1024 * 1024 });
+        download.onProblem?.("Verifying the download failed, using the bundled kubectl");
+        return fakeKubectl;
+      });
+
+      await callKubectl({ args: ["version"] });
+
+      const updates = agentEnvelopes().flatMap((envelope) =>
+        envelope.kind === "event" && envelope.payload.type === "tool_execution_update"
+          ? (envelope.payload.partialResult.content ?? []).map((part) => (part.type === "text" ? part.text : ""))
+          : [],
+      );
+      expect(updates).toEqual([
+        "Downloading kubectl 1.31.2",
+        "Downloading kubectl: 0%",
+        "Downloading kubectl: 50%",
+        "Downloading kubectl: 3.0 MB",
+        "Verifying the download failed, using the bundled kubectl",
+      ]);
+    });
   });
 
   it("sends the chat's model requests with the host's fetch", async () => {
