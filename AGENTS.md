@@ -903,7 +903,8 @@ into an invocation for the runner, and its result into what the model reads.
   connects a cluster.
 - **What runs.** The agent's arguments. For kubectl, `-f -` is added for a
   `manifest`, and `--tail=<pod logs tail lines preference>` to a `logs`
-  without `--tail`, `--since` or `--since-time`; the arguments after `--`
+  without `--tail`, `--since` or `--since-time`, as the policy's parser reads
+  the call, so flags before the verb do not hide it; the arguments after `--`
   belong to the command of `exec` and are left alone. helm takes no manifest.
 - **Timeout and Stop.** 30 seconds when `timeoutSeconds` is unset, at most
   300. Stop aborts pi's signal, which kills the process, and the timeout kills

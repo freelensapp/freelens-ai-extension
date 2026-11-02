@@ -398,8 +398,24 @@ describe("AgentHost", () => {
         ["logs", "web-1", "--since-time=2026-01-01T00:00:00Z"],
       ],
       [
+        ["-n", "web", "logs", "web-1"],
+        ["-n", "web", "logs", "web-1", "--tail=200"],
+      ],
+      [
+        ["--namespace=web", "logs", "web-1", "-c", "app", "--tail=-1"],
+        ["--namespace=web", "logs", "web-1", "-c", "app", "--tail=-1"],
+      ],
+      [
+        ["logs", "-lapp=web", "--since", "5m"],
+        ["logs", "-lapp=web", "--since", "5m"],
+      ],
+      [
         ["get", "pods"],
         ["get", "pods"],
+      ],
+      [
+        ["get", "pods", "logs"],
+        ["get", "pods", "logs"],
       ],
     ])("reads %j with the pod logs tail lines preference unless it sets a tail or a time window", async (args, ran) => {
       faux.setResponses(callThenEcho("kubectl", { args }));

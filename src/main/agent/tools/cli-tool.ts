@@ -2,6 +2,8 @@
 // runner and its result into the text the model reads.
 
 import { DEFAULT_CLI_TIMEOUT_SECONDS, MAX_CLI_TIMEOUT_SECONDS } from "../../../common/agent-tools/kubectl-tool";
+import { isRejection } from "../../../common/invocation-policy/cli-invocation";
+import { parseKubectlInvocation } from "../../../common/invocation-policy/kubectl-invocation";
 import { redactSecretOutput, SECRET_REDACTION_NOTE, type SecretRedaction } from "./secret-redaction";
 
 import type { CliInvocationDetails } from "../../../common/agent-protocol";
@@ -40,7 +42,17 @@ export interface CliToolResult {
 /** The flags of `kubectl logs` that choose how much of the log to read. */
 const LOG_WINDOW_FLAGS = ["--tail", "--since", "--since-time"];
 
-const setsLogWindow = (arg: string) => LOG_WINDOW_FLAGS.some((flag) => arg === flag || arg.startsWith(`${flag}=`));
+// Whether a kubectl call reads logs without choosing how much: the parse of
+// the invocation policy decides, so flags before the verb (`-n web logs`) do
+// not hide it.
+const readsLogsWithoutWindow = (args: readonly string[]): boolean => {
+  const invocation = parseKubectlInvocation(args);
+  return (
+    !isRejection(invocation) &&
+    invocation.command.verb === "logs" &&
+    !LOG_WINDOW_FLAGS.some((flag) => invocation.flags.has(flag))
+  );
+};
 
 /** A call made ready to run, or the reason it cannot run. */
 export type PreparedCliInvocation =
@@ -74,7 +86,7 @@ export function prepareCliInvocation(
   const own = end < 0 ? [...args] : args.slice(0, end);
   const rest = end < 0 ? [] : args.slice(end);
   if (program === "kubectl" && input.manifest !== undefined) own.push("-f", "-");
-  if (program === "kubectl" && own[0] === "logs" && !own.some(setsLogWindow)) {
+  if (program === "kubectl" && readsLogsWithoutWindow(input.args)) {
     own.push(`--tail=${podLogsTailLines}`);
   }
   let grep: RegExp | undefined;
