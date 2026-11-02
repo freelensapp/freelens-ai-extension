@@ -11,11 +11,9 @@ import {
 import type {
   AgentEnvelope,
   AgentSnapshot,
-  ApprovalRequest,
   ChatMessage,
   CliApprovalRequest,
   SessionStats,
-  ToolApprovalRequest,
 } from "../../../common/agent-protocol";
 import type { MessageObject } from "../../../common/objects/message-object";
 
@@ -542,81 +540,6 @@ describe("chatFromSnapshot", () => {
 });
 
 describe("approvals", () => {
-  const request: ToolApprovalRequest = {
-    id: "a1",
-    toolCallId: "t1",
-    method: "confirm",
-    title: "PATCH DEPLOYMENT",
-    message: "action: PATCH DEPLOYMENT\nname: web\n",
-    approval: { tool: "patchKubernetesResource", kind: "Deployment", apiVersion: "apps/v1", name: "web" },
-  };
-  const envelope = (seq: number, kind: string, payload: unknown) =>
-    ({ clusterId: "c1", sessionId: "s1", seq, kind, payload }) as unknown as AgentEnvelope;
-  const card = (state: ChatViewState) => state.messages.find((m) => m.approvalId === "a1");
-
-  it("shows a pending approval card with the action YAML", () => {
-    const state = reduceEnvelope(initial(), envelope(1, "ui_request", request));
-
-    expect(card(state)).toMatchObject({
-      type: MessageType.INTERRUPT,
-      action: "PATCH DEPLOYMENT",
-      actionDetails: "action: PATCH DEPLOYMENT\nname: web\n",
-      approved: null,
-      sent: false,
-    });
-    expect(card(state)?.resources).toBeUndefined();
-    expect(state.seq).toBe(1);
-  });
-
-  it("shows the backup that came with the request", () => {
-    const state = reduceEnvelope(initial(), envelope(1, "ui_request", { ...request, backup: "kind: Deployment\n" }));
-
-    expect(card(state)?.resources).toBe("kind: Deployment\n");
-  });
-
-  it("marks the card approved or denied when main settles it", () => {
-    const pending = reduceEnvelope(initial(), envelope(1, "ui_request", request));
-    const settle = (confirmed: boolean) =>
-      card(reduceEnvelope(pending, envelope(2, "ui_resolved", { id: "a1", confirmed })))?.approved;
-
-    expect(settle(true)).toBe(true);
-    expect(settle(false)).toBe(false);
-  });
-
-  it("brings a pending approval back from the snapshot, with its backup", () => {
-    const state = chatFromSnapshot("c1", {
-      messages: [{ role: "user", content: "scale web", timestamp: 1 } as ChatMessage],
-      isStreaming: true,
-      pendingUiRequest: { ...request, backup: "kind: Deployment\n" },
-      autoApprove: false,
-      seq: 7,
-    });
-
-    expect(state.messages).toHaveLength(2);
-    expect(state.messages[0]?.text).toBe("scale web");
-    expect(card(state)).toMatchObject({ approved: null, resources: "kind: Deployment\n" });
-  });
-
-  it("after a snapshot, closes the cards main no longer waits on and keeps the pending one", () => {
-    const before = reduceEnvelope(
-      reduceEnvelope(initial(), envelope(1, "ui_request", { ...request, id: "old" })),
-      envelope(2, "ui_request", request),
-    );
-
-    expect(reconcileApprovals(before, "a1").messages.find((m) => m.approvalId === "old")).toMatchObject({
-      approved: false,
-    });
-    expect(card(reconcileApprovals(before, "a1"))?.approved).toBeNull();
-    expect(card(reconcileApprovals(before, undefined))?.approved).toBe(false);
-  });
-
-  it("offers approving all in this chat as a third answer", () => {
-    const state = reduceEnvelope(initial(), envelope(1, "ui_request", request));
-    expect(card(state)?.options).toEqual(["yes", "no", APPROVE_ALL_OPTION]);
-  });
-});
-
-describe("approvals of kubectl calls", () => {
   const request: CliApprovalRequest = {
     id: "k1",
     toolCallId: "t1",
@@ -627,12 +550,12 @@ describe("approvals of kubectl calls", () => {
     level: "ask",
     profileName: "Standard",
   };
-  const envelope = (seq: number, payload: ApprovalRequest) =>
-    ({ clusterId: "c1", sessionId: "s1", seq, kind: "ui_request", payload }) as AgentEnvelope;
+  const envelope = (seq: number, kind: AgentEnvelope["kind"], payload: unknown) =>
+    ({ clusterId: "c1", sessionId: "s1", seq, kind, payload }) as AgentEnvelope;
   const card = (state: ChatViewState) => state.messages.find((m) => m.approvalId === "k1");
 
   it("shows the command line as the card's header and keeps the request for its body", () => {
-    const state = reduceEnvelope(initial(), envelope(1, request));
+    const state = reduceEnvelope(initial(), envelope(1, "ui_request", request));
 
     expect(card(state)).toMatchObject({
       type: MessageType.INTERRUPT,
@@ -641,21 +564,31 @@ describe("approvals of kubectl calls", () => {
       approved: null,
       sent: false,
     });
+    expect(state.seq).toBe(1);
   });
 
   it("offers approving all in this chat for an Ask call", () => {
-    const state = reduceEnvelope(initial(), envelope(1, request));
+    const state = reduceEnvelope(initial(), envelope(1, "ui_request", request));
 
     expect(card(state)?.options).toEqual(["yes", "no", APPROVE_ALL_OPTION]);
   });
 
   it("does not offer approving all in this chat for an Always ask call", () => {
-    const state = reduceEnvelope(initial(), envelope(1, { ...request, level: "alwaysAsk" }));
+    const state = reduceEnvelope(initial(), envelope(1, "ui_request", { ...request, level: "alwaysAsk" }));
 
     expect(card(state)?.options).toEqual(["yes", "no"]);
   });
 
-  it("brings a pending kubectl approval back from the snapshot", () => {
+  it("marks the card approved or denied when main settles it", () => {
+    const pending = reduceEnvelope(initial(), envelope(1, "ui_request", request));
+    const settle = (confirmed: boolean) =>
+      card(reduceEnvelope(pending, envelope(2, "ui_resolved", { id: "k1", confirmed })))?.approved;
+
+    expect(settle(true)).toBe(true);
+    expect(settle(false)).toBe(false);
+  });
+
+  it("brings a pending approval back from the snapshot", () => {
     const state = chatFromSnapshot("c1", {
       messages: [{ role: "user", content: "scale web", timestamp: 1 } as ChatMessage],
       isStreaming: true,
@@ -664,7 +597,22 @@ describe("approvals of kubectl calls", () => {
       seq: 7,
     });
 
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[0]?.text).toBe("scale web");
     expect(card(state)).toMatchObject({ approved: null, cliApproval: request });
+  });
+
+  it("after a snapshot, closes the cards main no longer waits on and keeps the pending one", () => {
+    const before = reduceEnvelope(
+      reduceEnvelope(initial(), envelope(1, "ui_request", { ...request, id: "old" })),
+      envelope(2, "ui_request", request),
+    );
+
+    expect(reconcileApprovals(before, "k1").messages.find((m) => m.approvalId === "old")).toMatchObject({
+      approved: false,
+    });
+    expect(card(reconcileApprovals(before, "k1"))?.approved).toBeNull();
+    expect(card(reconcileApprovals(before, undefined))?.approved).toBe(false);
   });
 });
 

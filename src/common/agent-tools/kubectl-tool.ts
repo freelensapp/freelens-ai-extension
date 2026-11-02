@@ -8,8 +8,8 @@ export const DEFAULT_CLI_TIMEOUT_SECONDS = 30;
 export const MAX_CLI_TIMEOUT_SECONDS = 300;
 
 // One CLI invocation of kubectl against the chat's cluster. It runs one call
-// at a time, and the invocation policy, not the per-tool approval setting,
-// decides whether a call runs, asks or is blocked.
+// at a time, and the invocation policy decides whether a call runs, asks or is
+// blocked.
 export const kubectlTool: AgentToolDefinition = {
   name: "kubectl",
   label: "Run kubectl",
@@ -45,6 +45,4 @@ export const kubectlTool: AgentToolDefinition = {
     ),
     revealSecrets: Type.Optional(Type.Boolean({ description: "Ask for the values of Secrets unredacted" })),
   }),
-  mutating: false,
-  requiresApprovalByDefault: false,
 };

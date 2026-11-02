@@ -176,11 +176,6 @@ export const Main = {
     getAllClusters: vi.fn<() => unknown[]>(() => []),
     getClusterById: vi.fn<(id: string) => unknown>(() => undefined),
   },
-  K8sApi: {
-    KubeJsonApi: {
-      forCluster: vi.fn<(clusterId: string) => unknown>(),
-    },
-  },
   Shell: {
     getEnvironment: vi.fn<(clusterId?: string, options?: unknown) => Promise<Record<string, string>>>(),
     getKubectlPath: vi.fn<(clusterId?: string, options?: unknown) => Promise<string>>(),

@@ -25,15 +25,12 @@ export const Message = ({ message }: MessageProps) => {
       </>
     );
   } else {
-    if (MessageType.INTERRUPT === message.type) {
+    if (MessageType.INTERRUPT === message.type && message.cliApproval) {
       return (
         <>
           <Interrupt
             header={message.action!}
             question={message.question!}
-            text={message.text}
-            actionDetails={message.actionDetails}
-            resources={message.resources}
             cliApproval={message.cliApproval}
             options={message.options!}
             approved={message.approved!}

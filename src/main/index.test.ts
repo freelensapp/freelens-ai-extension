@@ -12,7 +12,6 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Common, Main } from "@freelensapp/extensions";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import { ipcMainHandlers } from "../../test/freelens-extensions";
-import { createFakeKubeJsonApi } from "../../test/kube-json-api";
 import {
   AGENT_COMMAND_CHANNEL,
   AGENT_ENVELOPE_CHANNEL,
@@ -108,7 +107,6 @@ afterEach(async () => {
   vi.mocked(Main.LensExtension.prototype.getExtensionFileFolder).mockRestore();
   vi.mocked(ModelRuntime.create).mockRestore();
   vi.mocked(Main.Catalog.getClusterById).mockReset();
-  vi.mocked(Main.K8sApi.KubeJsonApi.forCluster).mockReset();
   vi.mocked(Main.Shell.getKubectlPath).mockReset();
   vi.mocked(Main.Shell.getEnvironment).mockReset();
   broadcast.mockRestore();
@@ -125,36 +123,6 @@ describe("LensExtensionAiMain", () => {
     await expect(invokeAgent("c1", { type: "prompt", message: "hi" })).resolves.toMatchObject({ success: true });
     await waitFor(() => settledRuns() === 1);
     expect(consoleError).not.toHaveBeenCalled();
-  });
-
-  it("runs a read on the host's client of the chat's cluster once the catalog has it connected", async () => {
-    const cluster = createFakeKubeJsonApi({ "/version": { major: "1", minor: "31", gitVersion: "v1.31.2" } });
-    vi.mocked(Main.Catalog.getClusterById).mockImplementation((id) =>
-      id === "c1"
-        ? {
-            id,
-            name: "prod",
-            kubeConfigPath: "/kube/config",
-            contextName: "prod",
-            status: Common.Clusters.ClusterConnectionStatus.CONNECTED,
-            labels: {},
-            isActive: true,
-          }
-        : undefined,
-    );
-    vi.mocked(Main.K8sApi.KubeJsonApi.forCluster).mockReturnValue(cluster.api);
-    faux.setResponses([
-      fauxAssistantMessage([fauxToolCall("getClusterVersion", {})], { stopReason: "toolUse" }),
-      fauxAssistantMessage([fauxText("v1.31.2")]),
-    ]);
-
-    await load();
-    await invokeAgent("c1", { type: "prompt", message: "which version?" });
-    await waitFor(() => settledRuns() === 1);
-
-    expect(Main.K8sApi.KubeJsonApi.forCluster).toHaveBeenCalledWith("c1");
-    expect(cluster.requests).toEqual([expect.objectContaining({ method: "get", path: "/version" })]);
-    expect(agentEnvelopes().every((envelope) => envelope.kind === "event" || envelope.kind === "stats")).toBe(true);
   });
 
   describe("kubectl calls through the real CLI runner", () => {

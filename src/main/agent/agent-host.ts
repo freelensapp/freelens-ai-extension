@@ -12,14 +12,7 @@ import {
   type ToolCallEvent,
   type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import {
-  DEFAULT_CHAT_RETENTION_DAYS,
-  errorText,
-  failureResponse,
-  isCliApprovalRequest,
-  successResponse,
-} from "../../common/agent-protocol";
-import { prepareApproval } from "../../common/agent-tools/approval";
+import { DEFAULT_CHAT_RETENTION_DAYS, errorText, failureResponse, successResponse } from "../../common/agent-protocol";
 import { kubectlTool } from "../../common/agent-tools/kubectl-tool";
 import { DRY_RUN_VERBS } from "../../common/invocation-policy/dry-run-verbs";
 import {
@@ -31,20 +24,16 @@ import { DEFAULT_THINKING_LEVEL, type ThinkingLevel } from "../../common/thinkin
 import useLog from "../utils/logger";
 import { toJsonEvent } from "./json-event";
 import { cliPolicySection, EXPLAIN_PROMPT, SYSTEM_PROMPT, withUserRules } from "./system-prompt";
-import { hasApprovalBackup, loadApprovalBackup } from "./tools/approval-backup";
 import {
   type ClusterReadContext,
   type ClusterResources,
   readDefaultNamespace,
   readResourceCatalog,
 } from "./tools/cluster-resources";
-import { describeRequestError } from "./tools/describe-request-error";
 import { type KubectlToolInput, prepareKubectlInvocation, runKubectl } from "./tools/kubectl";
 import { dryRunRejectionReason, floorBlockReason, profileDenyReason } from "./tools/kubectl-policy";
 import { previewKubectlInvocation } from "./tools/kubectl-preview";
-import { READ_TOOL_RUNNERS } from "./tools/read-tools";
 import { planSecretRedaction, type SecretRedaction } from "./tools/secret-redaction";
-import { WRITE_TOOL_RUNNERS } from "./tools/write-tools";
 
 import type { Model } from "@earendil-works/pi-ai";
 
@@ -53,8 +42,6 @@ import type {
   AgentEnvelope,
   AgentResponse,
   AgentSnapshot,
-  ApprovalRequest,
-  ApprovalTarget,
   ChatMessage,
   CliApprovalPreview,
   CliApprovalRequest,
@@ -63,7 +50,6 @@ import type {
 import type { AgentToolDefinition } from "../../common/agent-tools";
 import type { PolicyProfile } from "../../common/invocation-policy/policy-profile";
 import type { CliRunner } from "./cli-runner";
-import type { ClusterToolRunner, KubeJsonApi } from "./tools/cluster-api";
 
 const { log } = useLog("freelens-ai");
 
@@ -78,11 +64,6 @@ const NEW_CHAT_MARKER = ".new-chat";
 // pi's adapters for these APIs throw "Custom fetch is not supported", so their
 // requests keep pi's default fetch.
 const APIS_WITHOUT_CUSTOM_FETCH: ReadonlySet<string> = new Set(["google-generative-ai", "google-vertex"]);
-// Every cluster tool runs here in main, by its shared name.
-const CLUSTER_TOOL_RUNNERS: Readonly<Record<string, ClusterToolRunner>> = {
-  ...READ_TOOL_RUNNERS,
-  ...WRITE_TOOL_RUNNERS,
-};
 
 export interface ModelRef {
   provider: string;
@@ -97,11 +78,9 @@ export interface AgentHostOptions {
   tools: readonly AgentToolDefinition[];
   /**
    * The cluster's connection status in the Freelens catalog, undefined for a
-   * cluster Freelens does not know; read before every tool call and backup load.
+   * cluster Freelens does not know; read before every tool call.
    */
   getClusterStatus: (clusterId: string) => string | undefined;
-  /** The host's JSON client of a cluster, which the tools and the approval backups send their requests with. */
-  getClusterApi: (clusterId: string) => KubeJsonApi;
   /** Runs the CLI invocations of the kubectl tool against a cluster. */
   runCli: CliRunner;
   /**
@@ -111,7 +90,7 @@ export interface AgentHostOptions {
    * one. A change also calls for `recheckPendingApprovals()`.
    */
   getPolicyProfileSettings: () => PolicyProfileSettings;
-  /** The "pod logs tail lines" preference; read before every pod logs call. */
+  /** The "pod logs tail lines" preference; read before every kubectl call, for a `logs` without a tail. */
   getPodLogsTailLines: () => number;
   /** The model the next prompt runs on, or undefined when none is selected. */
   getModelRef: () => ModelRef | undefined;
@@ -176,11 +155,11 @@ interface ExplainRun {
 
 interface PendingApproval {
   clusterId: string;
-  request: ApprovalRequest;
+  request: CliApprovalRequest;
   /** Settles the approval; a denial blocks the call with `reason`, the user's denial by default. */
   settle: (confirmed: boolean, reason?: string) => void;
-  /** For a kubectl call: the reason to block it under the cluster's profile as it is now, or undefined. */
-  blockReasonNow?: () => string | undefined;
+  /** The reason to block the call under the cluster's profile as it is now, or undefined. */
+  blockReasonNow: () => string | undefined;
 }
 
 // The policy's result for a kubectl call with the agent's own arguments, before
@@ -278,7 +257,7 @@ export class AgentHost {
    */
   recheckPendingApprovals(): void {
     for (const pending of [...this.pendingApprovals.values()]) {
-      const reason = pending.blockReasonNow?.();
+      const reason = pending.blockReasonNow();
       if (reason !== undefined) pending.settle(false, reason);
     }
   }
@@ -512,7 +491,7 @@ export class AgentHost {
   }
 
   // Stop first denies a pending approval, which pi's abort would wait on. The
-  // abort then cancels the cluster request in progress through pi's signal.
+  // abort then ends the CLI invocation in progress through pi's signal.
   private async abort(clusterId: string): Promise<AgentResponse> {
     try {
       await this.stopExplain(clusterId);
@@ -723,7 +702,7 @@ export class AgentHost {
       return failureResponse("ui_response", `No pending approval ${id}`);
     }
     // An Always ask approval never turns it on, so it cannot cover a later Always ask.
-    const coversLaterCalls = !isCliApprovalRequest(pending.request) || pending.request.level === "ask";
+    const coversLaterCalls = pending.request.level === "ask";
     if (confirmed === true && approveAll && coversLaterCalls) {
       const agent = await this.clusters.get(clusterId)?.catch(() => undefined);
       // Turned on before the call is released, so the next gated call already
@@ -747,49 +726,15 @@ export class AgentHost {
     this.send(clusterId, agent.session.sessionId, { kind: "auto_approve", payload: { enabled } });
   }
 
-  // pi's `tool_call` hook. A kubectl call goes through the invocation policy.
-  // For the other tools, a call of a tool that requires approval by default,
-  // and every write call, is
-  // validated and prepared, and the prepared input replaces the model's in
-  // place: the write tools apply their input as it comes. A call that needs
-  // approval then waits for the user, with the backup of the object it would
-  // change on the card. pi asks for one call at a time.
+  // pi's `tool_call` hook: a kubectl call goes through the invocation policy.
+  // pi asks for one call at a time.
   private async gate(
     clusterId: string,
     event: ToolCallEvent,
     signal: AbortSignal | undefined,
   ): Promise<ToolCallEventResult | undefined> {
-    const tool = this.options.tools.find((candidate) => candidate.name === event.toolName);
-    if (!tool) return undefined;
-    if (tool.name === kubectlTool.name) return this.gateKubectl(clusterId, event, signal);
-    const ask = tool.requiresApprovalByDefault;
-    if (!ask && !tool.mutating) return undefined;
-
-    const input = event.input as Record<string, unknown>;
-    const prepared = prepareApproval(tool.name, input);
-    if (!prepared.ok) {
-      return { block: true, reason: prepared.error };
-    }
-    // Copied first: for some tools the prepared input is the model's object itself.
-    const next = { ...prepared.input };
-    for (const key of Object.keys(input)) delete input[key];
-    Object.assign(input, next);
-    if (!ask) return undefined;
-
-    const agent = await this.clusters.get(clusterId);
-    if (!agent) return { block: true, reason: "The cluster session is not available." };
-    // "Approve all in this chat": validated and prepared as above, but not asked.
-    if (agent.autoApprove) return undefined;
-    const backup = await this.approvalBackup(clusterId, prepared.approval, signal);
-    return this.askUser(clusterId, agent, signal, {
-      id: randomUUID(),
-      toolCallId: event.toolCallId,
-      method: "confirm",
-      title: prepared.title,
-      message: prepared.message,
-      approval: prepared.approval,
-      ...(backup ? { backup } : {}),
-    });
+    if (event.toolName === kubectlTool.name) return this.gateKubectl(clusterId, event, signal);
+    return undefined;
   }
 
   // The invocation policy decides every kubectl call with the cluster's
@@ -916,8 +861,8 @@ export class AgentHost {
     clusterId: string,
     agent: ClusterAgent,
     signal: AbortSignal | undefined,
-    request: ApprovalRequest,
-    blockReasonNow?: () => string | undefined,
+    request: CliApprovalRequest,
+    blockReasonNow: () => string | undefined,
   ): Promise<ToolCallEventResult | undefined> {
     if (signal?.aborted) return { block: true, reason: DENIED_REASON };
     const answer = await new Promise<{ confirmed: boolean; reason: string }>((resolve) => {
@@ -931,34 +876,11 @@ export class AgentHost {
         });
         resolve({ confirmed, reason });
       };
-      this.pendingApprovals.set(request.id, {
-        clusterId,
-        request,
-        settle,
-        ...(blockReasonNow ? { blockReasonNow } : {}),
-      });
+      this.pendingApprovals.set(request.id, { clusterId, request, settle, blockReasonNow });
       signal?.addEventListener("abort", onAbort, { once: true });
       this.send(clusterId, agent.session.sessionId, { kind: "ui_request", payload: request });
     });
     return answer.confirmed ? undefined : { block: true, reason: answer.reason };
-  }
-
-  // Best effort: a cluster that is not connected, or an object that cannot be
-  // loaded, leaves the card without a backup and still asks.
-  private async approvalBackup(
-    clusterId: string,
-    target: ApprovalTarget,
-    signal: AbortSignal | undefined,
-  ): Promise<string | undefined> {
-    if (!hasApprovalBackup(target.tool) || this.options.getClusterStatus(clusterId) !== CONNECTED) return undefined;
-    try {
-      return await loadApprovalBackup({ api: this.options.getClusterApi(clusterId), signal }, target);
-    } catch (error) {
-      if (!signal?.aborted) {
-        log.warn(`Loading the backup for the ${target.tool} approval failed: ${describeRequestError(error)}`);
-      }
-      return undefined;
-    }
   }
 
   private thinkingLevel(): ThinkingLevel {
@@ -1096,23 +1018,10 @@ export class AgentHost {
     }
   }
 
-  // Every tool runs here in main: kubectl through the CLI runner, the others on
-  // the host's client of the chat's cluster.
+  // Every tool runs here in main, through the CLI runner.
   private toPiTool(clusterId: string, tool: AgentToolDefinition) {
     if (tool.name === kubectlTool.name) return this.toKubectlPiTool(clusterId, tool);
-    const runner = Object.hasOwn(CLUSTER_TOOL_RUNNERS, tool.name) ? CLUSTER_TOOL_RUNNERS[tool.name] : undefined;
-    return defineTool({
-      name: tool.name,
-      label: tool.label,
-      description: tool.description,
-      parameters: tool.parameters,
-      executionMode: tool.mutating ? "sequential" : undefined,
-      execute: async (_toolCallId, params, signal) => {
-        if (!runner) throw new Error(`Unknown tool: ${tool.name}`);
-        const text = await this.runClusterTool(clusterId, tool.name, runner, params as Record<string, unknown>, signal);
-        return { content: [{ type: "text", text }], details: undefined };
-      },
-    });
+    throw new Error(`No runner for the tool ${tool.name}`);
   }
 
   private toKubectlPiTool(clusterId: string, tool: AgentToolDefinition) {
@@ -1142,29 +1051,5 @@ export class AgentHost {
         return { content: [{ type: "text", text: result.text }], details: result.details, isError: result.isError };
       },
     });
-  }
-
-  // Runs the call on the host's client of the chat's cluster. A throw becomes
-  // an error result for the model; pi's signal aborts the request on Stop.
-  private async runClusterTool(
-    clusterId: string,
-    toolName: string,
-    runner: ClusterToolRunner,
-    args: Record<string, unknown>,
-    signal: AbortSignal | undefined,
-  ): Promise<string> {
-    if (this.options.getClusterStatus(clusterId) !== CONNECTED) {
-      throw new Error(CLUSTER_NOT_CONNECTED);
-    }
-    const context = {
-      api: this.options.getClusterApi(clusterId),
-      signal,
-      podLogsTailLines: this.options.getPodLogsTailLines(),
-    };
-    try {
-      return await runner(args, context);
-    } catch (error) {
-      throw new Error(`${toolName} failed: ${describeRequestError(error)}`);
-    }
   }
 }

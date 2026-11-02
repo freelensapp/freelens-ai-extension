@@ -4,7 +4,6 @@ import * as React from "react";
 import { formatCanonicalForm } from "../../../common/invocation-policy/canonical-form";
 import { POLICY_LEVEL_LABELS } from "../../../common/invocation-policy/policy-profile";
 import { CodeBlock } from "../code-block";
-import { MarkdownViewer } from "../markdown-viewer";
 import styles from "./interrupt.module.scss";
 
 import type { CliApprovalPreview, CliApprovalRequest } from "../../../common/agent-protocol";
@@ -16,11 +15,8 @@ const {
 export type InterruptProps = {
   header: string;
   question: string;
-  text: string;
-  actionDetails?: string;
-  resources?: string;
   // The approval of a kubectl call: its targets, its level, its manifest and its preview.
-  cliApproval?: CliApprovalRequest;
+  cliApproval: CliApprovalRequest;
   options: string[];
   approved: boolean | null;
   onAction: (option: string) => void;
@@ -89,39 +85,11 @@ const CliApprovalBody = ({ request }: { request: CliApprovalRequest }) => (
   </>
 );
 
-const Interrupt = ({
-  header,
-  question,
-  text,
-  actionDetails,
-  resources,
-  cliApproval,
-  options,
-  approved,
-  onAction,
-}: InterruptProps) => {
+const Interrupt = ({ header, question, cliApproval, options, approved, onAction }: InterruptProps) => {
   const pending = approved === null;
   const [detailsOpen, setDetailsOpen] = React.useState(false);
 
-  // Structured Kubernetes approvals carry the action payload and a backup of the
-  // resources to be changed as YAML; other interrupts fall back to markdown text.
-  const renderBody = () =>
-    cliApproval ? (
-      <CliApprovalBody request={cliApproval} />
-    ) : actionDetails ? (
-      <>
-        <CodeBlock language="yaml" title="Action details" collapsible props={{}}>
-          {actionDetails}
-        </CodeBlock>
-        {resources && (
-          <CodeBlock language="yaml" title="Resources that will be changed" collapsible defaultCollapsed props={{}}>
-            {resources}
-          </CodeBlock>
-        )}
-      </>
-    ) : (
-      <MarkdownViewer content={text} />
-    );
+  const renderBody = () => <CliApprovalBody request={cliApproval} />;
 
   return (
     <div>

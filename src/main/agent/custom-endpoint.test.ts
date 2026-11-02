@@ -4,9 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createFakeKubeJsonApi } from "../../../test/kube-json-api";
 import { createStandInCli } from "../../../test/stand-in-cli";
-import { getClusterVersionTool } from "../../common/agent-tools";
+import { kubectlTool } from "../../common/agent-tools";
 import { STANDARD_PROFILE } from "../../common/invocation-policy/shipped-profiles";
 import { AgentHost } from "./agent-host";
 import { addCustomProvider } from "./custom-providers";
@@ -86,9 +85,8 @@ describe("AgentHost on a custom OpenAI-compatible endpoint", () => {
       dataDir,
       modelRuntime,
       broadcast: (envelope) => envelopes.push(envelope),
-      tools: [getClusterVersionTool],
+      tools: [kubectlTool],
       getClusterStatus: () => "connected",
-      getClusterApi: () => createFakeKubeJsonApi().api,
       runCli: createStandInCli().run,
       getPolicyProfileSettings: () => ({
         userProfiles: [],

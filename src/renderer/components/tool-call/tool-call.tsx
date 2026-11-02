@@ -87,8 +87,10 @@ const KubectlCall = ({ toolCall }: ToolCallProps) => {
   );
 };
 
-// One line with the tool's name and arguments; the arguments in full and the
-// result unfold under it. A kubectl call shows as its command line.
+// A kubectl call shows as its command line. A call of any other tool, such as
+// one of the cluster tools of an earlier version in a saved chat, shows as one
+// line with the tool's name and arguments; the arguments in full and the result
+// unfold under it.
 export const ToolCall = ({ toolCall }: ToolCallProps) => {
   if (toolCall.toolName === kubectlTool.name) return <KubectlCall toolCall={toolCall} />;
   const args = toolCall.args ?? {};

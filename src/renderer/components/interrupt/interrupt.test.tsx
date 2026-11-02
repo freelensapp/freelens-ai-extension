@@ -18,12 +18,24 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const cliApproval: CliApprovalRequest = {
+  id: "k1",
+  toolCallId: "t1",
+  method: "confirm",
+  program: "kubectl",
+  args: ["delete", "pods", "web-1", "web-2", "-n", "web"],
+  canonicalForms: [
+    { program: "kubectl", verb: "delete", resource: "pods", name: "web-1", namespace: "web" },
+    { program: "kubectl", verb: "delete", resource: "pods", name: "web-2", namespace: "web" },
+  ],
+  level: "ask",
+  profileName: "Standard",
+};
+
 const props = (overrides: Partial<InterruptProps> = {}): InterruptProps => ({
-  header: "patchKubernetesResource",
+  header: "kubectl delete pods web-1 web-2 -n web",
   question: "Do you want to approve this action?",
-  text: "Patch the deployment web",
-  actionDetails: "kind: Deployment\nname: web",
-  resources: "kind: Deployment",
+  cliApproval,
   options: ["yes", "no"],
   approved: null,
   onAction: vi.fn(),
@@ -50,11 +62,11 @@ describe("Interrupt", () => {
     expect(onAction).toHaveBeenCalledWith("no");
   });
 
-  it("marks a pending approval with an icon, its header text only the action", () => {
+  it("marks a pending approval with an icon, its header text only the command line", () => {
     render(<Interrupt {...props()} />);
 
-    const header = screen.getByText("patchKubernetesResource");
-    expect(header.textContent).toBe("patchKubernetesResource");
+    const header = screen.getByText("kubectl delete pods web-1 web-2 -n web");
+    expect(header.textContent).toBe("kubectl delete pods web-1 web-2 -n web");
     expect(header.querySelector("svg")).not.toBeNull();
   });
 
@@ -62,32 +74,13 @@ describe("Interrupt", () => {
     render(<Interrupt {...props({ approved: true })} />);
 
     expect(screen.queryByRole("button", { name: "yes" })).toBeNull();
-    expect(screen.getByText("patchKubernetesResource")).toBeDefined();
+    expect(screen.getByText("kubectl delete pods web-1 web-2 -n web")).toBeDefined();
   });
 });
 
 describe("Interrupt of a kubectl call", () => {
-  const cliApproval: CliApprovalRequest = {
-    id: "k1",
-    toolCallId: "t1",
-    method: "confirm",
-    program: "kubectl",
-    args: ["delete", "pods", "web-1", "web-2", "-n", "web"],
-    canonicalForms: [
-      { program: "kubectl", verb: "delete", resource: "pods", name: "web-1", namespace: "web" },
-      { program: "kubectl", verb: "delete", resource: "pods", name: "web-2", namespace: "web" },
-    ],
-    level: "ask",
-    profileName: "Standard",
-  };
   const cliProps = (request: Partial<CliApprovalRequest> = {}) =>
-    props({
-      header: "kubectl delete pods web-1 web-2 -n web",
-      text: "",
-      actionDetails: undefined,
-      resources: undefined,
-      cliApproval: { ...cliApproval, ...request },
-    });
+    props({ cliApproval: { ...cliApproval, ...request } });
 
   it("shows the command line, every target, and the profile with its level", () => {
     render(<Interrupt {...cliProps()} />);

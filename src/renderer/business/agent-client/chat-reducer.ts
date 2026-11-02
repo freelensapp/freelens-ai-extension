@@ -1,4 +1,4 @@
-import { isCliApprovalRequest, isCliInvocationDetails } from "../../../common/agent-protocol";
+import { isCliInvocationDetails } from "../../../common/agent-protocol";
 import { MessageType } from "../../../common/objects/message-type";
 import { generateUuid } from "../../../common/utils/uuid";
 import { formatCommandLine } from "../cli/command-line";
@@ -6,7 +6,6 @@ import { formatCommandLine } from "../cli/command-line";
 import type {
   AgentEnvelope,
   AgentSnapshot,
-  ApprovalRequest,
   ChatMessage,
   CliApprovalRequest,
   ImageContent,
@@ -212,7 +211,7 @@ const APPROVAL_QUESTION = "Do you want to approve this action?";
 
 // A kubectl call shows as its command line; its body comes from the request.
 // "Approve all in this chat" never covers Always ask, so it is not offered there.
-const cliApprovalCard = (request: CliApprovalRequest): MessageObject => ({
+const approvalCard = (request: CliApprovalRequest): MessageObject => ({
   messageId: generateUuid(),
   type: MessageType.INTERRUPT,
   action: formatCommandLine(request.program, request.args),
@@ -224,23 +223,6 @@ const cliApprovalCard = (request: CliApprovalRequest): MessageObject => ({
   approvalId: request.id,
   sent: false,
 });
-
-const approvalCard = (request: ApprovalRequest): MessageObject =>
-  isCliApprovalRequest(request)
-    ? cliApprovalCard(request)
-    : {
-        messageId: generateUuid(),
-        type: MessageType.INTERRUPT,
-        action: request.title,
-        question: APPROVAL_QUESTION,
-        text: `\`\`\`yaml\n${request.message}\`\`\``,
-        actionDetails: request.message,
-        options: ["yes", "no", APPROVE_ALL_OPTION],
-        approved: null,
-        approvalId: request.id,
-        resources: request.backup,
-        sent: false,
-      };
 
 const updateApproval = (messages: MessageObject[], id: string, update: Partial<MessageObject>) => {
   const index = messages.findIndex((message) => message.approvalId === id);

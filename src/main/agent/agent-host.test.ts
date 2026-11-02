@@ -10,7 +10,6 @@ import {
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createFakeKubeJsonApi } from "../../../test/kube-json-api";
 import {
   API_RESOURCES_KEY,
   apiResourcesTable,
@@ -18,44 +17,17 @@ import {
   KUBECONFIG_NAMESPACE_KEY,
   STAND_IN_RESOURCES,
 } from "../../../test/stand-in-cli";
-import { isCliApprovalRequest } from "../../common/agent-protocol";
-import {
-  createKubernetesResourceTool,
-  deleteKubernetesResourceTool,
-  deletePodTool,
-  getClusterVersionTool,
-  getPodLogsTool,
-  kubectlTool,
-  patchKubernetesResourceTool,
-  restartKubernetesResourceTool,
-  updateKubernetesResourceTool,
-} from "../../common/agent-tools";
+import { kubectlTool } from "../../common/agent-tools";
 import { READ_ONLY_PROFILE, STANDARD_PROFILE } from "../../common/invocation-policy/shipped-profiles";
 import { AgentHost, type AgentHostOptions } from "./agent-host";
 import { API_RESOURCES_ARGS, KUBECONFIG_NAMESPACE_ARGS } from "./tools/cluster-resources";
 
 import type { AgentEnvelope, AgentSnapshot } from "../../common/agent-protocol";
-import type { AgentToolDefinition } from "../../common/agent-tools";
 import type { PolicyProfile } from "../../common/invocation-policy/policy-profile";
 import type { PolicyProfileSettings } from "../../common/invocation-policy/profile-assignment";
 import type { CliResult } from "./cli-runner";
 
 type Faux = ReturnType<typeof fauxProvider>;
-
-const WEB_1 = {
-  apiVersion: "v1",
-  kind: "Pod",
-  metadata: { name: "web-1", namespace: "default" },
-  spec: { containers: [{ name: "app" }] },
-};
-
-const WEB = {
-  apiVersion: "apps/v1",
-  kind: "Deployment",
-  metadata: { name: "web", namespace: "default" },
-  spec: { replicas: 2 },
-  status: { readyReplicas: 2 },
-};
 
 // A profile under which every kubectl call runs without a card.
 const ALLOW_ALL_PROFILE: PolicyProfile = { id: "allow-all", name: "Allow all", rules: [], fallbackLevel: "allow" };
@@ -76,28 +48,12 @@ describe("AgentHost", () => {
   let faux: Faux;
   let envelopes: AgentEnvelope[];
   let host: AgentHost | undefined;
-  // The cluster of every chat: "c1" and "c2" are connected, "gone" is not.
-  let cluster: ReturnType<typeof createFakeKubeJsonApi>;
   // The CLI runner of every chat; a test that needs answers replaces it before creating the host.
   let cli: ReturnType<typeof createStandInCli>;
+  // The cluster of every chat: "c1" and "c2" are connected, "gone" is not.
   const clusterStatus: Record<string, string> = { c1: "connected", c2: "connected", gone: "disconnected" };
 
-  const standInCluster = (options: Parameters<typeof createFakeKubeJsonApi>[1] = {}) =>
-    createFakeKubeJsonApi(
-      {
-        "/version": { major: "1", minor: "31", gitVersion: "v1.31.2" },
-        "/api/v1/namespaces/default/pods/web-1": WEB_1,
-        "/apis/apps/v1/namespaces/default/deployments/web": WEB,
-        "/apis/apps/v1/namespaces/default/deployments/api": { ...WEB, metadata: { name: "api", namespace: "default" } },
-      },
-      {
-        responses: { "/api/v1/namespaces/default/pods/web-1/log": { status: 200, text: "started\n" } },
-        ...options,
-      },
-    );
-
   beforeEach(async () => {
-    cluster = standInCluster();
     cli = createStandInCli();
     dataDir = mkdtempSync(join(tmpdir(), "agent-host-"));
     modelRuntime = await ModelRuntime.create({
@@ -121,10 +77,9 @@ describe("AgentHost", () => {
       dataDir,
       modelRuntime,
       broadcast: (envelope) => envelopes.push(envelope),
-      tools: [getClusterVersionTool],
+      tools: [kubectlTool],
       getModelRef: () => ({ provider: model.provider, id: model.id }),
       getClusterStatus: (clusterId) => clusterStatus[clusterId],
-      getClusterApi: () => cluster.api,
       runCli: cli.run,
       getPolicyProfileSettings: () => everyClusterOn(STANDARD_PROFILE),
       getPodLogsTailLines: () => 500,
@@ -199,83 +154,6 @@ describe("AgentHost", () => {
   const toolEnd = () =>
     envelopes.flatMap((e) => (e.kind === "event" && e.payload.type === "tool_execution_end" ? [e.payload] : []));
 
-  describe("read tools", () => {
-    it("runs a read in main on the chat's cluster: its result reaches the model and the frame gets no request", async () => {
-      faux.setResponses(callThenEcho("getClusterVersion", {}));
-      const clients: string[] = [];
-      const host = createHost({
-        getClusterApi: (clusterId) => {
-          clients.push(clusterId);
-          return cluster.api;
-        },
-      });
-
-      await host.handleCommand("c1", { type: "prompt", message: "which version?" });
-      await waitFor(settled);
-
-      expect(answerText()).toBe('Result: {"version":"v1.31.2","major":"1","minor":"31"}');
-      expect(clients).toEqual(["c1"]);
-      expect(cluster.requests).toEqual([expect.objectContaining({ method: "get", path: "/version" })]);
-      expect(envelopes.every((e) => ENVELOPE_KINDS.includes(e.kind))).toBe(true);
-    });
-
-    it.each([
-      ["a cluster Freelens does not know", "nowhere"],
-      ["a disconnected cluster", "gone"],
-    ])("answers a read on %s with 'Cluster not connected' and sends no request", async (_case, clusterId) => {
-      faux.setResponses(callThenEcho("getClusterVersion", {}));
-      let clients = 0;
-      const host = createHost({
-        getClusterApi: () => {
-          clients += 1;
-          return cluster.api;
-        },
-      });
-
-      await host.handleCommand(clusterId, { type: "prompt", message: "which version?" });
-      await waitFor(settled);
-
-      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "getClusterVersion", isError: true })]);
-      expect(answerText()).toBe("Result: Cluster not connected");
-      expect(clients).toBe(0);
-      expect(cluster.requests).toEqual([]);
-    });
-
-    it("describes a failed request for the model as an error result", async () => {
-      faux.setResponses(callThenEcho("getPodLogs", { name: "gone", namespace: "default" }));
-      const host = createHost({ tools: [getPodLogsTool] });
-      const approval = () => envelopes.find((e) => e.kind === "ui_request");
-
-      await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
-      await waitFor(() => approval() !== undefined);
-      const request = approval();
-      if (request?.kind !== "ui_request") throw new Error("no approval request");
-      await host.handleCommand("c1", { type: "ui_response", id: request.payload.id, confirmed: true });
-      await waitFor(settled);
-
-      expect(toolEnd()).toEqual([expect.objectContaining({ isError: true })]);
-      expect(answerText()).toBe("Result: getPodLogs failed: /api/v1/namespaces/default/pods/gone not found");
-    });
-
-    it("aborts the request in progress on Stop", async () => {
-      cluster = standInCluster({ hang: ["/version"] });
-      faux.setResponses(callThenEcho("getClusterVersion", {}));
-      const host = createHost();
-
-      await host.handleCommand("c1", { type: "prompt", message: "which version?" });
-      await waitFor(() => cluster.requests.length > 0);
-      const [request] = cluster.requests;
-      expect(request?.signal?.aborted).toBe(false);
-
-      expect(await host.handleCommand("c1", { type: "abort" })).toMatchObject({ success: true });
-
-      await waitFor(settled);
-      expect(request?.signal?.aborted).toBe(true);
-      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "getClusterVersion", isError: true })]);
-      expect((await snapshotOf(host)).isStreaming).toBe(false);
-    });
-  });
-
   describe("kubectl tool", () => {
     // Most tests run under a profile that allows everything, so no card comes up.
     const withoutApproval: Partial<AgentHostOptions> = {
@@ -309,6 +187,7 @@ describe("AgentHost", () => {
       expect(answerText()).toBe(
         "Result: Exit code: 0\n\nStandard output:\nNAME                READY\nsource-controller   1/1",
       );
+      expect(envelopes.every((e) => ENVELOPE_KINDS.includes(e.kind))).toBe(true);
     });
 
     it("makes a non-zero exit code an error result with the standard error", async () => {
@@ -916,7 +795,6 @@ describe("AgentHost", () => {
         name: "web",
         namespace: "default",
       };
-      const cliRequests = () => uiRequests().filter(isCliApprovalRequest);
       const toolStarts = () =>
         envelopes.flatMap((e) => (e.kind === "event" && e.payload.type === "tool_execution_start" ? [e.payload] : []));
 
@@ -932,7 +810,7 @@ describe("AgentHost", () => {
 
         expect(cli.previews().map((invocation) => invocation.args.join(" "))).toEqual([scaleWebDryRun, readWeb]);
         expect(cli.previews()[0]?.signal).toBeInstanceOf(AbortSignal);
-        expect(cliRequests()[0]?.preview).toEqual({
+        expect(uiRequests()[0]?.preview).toEqual({
           kind: "diffs",
           diffs: [
             {
@@ -1060,7 +938,7 @@ describe("AgentHost", () => {
           await host.handleCommand("c1", { type: "prompt", message: "scale web" });
           await waitFor(() => uiRequests().length > 0);
 
-          expect(cliRequests()[0]?.preview).toEqual({
+          expect(uiRequests()[0]?.preview).toEqual({
             kind: "unavailable",
             reason,
             backup:
@@ -1094,7 +972,7 @@ describe("AgentHost", () => {
         await host.handleCommand("c1", { type: "prompt", message: "create the settings" });
         await waitFor(() => uiRequests().length > 0);
 
-        expect(cliRequests()[0]?.preview).toEqual({
+        expect(uiRequests()[0]?.preview).toEqual({
           kind: "unavailable",
           reason: "the dry run failed: Error from server (ServiceUnavailable): the server is currently unable",
         });
@@ -1123,7 +1001,7 @@ describe("AgentHost", () => {
         await host.handleCommand("c1", { type: "prompt", message: "create the settings" });
         await waitFor(() => uiRequests().length > 0);
 
-        expect(cliRequests()[0]?.preview).toEqual({
+        expect(uiRequests()[0]?.preview).toEqual({
           kind: "diffs",
           diffs: [
             {
@@ -1157,7 +1035,7 @@ describe("AgentHost", () => {
         await host.handleCommand("c1", { type: "prompt", message: "scale web" });
         await waitFor(() => uiRequests().length > 0);
 
-        expect(cliRequests()[0]?.preview).toEqual({
+        expect(uiRequests()[0]?.preview).toEqual({
           kind: "unavailable",
           reason: "reading kubectl scale deployments web -n default failed: Unable to connect to the server: EOF",
         });
@@ -1198,7 +1076,7 @@ describe("AgentHost", () => {
           args: ["apply", "-f", "-", "--dry-run=server", "-o", "yaml"],
           manifest,
         });
-        expect(cliRequests()[0]?.preview).toEqual({
+        expect(uiRequests()[0]?.preview).toEqual({
           kind: "diffs",
           diffs: [
             {
@@ -1231,7 +1109,7 @@ describe("AgentHost", () => {
         await host.handleCommand("c1", { type: "prompt", message: "delete the settings" });
         await waitFor(() => uiRequests().length > 0);
 
-        expect(cliRequests()[0]?.preview).toEqual({
+        expect(uiRequests()[0]?.preview).toEqual({
           kind: "diffs",
           diffs: [
             {
@@ -1267,7 +1145,7 @@ describe("AgentHost", () => {
         await waitFor(() => uiRequests().length > 0);
 
         const listed = Array.from({ length: 50 }, (_, index) => `pods/web-${index}`).join(", ");
-        expect(cliRequests()[0]?.preview).toEqual({
+        expect(uiRequests()[0]?.preview).toEqual({
           kind: "unavailable",
           reason:
             "the targets are not all named (a selector, --all or no name), so their current objects are not read; " +
@@ -1295,7 +1173,7 @@ describe("AgentHost", () => {
         await host.handleCommand("c1", { type: "prompt", message: "label them" });
         await waitFor(() => uiRequests().length > 0);
 
-        expect(cliRequests()[0]?.preview).toMatchObject({
+        expect(uiRequests()[0]?.preview).toMatchObject({
           kind: "unavailable",
           reason: expect.stringMatching(/; the dry run reports 2 objects: deployments\/web, deployments\/api$/),
         });
@@ -1317,7 +1195,7 @@ describe("AgentHost", () => {
         await host.handleCommand("c1", { type: "prompt", message: "cordon node-1" });
         await waitFor(() => uiRequests().length > 0);
 
-        expect(cliRequests()[0]?.preview).toEqual({
+        expect(uiRequests()[0]?.preview).toEqual({
           kind: "unavailable",
           reason: "kubectl cordon prints no object in a dry run",
           backup: nodeYaml,
@@ -1333,7 +1211,7 @@ describe("AgentHost", () => {
         await host.handleCommand("c1", { type: "prompt", message: "restart web" });
         await waitFor(() => uiRequests().length > 0);
 
-        expect(cliRequests()[0]).not.toHaveProperty("preview");
+        expect(uiRequests()[0]).not.toHaveProperty("preview");
         expect(cli.previews()).toEqual([]);
         await answer(host, false);
         await waitFor(settled);
@@ -1404,7 +1282,7 @@ describe("AgentHost", () => {
         await host.handleCommand(clusterId, { type: "prompt", message: "scale web" });
         await waitFor(() => uiRequests().length > 0 || settled());
         const request = uiRequests()[0];
-        if (request && isCliApprovalRequest(request)) return request.profileName;
+        if (request) return request.profileName;
         return toolResultTexts()[0]?.match(/^Denied by the policy profile "([^"]+)"/)?.[1];
       };
 
@@ -1702,7 +1580,7 @@ describe("AgentHost", () => {
 
       it("is not set for an agent without the kubectl tool", async () => {
         faux.setResponses([recordSections]);
-        const host = createHost();
+        const host = createHost({ tools: [] });
 
         await ask(host);
 
@@ -2090,15 +1968,18 @@ describe("AgentHost", () => {
     expect(c2[0]?.sessionId).not.toBe(envelopes[0]?.sessionId);
   });
 
-  // A run whose tool call waits on the cluster until the run stops.
+  // `kubectl version` as the stand-in cluster answers it; Standard allows it without a card.
+  const VERSION_OUTPUT = "Client Version: v1.31.2\nServer Version: v1.31.2\n";
+  const callVersion = () => fauxToolCall("kubectl", { args: ["version"] });
+  // A run whose kubectl call waits until the run stops.
   const runThatHangs = () => {
-    cluster = standInCluster({ hang: ["/version"] });
+    cli = createStandInCli({ hang: ["version"] });
     faux.setResponses([
-      fauxAssistantMessage([fauxToolCall("getClusterVersion", {})], { stopReason: "toolUse" }),
+      fauxAssistantMessage([callVersion()], { stopReason: "toolUse" }),
       fauxAssistantMessage([fauxText("done")]),
     ]);
   };
-  const clusterAsked = () => cluster.requests.length > 0;
+  const clusterAsked = () => cli.actions().length > 0;
   const snapshotOf = async (host: AgentHost, clusterId = "c1") => {
     const response = await host.handleCommand(clusterId, { type: "get_snapshot" });
     if (!response.success) throw new Error(response.error);
@@ -2127,7 +2008,8 @@ describe("AgentHost", () => {
   });
 
   it("snapshots the tool calls with their results, so a remounted frame shows them", async () => {
-    faux.setResponses(callThenEcho("getClusterVersion", {}));
+    cli = createStandInCli({ answers: { version: { stdout: VERSION_OUTPUT } } });
+    faux.setResponses(callThenEcho("kubectl", { args: ["version"] }));
     const host = createHost();
 
     await host.handleCommand("c1", { type: "prompt", message: "which version?" });
@@ -2136,14 +2018,14 @@ describe("AgentHost", () => {
     const snapshot = await snapshotOf(host);
     expect(snapshot.messages.map((m) => m.role)).toEqual(["user", "assistant", "toolResult", "assistant"]);
     expect(snapshot.messages[1]).toMatchObject({
-      content: [{ type: "toolCall", name: "getClusterVersion", arguments: {} }],
+      content: [{ type: "toolCall", name: "kubectl", arguments: { args: ["version"] } }],
     });
     const call = snapshot.messages[1]?.role === "assistant" ? snapshot.messages[1].content[0] : undefined;
     expect(snapshot.messages[2]).toMatchObject({
       toolCallId: call?.type === "toolCall" ? call.id : "",
-      toolName: "getClusterVersion",
+      toolName: "kubectl",
       isError: false,
-      content: [{ type: "text", text: '{"version":"v1.31.2","major":"1","minor":"31"}' }],
+      content: [{ type: "text", text: `Exit code: 0\n\nStandard output:\n${VERSION_OUTPUT.trimEnd()}` }],
     });
   });
 
@@ -2227,7 +2109,7 @@ describe("AgentHost", () => {
     await host.handleCommand("c1", { type: "prompt", message: "hi" });
     await waitFor(settled);
 
-    expect(seenTools).toEqual(["getClusterVersion"]);
+    expect(seenTools).toEqual(["kubectl"]);
     expect(seenPrompt).toContain("You are the Freelens AI test assistant.");
     expect(seenPrompt).not.toMatch(/\bbash\b/i);
   });
@@ -2281,7 +2163,7 @@ describe("AgentHost", () => {
       faux.setResponses([
         (context, options, state, model) => {
           recordSections(context, options, state, model);
-          return fauxAssistantMessage([fauxToolCall("getClusterVersion", {})], { stopReason: "toolUse" });
+          return fauxAssistantMessage([callVersion()], { stopReason: "toolUse" });
         },
         recordSections,
       ]);
@@ -2500,7 +2382,7 @@ describe("AgentHost", () => {
 
       expect(response).toMatchObject({ success: true });
       expect(eventTypes()).toContain("agent_settled");
-      expect(cluster.requests[0]?.signal?.aborted).toBe(true);
+      expect(cli.actions()[0]?.signal?.aborted).toBe(true);
       const snapshot = await snapshotOf(host);
       expect(snapshot).toMatchObject({ messages: [], isStreaming: false });
       expect(response.success && (response.data as AgentSnapshot).seq).toBe(snapshot.seq);
@@ -2628,7 +2510,7 @@ describe("AgentHost", () => {
     it.each([0, 1, 2, 4, 8])(
       "never leaves a prompt sent just before New chat running unseen (%i ticks apart)",
       async (ticks) => {
-        cluster = standInCluster({ hang: ["/version"] });
+        cli = createStandInCli({ hang: ["version"] });
         const host = createHost();
         await chat(host, "c1", "warm up");
         let resetDone = false;
@@ -2637,7 +2519,7 @@ describe("AgentHost", () => {
           (context) => {
             const text = JSON.stringify(context.messages);
             if (resetDone && text.includes("warm up")) hiddenCalls += 1;
-            return fauxAssistantMessage([fauxToolCall("getClusterVersion", {})], { stopReason: "toolUse" });
+            return fauxAssistantMessage([callVersion()], { stopReason: "toolUse" });
           },
           fauxAssistantMessage([fauxText("done")]),
         ]);
@@ -2672,317 +2554,15 @@ describe("AgentHost", () => {
   });
 
   describe("approval gate", () => {
-    const gatedTools = [
-      getClusterVersionTool,
-      getPodLogsTool,
-      createKubernetesResourceTool,
-      patchKubernetesResourceTool,
-    ];
-
-    const scaleWeb = { kind: "Deployment", name: "web", namespace: "default", data: { spec: { replicas: 3 } } };
-    const WEB_PATH = "/apis/apps/v1/namespaces/default/deployments/web";
-
-    // The structured tools' requests; the kubectl calls have their own tests above.
-    const uiRequests = () =>
-      envelopes.flatMap((e) => (e.kind === "ui_request" && !isCliApprovalRequest(e.payload) ? [e.payload] : []));
-    const uiResolved = () => envelopes.flatMap((e) => (e.kind === "ui_resolved" ? [e.payload] : []));
-    // The requests that change the cluster: every one but the reads.
-    const writes = () => cluster.requests.filter(({ method }) => method !== "get" && method !== "getResponse");
+    const scaleWeb = ["scale", "deployment", "web", "--replicas=3"];
+    const scaleApi = ["scale", "deployment", "api", "--replicas=3"];
+    const uiRequests = () => envelopes.flatMap((e) => (e.kind === "ui_request" ? [e.payload] : []));
     // A model answer that waits until the test lets it go, so the test can act between two tool calls.
     const heldUntil = (gate: Promise<void>, message: ReturnType<typeof fauxAssistantMessage>) => async () => {
       await gate;
       return message;
     };
-
-    it("asks before a mutating call and runs it in main once approved", async () => {
-      faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
-      const host = createHost({ tools: gatedTools });
-
-      await host.handleCommand("c1", { type: "prompt", message: "scale web to 3" });
-      await waitFor(() => uiRequests().length > 0);
-
-      const request = uiRequests()[0]!;
-      expect(request).toMatchObject({
-        method: "confirm",
-        title: "PATCH DEPLOYMENT",
-        approval: {
-          tool: "patchKubernetesResource",
-          kind: "Deployment",
-          apiVersion: "apps/v1",
-          name: "web",
-          namespace: "default",
-        },
-      });
-      expect(request.message).toContain("replicas: 3");
-      expect(writes()).toEqual([]);
-      expect((await snapshotOf(host)).pendingUiRequest).toEqual(request);
-
-      const response = await host.handleCommand("c1", { type: "ui_response", id: request.id, confirmed: true });
-      expect(response).toMatchObject({ success: true });
-      await waitFor(settled);
-
-      expect(uiResolved()).toEqual([{ id: request.id, confirmed: true }]);
-      expect(writes()).toEqual([
-        expect.objectContaining({ method: "patch", path: WEB_PATH, data: { spec: { replicas: 3 } } }),
-      ]);
-      expect(answerText()).toBe('Result: Deployment "web" patched successfully');
-      expect((await snapshotOf(host)).pendingUiRequest).toBeUndefined();
-      expect(envelopes.every((e) => ENVELOPE_KINDS.includes(e.kind))).toBe(true);
-    });
-
-    it("blocks a denied call and sends no request", async () => {
-      faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
-      const host = createHost({ tools: gatedTools });
-
-      await host.handleCommand("c1", { type: "prompt", message: "scale web to 3" });
-      await waitFor(() => uiRequests().length > 0);
-      await host.handleCommand("c1", { type: "ui_response", id: uiRequests()[0]!.id, confirmed: false });
-      await waitFor(settled);
-
-      expect(writes()).toEqual([]);
-      expect(uiResolved()).toEqual([{ id: uiRequests()[0]!.id, confirmed: false }]);
-      expect(answerText()).toBe("Result: The user denied the action");
-    });
-
-    it("rejects an invalid manifest with its validation error and never asks", async () => {
-      faux.setResponses(callThenEcho("createKubernetesResource", { kind: "Pod", data: { metadata: { name: "p" } } }));
-      const host = createHost({ tools: gatedTools });
-
-      await host.handleCommand("c1", { type: "prompt", message: "create a pod" });
-      await waitFor(settled);
-
-      expect(uiRequests()).toEqual([]);
-      expect(cluster.requests).toEqual([]);
-      expect(answerText()).toMatch(/^Result: The Pod manifest is invalid: /);
-    });
-
-    it("sends the prepared manifest the user approved", async () => {
-      const service = {
-        kind: "Service",
-        data: {
-          apiVersion: "v9",
-          kind: "Wrong",
-          metadata: { name: "svc", namespace: "shop" },
-          spec: { ports: [{ port: 80, targetPort: 8080 }] },
-        },
-      };
-      faux.setResponses(callThenEcho("createKubernetesResource", service));
-      const host = createHost({ tools: gatedTools });
-
-      await host.handleCommand("c1", { type: "prompt", message: "create a service" });
-      await waitFor(() => uiRequests().length > 0);
-      const request = uiRequests()[0]!;
-      expect(request).toMatchObject({
-        title: "CREATE SERVICE",
-        approval: { kind: "Service", apiVersion: "v1", name: "svc", namespace: "shop" },
-      });
-      await host.handleCommand("c1", { type: "ui_response", id: request.id, confirmed: true });
-      await waitFor(settled);
-
-      expect(writes()).toEqual([
-        expect.objectContaining({
-          method: "post",
-          path: "/api/v1/namespaces/shop/services",
-          data: {
-            apiVersion: "v1",
-            kind: "Service",
-            metadata: { name: "svc", namespace: "shop" },
-            spec: { ports: [{ port: 80, targetPort: 8080 }] },
-          },
-        }),
-      ]);
-      expect(request.message).toContain("apiVersion: v1");
-      expect(request.message).not.toContain("v9");
-      expect(answerText()).toBe('Result: Service "svc" created successfully');
-    });
-
-    it("denies a pending approval on Stop, ends the run and sends no request", async () => {
-      faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
-      const host = createHost({ tools: gatedTools });
-
-      await host.handleCommand("c1", { type: "prompt", message: "scale web to 3" });
-      await waitFor(() => uiRequests().length > 0);
-
-      expect(await host.handleCommand("c1", { type: "abort" })).toMatchObject({ success: true });
-      await waitFor(settled);
-
-      expect(uiResolved()).toEqual([{ id: uiRequests()[0]!.id, confirmed: false }]);
-      expect(writes()).toEqual([]);
-      const snapshot = await snapshotOf(host);
-      expect(snapshot.isStreaming).toBe(false);
-      expect(snapshot.pendingUiRequest).toBeUndefined();
-    });
-
-    describe("the backup on the approval card", () => {
-      const restartWebArgs = { kind: "Deployment", name: "web", namespace: "default" };
-      const webManifest = {
-        apiVersion: "apps/v1",
-        kind: "Deployment",
-        metadata: { name: "web", namespace: "default" },
-        spec: {
-          replicas: 3,
-          selector: { matchLabels: { app: "web" } },
-          template: {
-            metadata: { labels: { app: "web" } },
-            spec: { containers: [{ name: "web", image: "nginx:1.27", ports: [{ containerPort: 80 }] }] },
-          },
-        },
-      };
-      const WEB_YAML = [
-        "apiVersion: apps/v1",
-        "kind: Deployment",
-        "metadata:",
-        "  name: web",
-        "  namespace: default",
-        "spec:",
-        "  replicas: 2",
-        "status:",
-        "  readyReplicas: 2",
-        "",
-      ].join("\n");
-      const WEB_1_YAML = [
-        "apiVersion: v1",
-        "kind: Pod",
-        "metadata:",
-        "  name: web-1",
-        "  namespace: default",
-        "spec:",
-        "  containers:",
-        "    - name: app",
-        "",
-      ].join("\n");
-
-      it.each<{ tool: AgentToolDefinition; args: Parameters<typeof fauxToolCall>[1]; yaml: string }>([
-        { tool: updateKubernetesResourceTool, args: { ...restartWebArgs, data: webManifest }, yaml: WEB_YAML },
-        { tool: patchKubernetesResourceTool, args: scaleWeb, yaml: WEB_YAML },
-        { tool: deleteKubernetesResourceTool, args: restartWebArgs, yaml: WEB_YAML },
-        { tool: deletePodTool, args: { name: "web-1", namespace: "default", mode: "evict" }, yaml: WEB_1_YAML },
-        { tool: restartKubernetesResourceTool, args: restartWebArgs, yaml: WEB_YAML },
-      ])("puts the current object's YAML on the approval request of $tool.name", async ({ tool, args, yaml }) => {
-        faux.setResponses(callThenEcho(tool.name, args));
-        const host = createHost({ tools: [tool] });
-
-        await host.handleCommand("c1", { type: "prompt", message: "change it" });
-        await waitFor(() => uiRequests().length > 0);
-
-        expect(uiRequests()[0]?.backup).toBe(yaml);
-        expect(writes()).toEqual([]);
-      });
-
-      it("loads none for a create, which changes no existing object", async () => {
-        faux.setResponses(
-          callThenEcho("createKubernetesResource", { kind: "Namespace", apiVersion: "v1", name: "team", data: {} }),
-        );
-        const host = createHost({ tools: gatedTools });
-
-        await host.handleCommand("c1", { type: "prompt", message: "create a namespace" });
-        await waitFor(() => uiRequests().length > 0);
-
-        expect(uiRequests()[0]).not.toHaveProperty("backup");
-        expect(cluster.requests).toEqual([]);
-      });
-
-      it("leaves it out when the object cannot be loaded, without blocking the approval", async () => {
-        faux.setResponses(callThenEcho("patchKubernetesResource", { ...scaleWeb, name: "gone" }));
-        const host = createHost({ tools: gatedTools });
-
-        await host.handleCommand("c1", { type: "prompt", message: "scale gone to 3" });
-        await waitFor(() => uiRequests().length > 0);
-        const request = uiRequests()[0]!;
-        expect(request).not.toHaveProperty("backup");
-        expect(request.title).toBe("PATCH DEPLOYMENT");
-
-        await host.handleCommand("c1", { type: "ui_response", id: request.id, confirmed: true });
-        await waitFor(settled);
-        expect(writes()).toEqual([
-          expect.objectContaining({ method: "patch", path: "/apis/apps/v1/namespaces/default/deployments/gone" }),
-        ]);
-      });
-
-      it("is cancelled by Stop while it loads, and nothing is asked or sent", async () => {
-        cluster = standInCluster({ hang: [WEB_PATH] });
-        faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
-        const host = createHost({ tools: gatedTools });
-
-        await host.handleCommand("c1", { type: "prompt", message: "scale web to 3" });
-        await waitFor(() => cluster.requests.some(({ path }) => path === WEB_PATH));
-        expect(await host.handleCommand("c1", { type: "abort" })).toMatchObject({ success: true });
-        await waitFor(settled);
-
-        expect(cluster.requests.find(({ path }) => path === WEB_PATH)?.signal?.aborted).toBe(true);
-        expect(uiRequests()).toEqual([]);
-        expect(writes()).toEqual([]);
-      });
-
-      it("loads none from a cluster that is not connected, and the approved call answers 'Cluster not connected'", async () => {
-        faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
-        let clients = 0;
-        const host = createHost({
-          tools: gatedTools,
-          getClusterApi: () => {
-            clients += 1;
-            return cluster.api;
-          },
-        });
-
-        await host.handleCommand("gone", { type: "prompt", message: "scale web to 3" });
-        await waitFor(() => uiRequests().length > 0);
-        expect(uiRequests()[0]).not.toHaveProperty("backup");
-        await host.handleCommand("gone", { type: "ui_response", id: uiRequests()[0]!.id, confirmed: true });
-        await waitFor(settled);
-
-        expect(clients).toBe(0);
-        expect(cluster.requests).toEqual([]);
-        expect(answerText()).toBe("Result: Cluster not connected");
-      });
-    });
-
-    describe("the default approvals of the tools", () => {
-      it("asks for pod logs by default, without loading a backup", async () => {
-        faux.setResponses(callThenEcho("getPodLogs", { name: "web-1", namespace: "default" }));
-        const host = createHost({ tools: gatedTools });
-
-        await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
-        await waitFor(() => uiRequests().length > 0);
-
-        expect(uiRequests()[0]).toMatchObject({ title: "READ LOGS POD" });
-        expect(uiRequests()[0]).not.toHaveProperty("backup");
-        expect(cluster.requests).toEqual([]);
-      });
-
-      // Pod logs, restart and delete pod are approved with their input unchanged.
-      it("runs an approved call with its arguments when they need no preparation", async () => {
-        faux.setResponses(callThenEcho("deletePod", { name: "web-1", namespace: "default", mode: "evict" }));
-        const host = createHost({ tools: [...gatedTools, deletePodTool] });
-
-        await host.handleCommand("c1", { type: "prompt", message: "evict web-1" });
-        await waitFor(() => uiRequests().length > 0);
-        await host.handleCommand("c1", { type: "ui_response", id: uiRequests()[0]!.id, confirmed: true });
-        await waitFor(settled);
-
-        expect(writes()).toEqual([
-          expect.objectContaining({ method: "post", path: "/api/v1/namespaces/default/pods/web-1/eviction" }),
-        ]);
-        expect(answerText()).toBe('Result: Pod "web-1" evicted successfully');
-      });
-
-      it("runs an approved read in main with the arguments the user approved", async () => {
-        faux.setResponses(callThenEcho("getPodLogs", { name: "web-1", namespace: "default" }));
-        const host = createHost({ tools: gatedTools });
-
-        await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
-        await waitFor(() => uiRequests().length > 0);
-        expect(cluster.requests).toEqual([]);
-        await host.handleCommand("c1", { type: "ui_response", id: uiRequests()[0]!.id, confirmed: true });
-        await waitFor(settled);
-
-        expect(cluster.actions()).toEqual([
-          expect.objectContaining({ method: "get", path: "/api/v1/namespaces/default/pods/web-1" }),
-          expect.objectContaining({ method: "getResponse", path: "/api/v1/namespaces/default/pods/web-1/log" }),
-        ]);
-        expect(answerText()).toBe("Result: started\n");
-      });
-    });
+    const scaled = () => cli.actions().map(({ args }) => args);
 
     it("rejects a ui_response for an unknown request", async () => {
       const host = createHost();
@@ -2992,15 +2572,13 @@ describe("AgentHost", () => {
 
     describe("approve all in this chat", () => {
       const autoApproveChanges = () => envelopes.flatMap((e) => (e.kind === "auto_approve" ? [e.payload] : []));
-      const scaleApi = { ...scaleWeb, name: "api" };
-      const patchedNames = () => writes().map(({ path }) => path.split("/").at(-1));
-      // Two changes in one run, the second after the first one's result. The
+      // Two Ask calls in one run, the second after the first one's result. The
       // second call waits for `secondCall` when one is given.
-      const twoPatches = (secondCall: Promise<void> = Promise.resolve()) => [
-        fauxAssistantMessage([fauxToolCall("patchKubernetesResource", scaleWeb)], { stopReason: "toolUse" }),
+      const twoScales = (secondCall: Promise<void> = Promise.resolve()) => [
+        fauxAssistantMessage([fauxToolCall("kubectl", { args: scaleWeb })], { stopReason: "toolUse" }),
         heldUntil(
           secondCall,
-          fauxAssistantMessage([fauxToolCall("patchKubernetesResource", scaleApi)], { stopReason: "toolUse" }),
+          fauxAssistantMessage([fauxToolCall("kubectl", { args: scaleApi })], { stopReason: "toolUse" }),
         ),
         fauxAssistantMessage([fauxText("both scaled")]),
       ];
@@ -3012,30 +2590,23 @@ describe("AgentHost", () => {
           approveAll: true,
         });
 
-      it("approves the pending call and runs the next gated call without asking", async () => {
-        faux.setResponses(twoPatches());
-        const host = createHost({ tools: gatedTools });
+      it("is kept in the snapshot once turned on", async () => {
+        faux.setResponses(twoScales());
+        const host = createHost();
 
         await host.handleCommand("c1", { type: "prompt", message: "scale web and api" });
         await waitFor(() => uiRequests().length > 0);
-        const request = uiRequests()[0]!;
         expect(await approveAll(host)).toMatchObject({ success: true });
-        expect(autoApproveChanges()).toEqual([{ enabled: true }]);
         await waitFor(settled);
 
+        expect(autoApproveChanges()).toEqual([{ enabled: true }]);
         expect((await snapshotOf(host)).autoApprove).toBe(true);
-        expect(uiRequests()).toEqual([request]);
-        expect(uiResolved()).toEqual([{ id: request.id, confirmed: true }]);
-        expect(patchedNames()).toEqual(["web", "api"]);
-        const executed = envelopes.flatMap((e) =>
-          e.kind === "event" && e.payload.type === "tool_execution_end" ? [e.payload.toolName] : [],
-        );
-        expect(executed).toEqual(["patchKubernetesResource", "patchKubernetesResource"]);
+        expect(scaled()).toEqual([scaleWeb, scaleApi]);
       });
 
       it("ignores approveAll on a denial", async () => {
-        faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
-        const host = createHost({ tools: gatedTools });
+        faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+        const host = createHost();
 
         await host.handleCommand("c1", { type: "prompt", message: "scale web" });
         await waitFor(() => uiRequests().length > 0);
@@ -3049,36 +2620,36 @@ describe("AgentHost", () => {
 
         expect(autoApproveChanges()).toEqual([]);
         expect((await snapshotOf(host)).autoApprove).toBe(false);
-        expect(writes()).toEqual([]);
+        expect(scaled()).toEqual([]);
       });
 
-      it("still blocks an invalid manifest while approving all", async () => {
+      it("still blocks a call the floor rejects while approving all", async () => {
         faux.setResponses([
-          fauxAssistantMessage([fauxToolCall("patchKubernetesResource", scaleWeb)], { stopReason: "toolUse" }),
-          ...callThenEcho("createKubernetesResource", { kind: "Pod", data: { metadata: { name: "p" } } }),
+          fauxAssistantMessage([fauxToolCall("kubectl", { args: scaleWeb })], { stopReason: "toolUse" }),
+          ...callThenEcho("kubectl", { args: ["get", "pods", "--context", "prod"] }),
         ]);
-        const host = createHost({ tools: gatedTools });
+        const host = createHost();
 
-        await host.handleCommand("c1", { type: "prompt", message: "scale web, then create a pod" });
+        await host.handleCommand("c1", { type: "prompt", message: "scale web, then list the pods of prod" });
         await waitFor(() => uiRequests().length > 0);
         await approveAll(host);
         await waitFor(settled);
 
         expect(uiRequests()).toHaveLength(1);
-        expect(patchedNames()).toEqual(["web"]);
-        expect(answerText()).toMatch(/Result: The Pod manifest is invalid: /);
+        expect(scaled()).toEqual([scaleWeb]);
+        expect(answerText()).toMatch(/Result: Blocked by the floor/);
       });
 
       it("asks again once it is turned off", async () => {
         let nextCall!: () => void;
         faux.setResponses(
-          twoPatches(
+          twoScales(
             new Promise<void>((resolve) => {
               nextCall = resolve;
             }),
           ),
         );
-        const host = createHost({ tools: gatedTools });
+        const host = createHost();
 
         await host.handleCommand("c1", { type: "prompt", message: "scale web and api" });
         await waitFor(() => uiRequests().length > 0);
@@ -3091,8 +2662,8 @@ describe("AgentHost", () => {
 
         nextCall();
         await waitFor(() => uiRequests().length > 1);
-        expect(uiRequests()[1]).toMatchObject({ approval: { name: "api" } });
-        expect(patchedNames()).toEqual(["web"]);
+        expect(uiRequests()[1]).toMatchObject({ args: scaleApi });
+        expect(scaled()).toEqual([scaleWeb]);
       });
 
       it("answers turning it off when it is not on", async () => {
@@ -3104,8 +2675,8 @@ describe("AgentHost", () => {
       });
 
       it.each(["new_session", "delete_sessions"] as const)("is cleared by %s", async (type) => {
-        faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
-        const host = createHost({ tools: gatedTools });
+        faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+        const host = createHost();
         await host.handleCommand("c1", { type: "prompt", message: "scale web" });
         await waitFor(() => uiRequests().length > 0);
         await approveAll(host);
@@ -3114,22 +2685,22 @@ describe("AgentHost", () => {
         const response = await host.handleCommand("c1", { type });
         expect(response.success && (response.data as AgentSnapshot).autoApprove).toBe(false);
 
-        faux.setResponses(callThenEcho("patchKubernetesResource", scaleApi));
+        faux.setResponses(callThenEcho("kubectl", { args: scaleApi }));
         await host.handleCommand("c1", { type: "prompt", message: "scale api" });
         await waitFor(() => uiRequests().length > 1);
-        expect(patchedNames()).toEqual(["web"]);
+        expect(scaled()).toEqual([scaleWeb]);
       });
 
       it("is cleared by a restart", async () => {
-        faux.setResponses(callThenEcho("patchKubernetesResource", scaleWeb));
-        const first = createHost({ tools: gatedTools });
+        faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+        const first = createHost();
         await first.handleCommand("c1", { type: "prompt", message: "scale web" });
         await waitFor(() => uiRequests().length > 0);
         await approveAll(first);
         await waitFor(settled);
         first.dispose();
 
-        const restarted = createHost({ tools: gatedTools });
+        const restarted = createHost();
         expect((await snapshotOf(restarted)).autoApprove).toBe(false);
       });
     });
@@ -3222,7 +2793,7 @@ describe("AgentHost", () => {
     it("uses the explain prompt with its five sections, no emoji and no tools", async () => {
       const seen: SeenRequest[] = [];
       faux.setResponses([recordingResponse(seen, "ok")]);
-      const host = createHost({ tools: [getClusterVersionTool, patchKubernetesResourceTool] });
+      const host = createHost({ tools: [kubectlTool] });
 
       await host.handleCommand("c1", { type: "explain", message: "an event" });
       await waitFor(settled);
@@ -3389,7 +2960,7 @@ describe("AgentHost", () => {
     });
 
     it("adds up the tokens of every turn of a run with tool calls", async () => {
-      faux.setResponses(callThenEcho("getClusterVersion", {}));
+      faux.setResponses(callThenEcho("kubectl", { args: ["version"] }));
       const host = createHost();
 
       await host.handleCommand("c1", { type: "prompt", message: "which version?" });

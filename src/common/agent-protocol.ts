@@ -197,34 +197,6 @@ export const AGENT_ENVELOPE_CHANNEL = "agent:envelope";
 /** Chats not changed for this many days are deleted unless the user sets otherwise; 0 keeps them forever. */
 export const DEFAULT_CHAT_RETENTION_DAYS = 30;
 
-/** What an approval is about; main loads the backup of the object it names. */
-export interface ApprovalTarget {
-  tool: string;
-  kind?: string;
-  apiVersion?: string;
-  name?: string;
-  namespace?: string;
-}
-
-/**
- * Main asks the user to approve a call of one of the structured tools: pi's
- * `confirm` UI request, with the action as YAML in `message` and the object it
- * is about.
- */
-export interface ToolApprovalRequest {
-  id: string;
-  toolCallId: string;
-  method: "confirm";
-  title: string;
-  message: string;
-  approval: ApprovalTarget;
-  /**
-   * The current YAML of the object the call would change, loaded before
-   * asking; absent for a create, a read, or when the object could not be loaded.
-   */
-  backup?: string;
-}
-
 /** The policy levels that wait for the user's approval. */
 export type ApprovalLevel = Extract<PolicyLevel, "ask" | "alwaysAsk">;
 
@@ -271,10 +243,6 @@ export interface CliApprovalRequest {
   preview?: CliApprovalPreview;
 }
 
-export type ApprovalRequest = ToolApprovalRequest | CliApprovalRequest;
-
-export const isCliApprovalRequest = (request: ApprovalRequest): request is CliApprovalRequest => "program" in request;
-
 /** An approval was answered, or denied by Stop. */
 export interface ApprovalResolution {
   id: string;
@@ -290,7 +258,7 @@ interface EnvelopeBase {
 
 export type AgentEnvelope =
   | (EnvelopeBase & { kind: "event"; payload: JsonAgentSessionEvent })
-  | (EnvelopeBase & { kind: "ui_request"; payload: ApprovalRequest })
+  | (EnvelopeBase & { kind: "ui_request"; payload: CliApprovalRequest })
   | (EnvelopeBase & { kind: "ui_resolved"; payload: ApprovalResolution })
   /** "Approve all in this chat" was turned on or off. */
   | (EnvelopeBase & { kind: "auto_approve"; payload: { enabled: boolean } })
@@ -327,7 +295,7 @@ export interface AgentSnapshot {
   streamingMessage?: AssistantMessage;
   isStreaming: boolean;
   /** The approval main is waiting on; the card comes back on remount. */
-  pendingUiRequest?: ApprovalRequest;
+  pendingUiRequest?: CliApprovalRequest;
   /** "Approve all in this chat" is on: gated calls run without asking. */
   autoApprove: boolean;
   /** The chat's totals; undefined for a cluster that never chatted. */

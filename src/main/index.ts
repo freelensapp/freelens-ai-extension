@@ -109,11 +109,9 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       modelRuntime,
       broadcast: (envelope) => ipc.broadcast(AGENT_ENVELOPE_CHANNEL, envelope),
       tools: AGENT_TOOLS,
-      // Every cluster tool runs here, on the host's client of the chat's cluster.
       getClusterStatus: (clusterId) => Main.Catalog.getClusterById(clusterId)?.status,
-      getClusterApi: (clusterId) => Main.K8sApi.KubeJsonApi.forCluster(clusterId),
-      // kubectl runs here too: the binary and the environment Freelens uses for
-      // the cluster's terminal.
+      // kubectl runs here, with the binary and the environment Freelens uses
+      // for the cluster's terminal.
       runCli: createCliRunner({
         getKubectlPath: (clusterId, options) => Main.Shell.getKubectlPath(clusterId, options),
         getEnvironment: (clusterId) => Main.Shell.getEnvironment(clusterId),
