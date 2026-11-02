@@ -4,10 +4,10 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Main } from "@freelensapp/extensions";
 import { AGENT_COMMAND_CHANNEL, AGENT_ENVELOPE_CHANNEL, type AgentCommand } from "../common/agent-protocol";
 import { AGENT_TOOLS } from "../common/agent-tools";
-import { STANDARD_PROFILE } from "../common/invocation-policy/shipped-profiles";
 import { PROVIDER_COMMAND_CHANNEL, PROVIDER_ENVELOPE_CHANNEL, type ProviderCommand } from "../common/provider-protocol";
 import { PreferencesStore } from "../common/store";
-import { legacyOpenAISettings } from "../common/store/legacy-preferences";
+import { migrateApprovalChoices } from "../common/store/approval-migration";
+import { APPROVAL_CHOICE_KEYS, legacyOpenAISettings } from "../common/store/legacy-preferences";
 import { AgentHost, type ModelRef } from "./agent/agent-host";
 import { migrateAzureCredential, renameAzureModelRef } from "./agent/azure-rename";
 import { createCliRunner } from "./agent/cli-runner";
@@ -26,6 +26,19 @@ const parseModelRef = (value: string): ModelRef | undefined => {
   return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
 };
 
+// The old per-tool approval choices that differ from the tools' defaults
+// become the user profile "Standard (migrated)", the new default profile, and
+// the old fields are written back as null. A profile already migrated is not
+// added again, should a stale window sync an old field back.
+const importApprovalChoices = (preferencesStore: PreferencesStore) => {
+  const migrated = migrateApprovalChoices(preferencesStore.legacy);
+  if (migrated && !preferencesStore.userProfiles.some((profile) => profile.id === migrated.id)) {
+    preferencesStore.userProfiles = [...preferencesStore.userProfiles, migrated];
+    preferencesStore.defaultProfileId = migrated.id;
+  }
+  preferencesStore.clearLegacy(APPROVAL_CHOICE_KEYS);
+};
+
 export default class LensExtensionAiMain extends Main.LensExtension {
   private agentHost?: AgentHost;
   private providerService?: ProviderService;
@@ -34,6 +47,8 @@ export default class LensExtensionAiMain extends Main.LensExtension {
     const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
     preferencesStore.loadExtension(this);
+    // Before the imports of pi, which clear every old field once they are done.
+    importApprovalChoices(preferencesStore);
 
     try {
       await this.startAgentHost(preferencesStore);
@@ -99,16 +114,14 @@ export default class LensExtensionAiMain extends Main.LensExtension {
         getKubectlPath: (clusterId, options) => Main.Shell.getKubectlPath(clusterId, options),
         getEnvironment: (clusterId) => Main.Shell.getEnvironment(clusterId),
       }),
-      // Standard for every cluster until profiles can be chosen.
-      getPolicyProfile: () => STANDARD_PROFILE,
+      // The store holds the user profiles, the assignments and the default
+      // profile, read at every kubectl call and every prompt.
+      getPolicyProfileSettings: () => preferencesStore,
       getPodLogsTailLines: () => preferencesStore.podLogsTailLines,
       // The host's client applies the Freelens proxy and CA settings to the model
       // requests; Node's global fetch, pi's default, ignores them. Read when
       // each request is sent.
       fetch: (input, init) => Main.Util.fetch(input, init),
-      // Read before every call, so a changed preference applies to the next one.
-      // kubectl calls go through the invocation policy instead.
-      getApprovalOverrides: () => preferencesStore.toolApprovalOverrides,
       // The chat's model picker remembers the last model used here.
       getModelRef: () => parseModelRef(preferencesStore.agentModel),
       getThinkingLevel: () => preferencesStore.thinkingLevel,

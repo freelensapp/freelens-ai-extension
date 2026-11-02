@@ -311,6 +311,50 @@ describe("LensExtensionAiMain", () => {
     });
   });
 
+  describe("the old per-tool approval choices", () => {
+    it("become the default profile Standard (migrated), and the old fields are written back as null", async () => {
+      const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+      preferencesStore.legacy = { toolApprovalOverrides: { deletePod: false }, podLogsRequireApproval: true };
+
+      await load();
+
+      expect(preferencesStore.userProfiles).toEqual([
+        expect.objectContaining({
+          id: "standard-migrated",
+          name: "Standard (migrated)",
+          rules: expect.arrayContaining([{ pattern: "kubectl delete pods *", level: "allow" }]),
+        }),
+      ]);
+      expect(preferencesStore.defaultProfileId).toBe("standard-migrated");
+      expect(preferencesStore.toJSON()).toMatchObject({ toolApprovalOverrides: null, podLogsRequireApproval: null });
+    });
+
+    it("leave a user who never changed them on Standard, without a new profile", async () => {
+      const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+      preferencesStore.legacy = { toolApprovalOverrides: {} };
+
+      await load();
+
+      expect(preferencesStore.userProfiles).toEqual([]);
+      expect(preferencesStore.defaultProfileId).toBe("standard");
+      expect(preferencesStore.toJSON()).toMatchObject({ toolApprovalOverrides: null });
+    });
+
+    it("are moved once, even when an old field comes back", async () => {
+      const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+      preferencesStore.legacy = { toolApprovalOverrides: { deletePod: false } };
+      const first = await load();
+      await first.disable();
+      preferencesStore.defaultProfileId = "standard";
+      preferencesStore.legacy = { toolApprovalOverrides: { deletePod: false } };
+
+      await load();
+
+      expect(preferencesStore.userProfiles.map((profile) => profile.id)).toEqual(["standard-migrated"]);
+      expect(preferencesStore.defaultProfileId).toBe("standard");
+    });
+  });
+
   it("sends the chat's model requests with the host's fetch", async () => {
     const hostFetch = vi.mocked(Main.Util.fetch);
     hostFetch.mockClear();

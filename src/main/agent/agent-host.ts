@@ -20,12 +20,12 @@ import {
   successResponse,
 } from "../../common/agent-protocol";
 import { prepareApproval } from "../../common/agent-tools/approval";
-import { requiresApproval, type ToolApprovalOverrides } from "../../common/agent-tools/approval-settings";
 import { kubectlTool } from "../../common/agent-tools/kubectl-tool";
 import {
   evaluateInvocationPolicy,
   type InvocationPolicyResult,
 } from "../../common/invocation-policy/invocation-policy";
+import { clusterPolicyProfile, type PolicyProfileSettings } from "../../common/invocation-policy/profile-assignment";
 import { DEFAULT_THINKING_LEVEL, type ThinkingLevel } from "../../common/thinking-level";
 import useLog from "../utils/logger";
 import { toJsonEvent } from "./json-event";
@@ -101,19 +101,18 @@ export interface AgentHostOptions {
   /** Runs the CLI invocations of the kubectl tool against a cluster. */
   runCli: CliRunner;
   /**
-   * The policy profile of a cluster, which gives each kubectl call its policy
-   * level; read before every call and every prompt, so a change applies to the
-   * next one.
+   * The policy profiles, their assignments to clusters and the default profile,
+   * which give each kubectl call the policy level of its cluster's profile;
+   * read before every call and every prompt, so a change applies to the next
+   * one. A change also calls for `recheckPendingApprovals()`.
    */
-  getPolicyProfile: (clusterId: string) => PolicyProfile;
+  getPolicyProfileSettings: () => PolicyProfileSettings;
   /** The "pod logs tail lines" preference; read before every pod logs call. */
   getPodLogsTailLines: () => number;
   /** The model the next prompt runs on, or undefined when none is selected. */
   getModelRef: () => ModelRef | undefined;
   /** The global thinking level; read before every prompt, and pi clamps it to what the model supports. */
   getThinkingLevel?: () => ThinkingLevel;
-  /** The user's "Requires approval" choices by tool name, for every tool but kubectl; read before every call. */
-  getApprovalOverrides?: () => ToolApprovalOverrides;
   /** The user's custom agent rules; read before every prompt and explanation. Empty sets no section. */
   getUserRules?: () => string;
   /** The cluster's name as Freelens shows it; read before every prompt. Undefined sets no section. */
@@ -699,7 +698,8 @@ export class AgentHost {
   }
 
   // pi's `tool_call` hook. A kubectl call goes through the invocation policy.
-  // For the other tools, a call that needs approval, and every write call, is
+  // For the other tools, a call of a tool that requires approval by default,
+  // and every write call, is
   // validated and prepared, and the prepared input replaces the model's in
   // place: the write tools apply their input as it comes. A call that needs
   // approval then waits for the user, with the backup of the object it would
@@ -712,7 +712,7 @@ export class AgentHost {
     const tool = this.options.tools.find((candidate) => candidate.name === event.toolName);
     if (!tool) return undefined;
     if (tool.name === kubectlTool.name) return this.gateKubectl(clusterId, event, signal);
-    const ask = requiresApproval(tool, this.options.getApprovalOverrides?.() ?? {});
+    const ask = tool.requiresApprovalByDefault;
     if (!ask && !tool.mutating) return undefined;
 
     const input = event.input as Record<string, unknown>;
@@ -758,7 +758,7 @@ export class AgentHost {
     const agent = await this.clusters.get(clusterId);
     if (!agent) return { block: true, reason: "The cluster session is not available." };
 
-    const profile = this.options.getPolicyProfile(clusterId);
+    const profile = this.policyProfile(clusterId);
     const read: ClusterReadContext = {
       clusterId,
       runCli: this.options.runCli,
@@ -831,6 +831,10 @@ export class AgentHost {
     if (decision.kind !== "floor" || decision.entry.id !== "unknown-resource") return decision;
     agent.clusterResources = { ...known, catalog: await readResourceCatalog(read) };
     return evaluate(agent.clusterResources);
+  }
+
+  private policyProfile(clusterId: string): PolicyProfile {
+    return clusterPolicyProfile(this.options.getPolicyProfileSettings(), clusterId);
   }
 
   // Waits for the user's answer to an approval request. A run aborted some
@@ -930,7 +934,7 @@ export class AgentHost {
             if (clusterName) sections.cluster = clusterName;
             if (userRules) sections.user_rules = userRules;
             if (tools.some((tool) => tool.name === kubectlTool.name)) {
-              sections.cli_policy = cliPolicySection(this.options.getPolicyProfile(clusterId));
+              sections.cli_policy = cliPolicySection(this.policyProfile(clusterId));
             }
           });
         },

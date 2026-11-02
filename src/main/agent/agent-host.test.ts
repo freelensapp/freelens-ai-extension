@@ -30,7 +30,6 @@ import {
   restartKubernetesResourceTool,
   updateKubernetesResourceTool,
 } from "../../common/agent-tools";
-import { loadApprovalOverrides } from "../../common/agent-tools/approval-settings";
 import { READ_ONLY_PROFILE, STANDARD_PROFILE } from "../../common/invocation-policy/shipped-profiles";
 import { AgentHost, type AgentHostOptions } from "./agent-host";
 import { API_RESOURCES_ARGS, KUBECONFIG_NAMESPACE_ARGS } from "./tools/cluster-resources";
@@ -38,6 +37,7 @@ import { API_RESOURCES_ARGS, KUBECONFIG_NAMESPACE_ARGS } from "./tools/cluster-r
 import type { AgentEnvelope, AgentSnapshot } from "../../common/agent-protocol";
 import type { AgentToolDefinition } from "../../common/agent-tools";
 import type { PolicyProfile } from "../../common/invocation-policy/policy-profile";
+import type { PolicyProfileSettings } from "../../common/invocation-policy/profile-assignment";
 import type { CliResult } from "./cli-runner";
 
 type Faux = ReturnType<typeof fauxProvider>;
@@ -59,6 +59,13 @@ const WEB = {
 
 // A profile under which every kubectl call runs without a card.
 const ALLOW_ALL_PROFILE: PolicyProfile = { id: "allow-all", name: "Allow all", rules: [], fallbackLevel: "allow" };
+
+// The settings under which every cluster gets `profile`.
+const everyClusterOn = (profile: PolicyProfile): PolicyProfileSettings => ({
+  userProfiles: [profile],
+  profileAssignments: {},
+  defaultProfileId: profile.id,
+});
 
 // What main may broadcast: nothing asks the frame to run a tool.
 const ENVELOPE_KINDS = ["event", "stats", "ui_request", "ui_resolved", "auto_approve"];
@@ -119,7 +126,7 @@ describe("AgentHost", () => {
       getClusterStatus: (clusterId) => clusterStatus[clusterId],
       getClusterApi: () => cluster.api,
       runCli: cli.run,
-      getPolicyProfile: () => STANDARD_PROFILE,
+      getPolicyProfileSettings: () => everyClusterOn(STANDARD_PROFILE),
       getPodLogsTailLines: () => 500,
       retry: false,
       ...overrides,
@@ -236,9 +243,14 @@ describe("AgentHost", () => {
 
     it("describes a failed request for the model as an error result", async () => {
       faux.setResponses(callThenEcho("getPodLogs", { name: "gone", namespace: "default" }));
-      const host = createHost({ tools: [getPodLogsTool], getApprovalOverrides: () => ({ getPodLogs: false }) });
+      const host = createHost({ tools: [getPodLogsTool] });
+      const approval = () => envelopes.find((e) => e.kind === "ui_request");
 
       await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
+      await waitFor(() => approval() !== undefined);
+      const request = approval();
+      if (request?.kind !== "ui_request") throw new Error("no approval request");
+      await host.handleCommand("c1", { type: "ui_response", id: request.payload.id, confirmed: true });
       await waitFor(settled);
 
       expect(toolEnd()).toEqual([expect.objectContaining({ isError: true })]);
@@ -268,7 +280,7 @@ describe("AgentHost", () => {
     // Most tests run under a profile that allows everything, so no card comes up.
     const withoutApproval: Partial<AgentHostOptions> = {
       tools: [kubectlTool],
-      getPolicyProfile: () => ALLOW_ALL_PROFILE,
+      getPolicyProfileSettings: () => everyClusterOn(ALLOW_ALL_PROFILE),
     };
     // The text of the first tool result, as the model got it.
     const toolResultText = () =>
@@ -643,7 +655,7 @@ describe("AgentHost", () => {
       ],
     ])("blocks %s by the floor with its reason, and the call never runs", async (_case, args, reason) => {
       faux.setResponses(callThenEcho("kubectl", { args }));
-      const host = kubectlHost({ getPolicyProfile: () => ALLOW_ALL_PROFILE });
+      const host = kubectlHost({ getPolicyProfileSettings: () => everyClusterOn(ALLOW_ALL_PROFILE) });
 
       await host.handleCommand("c1", { type: "prompt", message: "go" });
       await waitFor(settled);
@@ -657,7 +669,7 @@ describe("AgentHost", () => {
     it("blocks a manifest with a verb that takes none by the floor", async () => {
       const manifest = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\n";
       faux.setResponses(callThenEcho("kubectl", { args: ["get", "pods"], manifest }));
-      const host = kubectlHost({ getPolicyProfile: () => ALLOW_ALL_PROFILE });
+      const host = kubectlHost({ getPolicyProfileSettings: () => everyClusterOn(ALLOW_ALL_PROFILE) });
 
       await host.handleCommand("c1", { type: "prompt", message: "go" });
       await waitFor(settled);
@@ -668,7 +680,7 @@ describe("AgentHost", () => {
 
     it("blocks a call the profile denies with the profile and the level, and the call never runs", async () => {
       faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
-      const host = kubectlHost({ getPolicyProfile: () => READ_ONLY_PROFILE });
+      const host = kubectlHost({ getPolicyProfileSettings: () => everyClusterOn(READ_ONLY_PROFILE) });
 
       await host.handleCommand("c1", { type: "prompt", message: "scale web" });
       await waitFor(settled);
@@ -690,7 +702,7 @@ describe("AgentHost", () => {
         fallbackLevel: "allow",
       };
       faux.setResponses(callThenEcho("kubectl", { args: ["delete", "pod", "web-1", "web-2", "-n", "web"] }));
-      const host = kubectlHost({ getPolicyProfile: () => profile });
+      const host = kubectlHost({ getPolicyProfileSettings: () => everyClusterOn(profile) });
 
       await host.handleCommand("c1", { type: "prompt", message: "delete them" });
       await waitFor(settled);
@@ -874,7 +886,7 @@ describe("AgentHost", () => {
         ),
         fauxAssistantMessage([fauxText("done")]),
       ]);
-      const host = kubectlHost({ getPolicyProfile: () => profile });
+      const host = kubectlHost({ getPolicyProfileSettings: () => everyClusterOn(profile) });
 
       await host.handleCommand("c1", { type: "prompt", message: "scale web and api" });
       await waitFor(() => cli.actions().length > 0);
@@ -886,6 +898,56 @@ describe("AgentHost", () => {
       expect(cli.actions().map((invocation) => invocation.args)).toEqual([scaleWeb]);
       await answer(host, false);
       await waitFor(settled);
+    });
+
+    describe("the cluster's profile", () => {
+      const DEV_PROFILE: PolicyProfile = {
+        id: "dev",
+        name: "Development",
+        rules: [{ pattern: "kubectl scale *", level: "deny" }],
+        fallbackLevel: "allow",
+      };
+      // The name of the profile that decided the scale of web: the card's, or the one that denied it.
+      const profileOfScale = async (clusterId: string, settings: Partial<PolicyProfileSettings>) => {
+        faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+        const host = kubectlHost({
+          getPolicyProfileSettings: () => ({
+            userProfiles: [DEV_PROFILE],
+            profileAssignments: {},
+            defaultProfileId: "standard",
+            ...settings,
+          }),
+        });
+        await host.handleCommand(clusterId, { type: "prompt", message: "scale web" });
+        await waitFor(() => uiRequests().length > 0 || settled());
+        const request = uiRequests()[0];
+        if (request && isCliApprovalRequest(request)) return request.profileName;
+        return toolResultTexts()[0]?.match(/^Denied by the policy profile "([^"]+)"/)?.[1];
+      };
+
+      it("is the profile assigned to the cluster", async () => {
+        expect(await profileOfScale("c1", { profileAssignments: { c1: "dev", c2: "read-only" } })).toBe("Development");
+      });
+
+      it("is a shipped profile assigned to the cluster", async () => {
+        expect(await profileOfScale("c2", { profileAssignments: { c1: "dev", c2: "read-only" } })).toBe("Read only");
+      });
+
+      it("is the default profile for a cluster without an assignment", async () => {
+        expect(await profileOfScale("c1", { profileAssignments: { c2: "read-only" }, defaultProfileId: "dev" })).toBe(
+          "Development",
+        );
+      });
+
+      it("is the default profile for a cluster assigned to a profile that no longer exists", async () => {
+        expect(await profileOfScale("c1", { profileAssignments: { c1: "deleted" }, defaultProfileId: "dev" })).toBe(
+          "Development",
+        );
+      });
+
+      it("is Standard when the default profile no longer exists", async () => {
+        expect(await profileOfScale("c1", { defaultProfileId: "deleted" })).toBe("Standard");
+      });
     });
 
     describe("the resources of the cluster", () => {
@@ -1061,7 +1123,7 @@ describe("AgentHost", () => {
       it("reads the profile before every run", async () => {
         faux.setResponses([recordSections, recordSections]);
         let profile = STANDARD_PROFILE;
-        const host = kubectlHost({ getPolicyProfile: () => profile });
+        const host = kubectlHost({ getPolicyProfileSettings: () => everyClusterOn(profile) });
 
         await ask(host);
         profile = READ_ONLY_PROFILE;
@@ -1977,121 +2039,10 @@ describe("AgentHost", () => {
       });
     });
 
-    describe("per-tool approval settings", () => {
-      const restartWeb = { kind: "Deployment", name: "web", namespace: "default" };
-
-      it("runs a default-gated tool without a card once its approval is turned off", async () => {
-        faux.setResponses(callThenEcho("restartKubernetesResource", restartWeb));
-        const host = createHost({
-          tools: [...gatedTools, restartKubernetesResourceTool],
-          getApprovalOverrides: () => ({ restartKubernetesResource: false }),
-        });
-
-        await host.handleCommand("c1", { type: "prompt", message: "restart web" });
-        await waitFor(settled);
-
-        expect(uiRequests()).toEqual([]);
-        expect(writes()).toEqual([expect.objectContaining({ method: "patch", path: WEB_PATH })]);
-        expect(answerText()).toBe('Result: Deployment "web" restarted successfully');
-      });
-
-      // The write tools apply their input as it comes, so the gate still
-      // validates and prepares it when nobody is asked.
-      it("still rejects an invalid manifest once a write tool's approval is turned off", async () => {
-        faux.setResponses(callThenEcho("createKubernetesResource", { kind: "Pod", data: { metadata: { name: "p" } } }));
-        const host = createHost({
-          tools: gatedTools,
-          getApprovalOverrides: () => ({ createKubernetesResource: false }),
-        });
-
-        await host.handleCommand("c1", { type: "prompt", message: "create a pod" });
-        await waitFor(settled);
-
-        expect(uiRequests()).toEqual([]);
-        expect(cluster.requests).toEqual([]);
-        expect(answerText()).toMatch(/^Result: The Pod manifest is invalid: /);
-      });
-
-      it("still sends the prepared input once a write tool's approval is turned off", async () => {
-        faux.setResponses(
-          callThenEcho("patchKubernetesResource", {
-            ...scaleWeb,
-            subresource: "/scale/",
-            data: { spec: { replicas: 2 } },
-          }),
-        );
-        const host = createHost({
-          tools: gatedTools,
-          getApprovalOverrides: () => ({ patchKubernetesResource: false }),
-        });
-
-        await host.handleCommand("c1", { type: "prompt", message: "scale web to 2" });
-        await waitFor(settled);
-
-        expect(uiRequests()).toEqual([]);
-        expect(writes()).toEqual([expect.objectContaining({ method: "patch", path: `${WEB_PATH}/scale` })]);
-      });
-
-      it("asks before a read tool once its approval is turned on", async () => {
-        faux.setResponses(callThenEcho("getClusterVersion", {}));
-        const host = createHost({
-          tools: gatedTools,
-          getApprovalOverrides: () => ({ getClusterVersion: true }),
-        });
-
-        await host.handleCommand("c1", { type: "prompt", message: "which version?" });
-        await waitFor(() => uiRequests().length > 0);
-
-        expect(uiRequests()[0]).toMatchObject({ method: "confirm", approval: { tool: "getClusterVersion" } });
-        expect(uiRequests()[0]).not.toHaveProperty("backup");
-        expect(cluster.requests).toEqual([]);
-      });
-
-      it("reads the setting at each call, so a change applies to the next call", async () => {
-        let overrides: Record<string, boolean> = { patchKubernetesResource: false };
-        let nextCall!: () => void;
-        const secondCall = new Promise<void>((resolve) => {
-          nextCall = resolve;
-        });
-        faux.setResponses([
-          fauxAssistantMessage([fauxToolCall("patchKubernetesResource", scaleWeb)], { stopReason: "toolUse" }),
-          heldUntil(
-            secondCall,
-            fauxAssistantMessage([fauxToolCall("patchKubernetesResource", { ...scaleWeb, name: "api" })], {
-              stopReason: "toolUse",
-            }),
-          ),
-          fauxAssistantMessage([fauxText("done")]),
-        ]);
-        const host = createHost({ tools: gatedTools, getApprovalOverrides: () => overrides });
-
-        await host.handleCommand("c1", { type: "prompt", message: "scale web and api" });
-        await waitFor(() => writes().length > 0);
-        expect(uiRequests()).toEqual([]);
-
-        overrides = {};
-        nextCall();
-        await waitFor(() => uiRequests().length > 0);
-        expect(uiRequests()[0]).toMatchObject({ approval: { tool: "patchKubernetesResource", name: "api" } });
-        expect(writes()).toHaveLength(1);
-      });
-
-      it("runs pod logs without a card for a saved podLogsRequireApproval: false", async () => {
-        faux.setResponses(callThenEcho("getPodLogs", { name: "web-1", namespace: "default" }));
-        const imported = loadApprovalOverrides({ podLogsRequireApproval: false });
-        const host = createHost({ tools: gatedTools, getApprovalOverrides: () => imported });
-
-        await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
-        await waitFor(settled);
-
-        expect(imported).toEqual({ getPodLogs: false });
-        expect(uiRequests()).toEqual([]);
-        expect(answerText()).toBe("Result: started\n");
-      });
-
+    describe("the default approvals of the tools", () => {
       it("asks for pod logs by default, without loading a backup", async () => {
         faux.setResponses(callThenEcho("getPodLogs", { name: "web-1", namespace: "default" }));
-        const host = createHost({ tools: gatedTools, getApprovalOverrides: () => loadApprovalOverrides({}) });
+        const host = createHost({ tools: gatedTools });
 
         await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
         await waitFor(() => uiRequests().length > 0);
