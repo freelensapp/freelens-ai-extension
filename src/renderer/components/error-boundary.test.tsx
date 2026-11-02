@@ -5,6 +5,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ErrorBoundary,
+  withEntitySettingErrorBoundary,
   withMenuItemErrorBoundary,
   withPageErrorBoundary,
   withPreferenceErrorBoundary,
@@ -196,6 +197,53 @@ describe("the registration wrappers", () => {
 
     expect(screen.getByText("settings")).toBeDefined();
     expect(screen.getByText("hint")).toBeDefined();
+    expect(Common.logger.error).not.toHaveBeenCalled();
+  });
+
+  it("keep an error of an entity setting inside its tab", () => {
+    const { View } = withEntitySettingErrorBoundary(extension, {
+      apiVersions: ["entity.k8slens.dev/v1alpha1"],
+      kind: "KubernetesCluster",
+      title: "Freelens AI",
+      components: { View: () => <Throws message="cluster setting" /> },
+    }).components;
+    const entity = new Common.Catalog.KubernetesCluster({
+      metadata: { uid: "c1", name: "kind-kind", labels: {} },
+      spec: { kubeconfigPath: "/kubeconfig", kubeconfigContext: "kind-kind" },
+      status: { phase: "connected" },
+    });
+
+    render(
+      <>
+        <View entity={entity} />
+        <p>other tabs</p>
+      </>,
+    );
+
+    expect(screen.getByText("Error: cluster setting")).toBeDefined();
+    expect(screen.getByText("other tabs")).toBeDefined();
+    expect(Common.logger.error).toHaveBeenCalledWith(
+      "[@freelensapp/ai-extension]: Error: cluster setting",
+      expect.any(String),
+    );
+  });
+
+  it("render an entity setting as it is without an error, with its entity", () => {
+    const { View } = withEntitySettingErrorBoundary(extension, {
+      apiVersions: ["entity.k8slens.dev/v1alpha1"],
+      kind: "KubernetesCluster",
+      title: "Freelens AI",
+      components: { View: ({ entity }) => <p>settings of {entity.getName()}</p> },
+    }).components;
+    const entity = new Common.Catalog.KubernetesCluster({
+      metadata: { uid: "c1", name: "kind-kind", labels: {} },
+      spec: { kubeconfigPath: "/kubeconfig", kubeconfigContext: "kind-kind" },
+      status: { phase: "connected" },
+    });
+
+    render(<View entity={entity} />);
+
+    expect(screen.getByText("settings of kind-kind")).toBeDefined();
     expect(Common.logger.error).not.toHaveBeenCalled();
   });
 });

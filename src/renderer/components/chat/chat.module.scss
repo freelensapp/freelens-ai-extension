@@ -29,12 +29,30 @@
   }
 }
 
-.auto-approve-notice {
+// The cluster's profile on the left and the "Approve all in this chat"
+// notice on the right, over the top padding of the messages. Clicks between
+// them reach the messages.
+.chat-header {
   position: absolute;
   top: 18px;
   right: 18px;
+  left: 18px;
   z-index: 10;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+
+  > * {
+    pointer-events: auto;
+  }
+}
+
+.auto-approve-notice {
+  display: flex;
+  margin-left: auto;
   align-items: center;
   gap: 8px;
   padding: 6px 8px 6px 14px;

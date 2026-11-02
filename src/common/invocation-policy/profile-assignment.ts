@@ -15,6 +15,10 @@ export interface PolicyProfileSettings {
 export const findPolicyProfile = (userProfiles: readonly PolicyProfile[], id: string): PolicyProfile | undefined =>
   SHIPPED_PROFILES.find((profile) => profile.id === id) ?? userProfiles.find((profile) => profile.id === id);
 
+/** The default profile, or Standard when the default profile no longer exists. */
+export const defaultPolicyProfile = (settings: PolicyProfileSettings): PolicyProfile =>
+  findPolicyProfile(settings.userProfiles, settings.defaultProfileId) ?? STANDARD_PROFILE;
+
 /**
  * The policy profile of a cluster: the one assigned to it, or the default
  * profile for a cluster without an assignment or assigned to a profile that no
@@ -24,5 +28,5 @@ export function clusterPolicyProfile(settings: PolicyProfileSettings, clusterId:
   const assigned = Object.hasOwn(settings.profileAssignments, clusterId)
     ? findPolicyProfile(settings.userProfiles, settings.profileAssignments[clusterId]!)
     : undefined;
-  return assigned ?? findPolicyProfile(settings.userProfiles, settings.defaultProfileId) ?? STANDARD_PROFILE;
+  return assigned ?? defaultPolicyProfile(settings);
 }

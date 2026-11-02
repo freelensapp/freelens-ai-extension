@@ -1,0 +1,46 @@
+// The heading and description match the other sections of the preferences
+// page; the rows follow the theme through the host's variables.
+.title {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.description {
+  margin-bottom: 8px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.empty {
+  padding: 8px 0;
+  color: var(--textColorSecondary);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+
+  th {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--borderColor);
+    color: var(--textColorSecondary);
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+  }
+
+  td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--borderColor);
+    vertical-align: middle;
+  }
+}
+
+.cluster-name {
+  overflow-wrap: anywhere;
+}
+
+.profile {
+  width: 50%;
+  min-width: 220px;
+}

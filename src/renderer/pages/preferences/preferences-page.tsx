@@ -1,5 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as MobxReact from "mobx-react";
+import { ClusterProfileTable } from "../../components/cluster-profile/cluster-profile-table";
 import { PolicyProfileSettings } from "./policy-profiles/policy-profile-settings";
 import styles from "./preferences-page.module.scss";
 import { ProviderSettings } from "./provider-settings";
@@ -86,6 +87,10 @@ export const PreferencesPage = observer(() => {
       <HorizontalLine />
 
       <PolicyProfileSettings />
+
+      <HorizontalLine />
+
+      <ClusterProfileTable />
 
       <HorizontalLine />
 
