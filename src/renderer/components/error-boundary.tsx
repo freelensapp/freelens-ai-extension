@@ -5,6 +5,7 @@ import { ErrorPage } from "./error-page";
 type PageRegistration = Renderer.LensExtension["clusterPages"][number];
 type MenuRegistration = Renderer.LensExtension["kubeObjectMenuItems"][number];
 type PreferenceRegistration = Renderer.LensExtension["appPreferences"][number];
+type EntitySettingRegistration = Renderer.LensExtension["entitySettings"][number];
 
 export interface ErrorBoundaryProps {
   extension: Renderer.LensExtension;
@@ -34,7 +35,8 @@ interface ErrorBoundaryState {
  * A `try`/`catch` around the call of a component does not see such an error: a child component renders later than
  * the call. The host has no boundary around a menu item or the preferences of an extension, and its boundary around
  * a frame would replace the whole cluster view or preferences page. The registrations of the extension are wrapped
- * with `withPageErrorBoundary`, `withMenuItemErrorBoundary` and `withPreferenceErrorBoundary`.
+ * with `withPageErrorBoundary`, `withMenuItemErrorBoundary`, `withPreferenceErrorBoundary` and
+ * `withEntitySettingErrorBoundary`.
  *
  * It is a class component of the host's React, because only a class component can be an error boundary, with no
  * decorators and no `observer`: it reads no observable, and the children it renders are observers of their own.
@@ -128,6 +130,29 @@ export function withPreferenceErrorBoundary(
       Hint: () => (
         <ErrorBoundary extension={extension} fallback="nothing">
           <Hint />
+        </ErrorBoundary>
+      ),
+    },
+  };
+}
+
+/**
+ * The registration of an entity setting, a tab of a catalog entity's settings, with its view inside an error boundary,
+ * so that an error stays in this extension's tab.
+ */
+export function withEntitySettingErrorBoundary(
+  extension: Renderer.LensExtension,
+  registration: EntitySettingRegistration,
+): EntitySettingRegistration {
+  const { View } = registration.components;
+
+  return {
+    ...registration,
+    components: {
+      ...registration.components,
+      View: (props) => (
+        <ErrorBoundary extension={extension}>
+          <View {...props} />
         </ErrorBoundary>
       ),
     },

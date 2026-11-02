@@ -3,11 +3,13 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { Renderer } from "@freelensapp/extensions";
+import { Common, Renderer } from "@freelensapp/extensions";
 import { PreferencesStore } from "../common/store";
 import { startAgentClient, stopAgentClient } from "./business/agent-client/agent-client";
 import { startProviderClient, stopProviderClient } from "./business/provider-client/provider-client";
+import { ClusterProfileSettings } from "./components/cluster-profile/cluster-profile-settings";
 import {
+  withEntitySettingErrorBoundary,
   withMenuItemErrorBoundary,
   withPageErrorBoundary,
   withPreferenceErrorBoundary,
@@ -18,10 +20,11 @@ import { MAIN_PAGE_ID } from "./navigation/pages";
 import { MainPage } from "./pages/main";
 import { PreferencesPage } from "./pages/preferences";
 
-// The chat page, the "Explain" menu item and the preferences render inside an
-// error boundary, so that an error they throw stays in their place: the host has
-// none around a menu item or an extension's preferences, and its boundary around
-// a frame would replace the whole cluster view or preferences page. Each
+// The chat page, the "Explain" menu item, the preferences and the tab of a
+// cluster's settings render inside an error boundary, so that an error they
+// throw stays in their place: the host has none around a menu item, an
+// extension's preferences or a settings tab, and its boundary around a frame
+// would replace the whole cluster view, preferences page or settings page. Each
 // registration field is mapped through its wrapper, so an entry added to it is
 // wrapped too.
 export default class FreeLensAIRenderer extends Renderer.LensExtension {
@@ -70,6 +73,18 @@ export default class FreeLensAIRenderer extends Renderer.LensExtension {
       },
     },
   ].map((registration) => withPreferenceErrorBoundary(this, registration));
+
+  // The "Freelens AI" tab of a cluster's settings, in the root frame.
+  entitySettings: Renderer.LensExtension["entitySettings"] = [
+    {
+      apiVersions: [Common.Catalog.KubernetesCluster.apiVersion],
+      kind: Common.Catalog.KubernetesCluster.kind,
+      title: "Freelens AI",
+      components: {
+        View: ClusterProfileSettings,
+      },
+    },
+  ].map((registration) => withEntitySettingErrorBoundary(this, registration));
 
   kubeObjectMenuItems: Renderer.LensExtension["kubeObjectMenuItems"] = [
     Renderer.K8sApi.menuItemFor(Renderer.K8sApi.KubeEvent, {

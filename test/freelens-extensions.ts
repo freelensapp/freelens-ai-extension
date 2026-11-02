@@ -40,7 +40,36 @@ class ExtensionStore<_T> {
   }
 }
 
+// Stand-in for the host's catalog entity of a cluster, which an entity
+// setting's view receives: its id is the cluster id.
+class KubernetesCluster {
+  static readonly apiVersion = "entity.k8slens.dev/v1alpha1";
+  static readonly kind = "KubernetesCluster";
+  readonly apiVersion = KubernetesCluster.apiVersion;
+  readonly kind = KubernetesCluster.kind;
+  metadata: { uid: string; name: string };
+  spec: unknown;
+  status: unknown;
+
+  constructor({ metadata, spec, status }: { metadata: { uid: string; name: string }; spec: unknown; status: unknown }) {
+    this.metadata = metadata;
+    this.spec = spec;
+    this.status = status;
+  }
+
+  getId(): string {
+    return this.metadata.uid;
+  }
+
+  getName(): string {
+    return this.metadata.name;
+  }
+}
+
 export const Common = {
+  Catalog: {
+    KubernetesCluster,
+  },
   logger: {
     debug: vi.fn(),
     info: vi.fn(),
@@ -232,20 +261,28 @@ function Input({ type, placeholder, value, onChange, onSubmit }: InputProps) {
 }
 
 interface SelectProps {
+  id?: string;
+  "aria-label"?: string;
   options: { value: unknown; label: string }[];
+  value?: unknown;
   onChange?: (option: { value: unknown; label: string } | null) => void;
 }
 
-// One button per option, and one that clears the selection as react-select
-// does, with `null`.
-function Select({ options, onChange }: SelectProps) {
+// A group of buttons, one per option, the option of `value` pressed, and one
+// that clears the selection as react-select does, with `null`.
+function Select({ id, "aria-label": ariaLabel, options, value, onChange }: SelectProps) {
   return React.createElement(
     "div",
-    { "data-testid": "select" },
+    { "data-testid": "select", role: "group", id, "aria-label": ariaLabel },
     ...options.map((option) =>
       React.createElement(
         "button",
-        { type: "button", key: option.label, onClick: () => onChange?.(option) },
+        {
+          type: "button",
+          key: option.label,
+          "aria-pressed": option.value === value,
+          onClick: () => onChange?.(option),
+        },
         option.label,
       ),
     ),
@@ -268,9 +305,16 @@ function HorizontalLine() {
   return React.createElement("hr");
 }
 
+function SubTitle({ title, id }: { title: React.ReactNode; id?: string }) {
+  return React.createElement("div", { id }, title);
+}
+
 export const Renderer = {
   LensExtension,
   Ipc: RendererIpc,
+  Catalog: {
+    getAllClusters: vi.fn<() => unknown[]>(() => []),
+  },
   K8sApi: {
     KubeEvent: class KubeEvent {},
     menuItemFor: (_kind: unknown, components: Record<string, unknown>) => ({
@@ -286,6 +330,7 @@ export const Renderer = {
     Input,
     MonacoEditor,
     Select,
+    SubTitle,
     Switch,
     createTerminalTab: vi.fn(),
     terminalStore: {

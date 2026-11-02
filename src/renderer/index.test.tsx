@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 // @vitest-environment-options {"url":"http://c1.localhost/"}
 
+import { Common } from "@freelensapp/extensions";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ipcMainHandlers, ipcRendererListeners } from "../../test/freelens-extensions";
 import {
@@ -53,6 +55,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  cleanup();
+  vi.restoreAllMocks();
   for (const extension of loaded) await extension.disable();
   ipcMainHandlers.clear();
   ipcRendererListeners.clear();
@@ -110,5 +114,59 @@ describe("FreeLensAIRenderer", () => {
     await extension.disable();
 
     expect(getAgentChat()).toBeUndefined();
+  });
+
+  describe("the Freelens AI tab of a cluster's settings", () => {
+    const kindCluster = () =>
+      new Common.Catalog.KubernetesCluster({
+        metadata: { uid: "c1", name: "kind-kind", labels: {} },
+        spec: { kubeconfigPath: "/kubeconfig", kubeconfigContext: "kind-kind" },
+        status: { phase: "connected" },
+      });
+
+    const freelensAiTab = (extension: FreeLensAIRenderer) => {
+      const [tab, ...others] = extension.entitySettings;
+      expect(others).toEqual([]);
+      return tab!;
+    };
+
+    it("is registered for the cluster entity", async () => {
+      const extension = await load();
+
+      expect(freelensAiTab(extension)).toMatchObject({
+        apiVersions: ["entity.k8slens.dev/v1alpha1"],
+        kind: "KubernetesCluster",
+        title: "Freelens AI",
+      });
+    });
+
+    it("picks the policy profile of the entity's cluster", async () => {
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      const extension = await load();
+      const store = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+      store.profileAssignments = { c2: "permissive" };
+      const { View } = freelensAiTab(extension).components;
+
+      render(<View entity={kindCluster()} />);
+      expect(screen.getByText("Policy profile")).toBeDefined();
+      fireEvent.click(screen.getByRole("button", { name: "Read only" }));
+
+      expect(store.profileAssignments).toStrictEqual({ c1: "read-only", c2: "permissive" });
+      expect(screen.getByRole("group", { name: "Policy profile of kind-kind" })).toBeDefined();
+      expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it("shows the error page in the tab when the tab throws", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const extension = await load();
+      const { View } = freelensAiTab(extension).components;
+      vi.spyOn(PreferencesStore, "getInstanceOrCreate").mockImplementation(() => {
+        throw new Error("no store");
+      });
+
+      render(<View entity={kindCluster()} />);
+
+      expect(screen.getByText("Error: no store")).toBeDefined();
+    });
   });
 });
