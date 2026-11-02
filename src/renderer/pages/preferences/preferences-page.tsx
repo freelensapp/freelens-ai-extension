@@ -1,70 +1,16 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as MobxReact from "mobx-react";
-import * as React from "react";
 import styles from "./preferences-page.module.scss";
 import { ProviderSettings } from "./provider-settings";
+import { useStoreValueOnBlur } from "./use-store-value-on-blur";
 
 import type { SingleValue } from "react-select";
 
 const { observer } = MobxReact;
-const { useCallback, useEffect, useRef, useState } = React;
 
 import { DEFAULT_CHAT_RETENTION_DAYS } from "../../../common/agent-protocol";
 import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore, parseRetentionDays } from "../../../common/store";
 import { THINKING_LEVELS, type ThinkingLevel } from "../../../common/thinking-level";
-
-interface DraftFieldProps {
-  value: string;
-  onChange: (next: string) => void;
-  onFocus: () => void;
-  onBlur: () => void;
-}
-
-/**
- * Binds a controlled text field to a store value, committing only on blur.
- *
- * Writing to the persisted store on every keystroke is expensive and, because
- * the store value flows back into the controlled element, repositions the caret
- * to the end mid-typing. Instead the draft updates locally while editing and the
- * `commit` callback fires once when the field loses focus. A focus guard keeps
- * external store updates from clobbering an in-progress edit, and any pending
- * draft is flushed on unmount so the last edit is never lost.
- */
-function useStoreValueOnBlur(value: string, commit: (next: string) => void): DraftFieldProps {
-  const [draft, setDraft] = useState<string>(value);
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
-  const valueRef = useRef(value);
-  valueRef.current = value;
-  const focusedRef = useRef(false);
-  const commitRef = useRef(commit);
-  commitRef.current = commit;
-
-  // Reflect external changes (store load/reset) only while not editing, so a
-  // blur commit (which updates the store) never moves the caret.
-  useEffect(() => {
-    if (!focusedRef.current) setDraft(value);
-  }, [value]);
-
-  // Flush a pending draft on unmount in case the field never blurred.
-  useEffect(
-    () => () => {
-      if (draftRef.current !== valueRef.current) commitRef.current(draftRef.current);
-    },
-    [],
-  );
-
-  const onChange = useCallback((next: string) => setDraft(next), []);
-  const onFocus = useCallback(() => {
-    focusedRef.current = true;
-  }, []);
-  const onBlur = useCallback(() => {
-    focusedRef.current = false;
-    if (draftRef.current !== valueRef.current) commitRef.current(draftRef.current);
-  }, []);
-
-  return { value: draft, onChange, onFocus, onBlur };
-}
 
 const {
   Component: { Input, Select, HorizontalLine },
