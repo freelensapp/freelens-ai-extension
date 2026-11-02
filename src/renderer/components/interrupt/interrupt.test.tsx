@@ -124,4 +124,72 @@ describe("Interrupt of a kubectl call", () => {
 
     expect(screen.queryByText("Manifest")).toBeNull();
   });
+
+  const scaleWeb = {
+    program: "kubectl",
+    verb: "scale",
+    resource: "deployments",
+    name: "web",
+    namespace: "default",
+  } as const;
+  const replicasDiff = "--- current\n+++ dry run\n@@ -1,2 +1,2 @@\n spec:\n-  replicas: 2\n+  replicas: 3\n";
+
+  it("shows the dry run's diff of each target, and says when a target does not change", () => {
+    render(
+      <Interrupt
+        {...cliProps({
+          canonicalForms: [scaleWeb, { ...scaleWeb, name: "api" }],
+          preview: {
+            kind: "diffs",
+            diffs: [
+              { target: scaleWeb, diff: replicasDiff },
+              { target: { ...scaleWeb, name: "api" }, diff: "" },
+            ],
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByText("What the dry run changes")).toBeDefined();
+    expect(screen.getAllByTestId("monaco-editor").map((editor) => editor.textContent)).toEqual([
+      replicasDiff.replace(/\n$/, ""),
+    ]);
+    expect(screen.getAllByText("kubectl scale deployments web -n default")).toHaveLength(2);
+    expect(screen.getByText("kubectl scale deployments api -n default: no change")).toBeDefined();
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("says that the preview is unavailable, with the reason and the current YAML", () => {
+    const backup = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n";
+    render(
+      <Interrupt
+        {...cliProps({
+          preview: { kind: "unavailable", reason: "the dry run did not end within its timeout of 30 s", backup },
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Preview unavailable: the dry run did not end within its timeout of 30 s")).toBeDefined();
+    expect(screen.getByText("Current YAML")).toBeDefined();
+    fireEvent.click(screen.getByText("Current YAML"));
+    expect(screen.getByTestId("monaco-editor").textContent).toBe(backup.replace(/\n$/, ""));
+  });
+
+  it("shows no current YAML when the preview has no backup", () => {
+    render(
+      <Interrupt
+        {...cliProps({ preview: { kind: "unavailable", reason: "kubectl cordon prints no object in a dry run" } })}
+      />,
+    );
+
+    expect(screen.getByText("Preview unavailable: kubectl cordon prints no object in a dry run")).toBeDefined();
+    expect(screen.queryByText("Current YAML")).toBeNull();
+  });
+
+  it("shows no preview for a verb without a dry run", () => {
+    render(<Interrupt {...cliProps()} />);
+
+    expect(screen.queryByText("What the dry run changes")).toBeNull();
+    expect(screen.queryByText(/^Preview unavailable/)).toBeNull();
+  });
 });

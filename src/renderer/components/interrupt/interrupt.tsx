@@ -7,7 +7,7 @@ import { CodeBlock } from "../code-block";
 import { MarkdownViewer } from "../markdown-viewer";
 import styles from "./interrupt.module.scss";
 
-import type { CliApprovalRequest } from "../../../common/agent-protocol";
+import type { CliApprovalPreview, CliApprovalRequest } from "../../../common/agent-protocol";
 
 const {
   Component: { Button },
@@ -19,7 +19,7 @@ export type InterruptProps = {
   text: string;
   actionDetails?: string;
   resources?: string;
-  // The approval of a kubectl call: its targets, its level and its manifest.
+  // The approval of a kubectl call: its targets, its level, its manifest and its preview.
   cliApproval?: CliApprovalRequest;
   options: string[];
   approved: boolean | null;
@@ -31,9 +31,38 @@ const levelLine = ({ level, profileName }: CliApprovalRequest) =>
     ? `${POLICY_LEVEL_LABELS.alwaysAsk}: the policy profile ${profileName} asks before this invocation every time, even with "Approve all in this chat".`
     : `${POLICY_LEVEL_LABELS.ask}: the policy profile ${profileName} asks before this invocation.`;
 
+// What the server's dry run says the call would change: a diff per target, or
+// why there is none, with the current YAML to undo the change by hand.
+const CliPreview = ({ preview }: { preview: CliApprovalPreview }) =>
+  preview.kind === "diffs" ? (
+    <>
+      <div className={styles.interruptLabel}>What the dry run changes</div>
+      {preview.diffs.map(({ target, diff }, index) =>
+        diff ? (
+          <CodeBlock key={index} language="diff" title={formatCanonicalForm(target)} collapsible props={{}}>
+            {diff}
+          </CodeBlock>
+        ) : (
+          <div key={index} className={styles.interruptPreviewLine}>
+            {`${formatCanonicalForm(target)}: no change`}
+          </div>
+        ),
+      )}
+    </>
+  ) : (
+    <>
+      <div className={styles.interruptPreviewLine}>{`Preview unavailable: ${preview.reason}`}</div>
+      {preview.backup !== undefined && (
+        <CodeBlock language="yaml" title="Current YAML" collapsible defaultCollapsed props={{}}>
+          {preview.backup}
+        </CodeBlock>
+      )}
+    </>
+  );
+
 // The body of a kubectl call's card, under its command line: one target per
 // resource, name or manifest object, the level and the profile that gave it,
-// and the manifest the call sends.
+// the manifest the call sends, and the dry-run preview.
 const CliApprovalBody = ({ request }: { request: CliApprovalRequest }) => (
   <>
     <div className={styles.interruptLabel}>Targets</div>
@@ -50,6 +79,7 @@ const CliApprovalBody = ({ request }: { request: CliApprovalRequest }) => (
         {request.manifest}
       </CodeBlock>
     )}
+    {request.preview && <CliPreview preview={request.preview} />}
   </>
 );
 

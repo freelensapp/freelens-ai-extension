@@ -6,6 +6,7 @@ declare const classNames: {
   readonly interruptLabel: "interruptLabel";
   readonly interruptTargets: "interruptTargets";
   readonly interruptLevel: "interruptLevel";
+  readonly interruptPreviewLine: "interruptPreviewLine";
   readonly interruptDetails: "interruptDetails";
   readonly interruptStatusIcon: "interruptStatusIcon";
   readonly interruptStatusPending: "interruptStatusPending";
