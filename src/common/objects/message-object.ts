@@ -1,5 +1,7 @@
 import { MessageType } from "./message-type";
 
+import type { CliInvocationDetails } from "../agent-protocol";
+
 // Describes how to re-run a query that failed, so an error message can offer a
 // "Retry" button.
 //   - "message": a normal user prompt -> send the same prompt again.
@@ -21,6 +23,10 @@ export interface ToolCallView {
   // the run ended before.
   result?: string;
   isError?: boolean;
+  // The latest progress of a running call, such as a kubectl download.
+  progress?: string;
+  // The arguments a kubectl call ran with and its exit code, once it has run.
+  invocation?: CliInvocationDetails;
 }
 
 export interface MessageObject {

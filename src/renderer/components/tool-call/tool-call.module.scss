@@ -38,6 +38,31 @@
   font-family: monospace;
 }
 
+// A kubectl call: its command line, with the manifest and the output folded
+// under it.
+.tool-call-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.tool-call-command {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+  color: var(--textColorSecondary);
+}
+
+.tool-call-fold {
+  margin: 2px 0 0 20px;
+}
+
+.tool-call-fold-summary {
+  cursor: pointer;
+  user-select: none;
+}
+
 .tool-call-status {
   flex-shrink: 0;
   font-style: italic;

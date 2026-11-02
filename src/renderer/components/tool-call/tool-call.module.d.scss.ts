@@ -7,6 +7,10 @@ declare const classNames: {
   readonly toolCallFailed: "toolCallFailed";
   readonly toolCallName: "toolCallName";
   readonly toolCallArgs: "toolCallArgs";
+  readonly toolCallLine: "toolCallLine";
+  readonly toolCallCommand: "toolCallCommand";
+  readonly toolCallFold: "toolCallFold";
+  readonly toolCallFoldSummary: "toolCallFoldSummary";
   readonly toolCallStatus: "toolCallStatus";
   readonly toolCallLabel: "toolCallLabel";
   readonly toolCallText: "toolCallText";
