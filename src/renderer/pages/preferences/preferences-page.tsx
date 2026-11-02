@@ -1,6 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as MobxReact from "mobx-react";
 import * as React from "react";
+import { ClusterProfileTable } from "../../components/cluster-profile/cluster-profile-table";
 import styles from "./preferences-page.module.scss";
 import { ProviderSettings } from "./provider-settings";
 
@@ -153,6 +154,10 @@ export const PreferencesPage = observer(() => {
         onFocus={chatRetentionField.onFocus}
         onBlur={chatRetentionField.onBlur}
       />
+
+      <HorizontalLine />
+
+      <ClusterProfileTable />
 
       <HorizontalLine />
 
