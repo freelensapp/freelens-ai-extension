@@ -1,5 +1,6 @@
 import { kubectlCanonicalForms } from "./kubectl-canonical-forms";
 import { parseKubectlInvocation } from "./kubectl-invocation";
+import { checkSecretOutput } from "./kubectl-secret-output";
 import { type ManifestObject, readManifestObjects } from "./manifest";
 
 import type { CanonicalForm, CliProgram } from "./canonical-form";
@@ -62,7 +63,9 @@ export function evaluateInvocationPolicy(input: InvocationPolicyInput): Invocati
     defaultNamespace: input.defaultNamespace,
   });
   if ("kind" in forms) return forms;
+  const checked = checkSecretOutput(invocation, forms, input.revealSecrets);
+  if ("kind" in checked) return checked;
 
-  const targets = forms.map((form): PolicyTarget => ({ form, level: input.profile.fallbackLevel }));
+  const targets = checked.map((form): PolicyTarget => ({ form, level: input.profile.fallbackLevel }));
   return { kind: "policy", level: input.profile.fallbackLevel, targets };
 }

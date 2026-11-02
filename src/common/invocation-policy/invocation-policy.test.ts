@@ -137,3 +137,114 @@ describe("targets of kubectl invocations", () => {
     expect(formsOf(args)).toEqual(expected);
   });
 });
+
+const DEPLOYMENT_AND_ROLE = `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: web
+spec: {}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: reader
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: settings
+`;
+
+const LIST = JSON.stringify({
+  apiVersion: "v1",
+  kind: "List",
+  items: [
+    { apiVersion: "v1", kind: "Service", metadata: { name: "api" } },
+    { apiVersion: "batch/v1", kind: "Job", metadata: { generateName: "once-" } },
+  ],
+});
+
+describe("targets of a manifest", () => {
+  it.each([
+    [
+      "apply --server-side",
+      DEPLOYMENT_AND_ROLE,
+      [
+        "kubectl apply deployments api -n web",
+        "kubectl apply clusterroles reader",
+        "kubectl apply configmaps settings -n default",
+      ],
+    ],
+    [
+      "apply -n dev",
+      DEPLOYMENT_AND_ROLE,
+      [
+        "kubectl apply deployments api -n web",
+        "kubectl apply clusterroles reader",
+        "kubectl apply configmaps settings -n dev",
+      ],
+    ],
+    ["create", LIST, ["kubectl create services api -n default", "kubectl create jobs * -n default"]],
+    ["replace --force", LIST, ["kubectl replace services api -n default", "kubectl replace jobs * -n default"]],
+    ["delete --wait=false", LIST, ["kubectl delete services api -n default", "kubectl delete jobs * -n default"]],
+    [
+      "diff",
+      DEPLOYMENT_AND_ROLE,
+      [
+        "kubectl diff deployments api -n web",
+        "kubectl diff clusterroles reader",
+        "kubectl diff configmaps settings -n default",
+      ],
+    ],
+  ])("kubectl %s with a manifest", (args, manifest, expected) => {
+    expect(formsOf(args, { manifest })).toEqual(expected);
+  });
+});
+
+const SECRET = `
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db
+stringData:
+  password: hunter2
+`;
+
+describe("reveal", () => {
+  it.each([
+    ["get secrets db", false, undefined, ["kubectl get secrets db -n default"]],
+    ["get secrets db -o yaml", true, undefined, ["kubectl reveal secrets db -n default"]],
+    ["get secret -n web -o jsonpath={.data}", true, undefined, ["kubectl reveal secrets * -n web"]],
+    ["get pods,secrets", true, undefined, ["kubectl get pods * -n default", "kubectl reveal secrets * -n default"]],
+    ["describe secrets db", true, undefined, ["kubectl describe secrets db -n default"]],
+    ["delete secrets db -o name", true, undefined, ["kubectl delete secrets db -n default"]],
+    [
+      "apply -o yaml",
+      true,
+      `${SECRET}---\n${DEPLOYMENT_AND_ROLE}`,
+      [
+        "kubectl apply secrets db -n default",
+        "kubectl reveal secrets db -n default",
+        "kubectl apply deployments api -n web",
+        "kubectl apply clusterroles reader",
+        "kubectl apply configmaps settings -n default",
+      ],
+    ],
+    [
+      "create secret generic db --from-literal=password=hunter2 -o json",
+      true,
+      undefined,
+      ["kubectl create secrets db -n default", "kubectl reveal secrets db -n default"],
+    ],
+    [
+      "diff --show-secrets",
+      true,
+      SECRET,
+      ["kubectl diff secrets db -n default", "kubectl reveal secrets db -n default"],
+    ],
+  ])("kubectl %s with revealSecrets %s", (args, revealSecrets, manifest, expected) => {
+    expect(formsOf(args, { revealSecrets, ...(manifest ? { manifest } : {}) })).toEqual(expected);
+  });
+});
