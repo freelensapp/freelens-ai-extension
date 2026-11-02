@@ -18,13 +18,14 @@ You also answer general Kubernetes, software engineering and other technical que
 - If the user gives a specific value, for example in quotes, use it exactly.
 </tool_calling>
 
-<kubectl>
-You run kubectl against this cluster through the kubectl tool, one invocation per call, with the arguments after "kubectl" as a list. Every call runs only within the floor and the policy profile that the <cli_policy> section describes: a call they block does not run, and you get the reason instead.
+<kubectl_and_helm>
+You run kubectl and helm against this cluster through the kubectl and helm tools, one invocation per call, with the arguments after the program name as a list. Every call runs only within the floor and the policy profile that the <cli_policy> section describes: a call they block does not run, and you get the reason instead.
 - Pipes, redirections, "&&" and local files do not work. Put a manifest in the tool's manifest parameter.
 - Keep the output small: narrow a list with -n, a label selector (-l) or a field selector (--field-selector), choose what is printed with -o (name, wide, jsonpath, custom-columns), and set the grep parameter to keep only the lines that match a regular expression, such as "error|Error|ERROR|panic" in logs. Read logs with --tail or --since. Tell the user when you filtered the output, and with what.
 - Find the kinds and custom resources the cluster serves with api-resources, and check a permission with auth can-i before proposing a change that needs it.
 - Secret values are redacted from what you read. Set revealSecrets only when the user asks for the values.
-</kubectl>
+- A workload that helm manages changes through helm, so that the release stays as helm expects: roll it back, upgrade with --reuse-values and --set, or uninstall it. Read its releases with list, status, history, get values, get manifest and get notes. A chart is named <repository>/<chart>, from the repositories the user added.
+</kubectl_and_helm>
 
 <safety>
 These rules apply to every change to the cluster, whether or not the user is asked to approve it:
@@ -59,17 +60,17 @@ If the input is ambiguous or incomplete, clearly state what additional informati
 
 /**
  * The `cli_policy` section: what the cluster's policy profile lets the kubectl
- * tool do, and what the floor rejects whatever the profile says, so that the
+ * and helm tools do, and what the floor rejects whatever the profile says, so that the
  * agent does not spend turns on calls that will be blocked.
  */
 export const cliPolicySection = (profile: PolicyProfile): string =>
   [
-    `The policy profile of this cluster is "${profile.name}". Every kubectl call first passes the floor, then gets a policy level from the profile:`,
+    `The policy profile of this cluster is "${profile.name}". Every kubectl and helm call first passes the floor, then gets a policy level from the profile:`,
     "- Allow: it runs.",
     '- Ask: it waits for the user\'s approval, unless the user chose "Approve all in this chat".',
     "- Always ask: it waits for the user's approval every time.",
     "- Deny: it is blocked.",
-    "A call has one target per resource, name or manifest object, written `kubectl <verb> <resource> <name> -n <namespace>`, and gets the most restrictive level of its targets. A rule matches targets with literals, globs and `*`; when several match, the most specific decides, and the fallback level applies when none does.",
+    "A call has one target per resource, name or manifest object, written `kubectl <verb> <resource> <name> -n <namespace>` (`helm <verb> releases <release> -n <namespace>`, and `helm <verb> charts <chart>` for show and search repo), and gets the most restrictive level of its targets. A rule matches targets with literals, globs and `*`; when several match, the most specific decides, and the fallback level applies when none does.",
     "",
     "Rules of the profile:",
     ...(profile.rules.length > 0

@@ -5,12 +5,17 @@ import { EXPLAIN_PROMPT, SYSTEM_PROMPT } from "./system-prompt";
 const NON_ASCII = /[^\x09\x0a\x0d\x20-\x7e]/;
 
 describe("SYSTEM_PROMPT", () => {
-  it("says that the agent runs kubectl through the tool, only within the floor and the profile", () => {
-    expect(SYSTEM_PROMPT).toMatch(/<kubectl>[\s\S]*<\/kubectl>/);
-    expect(SYSTEM_PROMPT).toMatch(/You run kubectl against this cluster through the kubectl tool/);
+  it("says that the agent runs kubectl and helm through the two tools, only within the floor and the profile", () => {
+    expect(SYSTEM_PROMPT).toMatch(/<kubectl_and_helm>[\s\S]*<\/kubectl_and_helm>/);
+    expect(SYSTEM_PROMPT).toMatch(/You run kubectl and helm against this cluster through the kubectl and helm tools/);
     expect(SYSTEM_PROMPT).toMatch(
       /only within the floor and the policy profile that the <cli_policy> section describes/,
     );
+  });
+
+  it("tells the agent to change a release that helm manages through helm", () => {
+    expect(SYSTEM_PROMPT).toMatch(/A workload that helm manages changes through helm/);
+    expect(SYSTEM_PROMPT).toMatch(/upgrade with --reuse-values and --set/);
   });
 
   it("tells the agent to keep the output small with grep, selectors and -o", () => {

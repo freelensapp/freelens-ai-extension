@@ -1,3 +1,4 @@
+import { helmTool } from "./helm-tool";
 import { kubectlTool } from "./kubectl-tool";
 
 import type { TSchema } from "typebox";
@@ -14,6 +15,6 @@ export interface AgentToolDefinition<TParams extends TSchema = TSchema> {
   parameters: TParams;
 }
 
-export const AGENT_TOOLS: readonly AgentToolDefinition[] = [kubectlTool];
+export const AGENT_TOOLS: readonly AgentToolDefinition[] = [kubectlTool, helmTool];
 
-export { kubectlTool };
+export { helmTool, kubectlTool };

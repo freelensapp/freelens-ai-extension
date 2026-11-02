@@ -108,6 +108,7 @@ afterEach(async () => {
   vi.mocked(ModelRuntime.create).mockRestore();
   vi.mocked(Main.Catalog.getClusterById).mockReset();
   vi.mocked(Main.Shell.getKubectlPath).mockReset();
+  vi.mocked(Main.Shell.getHelmPath).mockReset();
   vi.mocked(Main.Shell.getEnvironment).mockReset();
   broadcast.mockRestore();
   rmSync(dataDir, { recursive: true, force: true });
@@ -158,10 +159,14 @@ describe("LensExtensionAiMain", () => {
       vi.unstubAllEnvs();
     });
 
-    // The model calls kubectl with `input`; resolves with the tool's result once the run settled.
-    const callKubectl = async (input: Parameters<typeof fauxToolCall>[1], whileRunning?: () => Promise<void>) => {
+    // The model calls kubectl, or `program`, with `input`; resolves with the tool's result once the run settled.
+    const callKubectl = async (
+      input: Parameters<typeof fauxToolCall>[1],
+      whileRunning?: () => Promise<void>,
+      program = "kubectl",
+    ) => {
       faux.setResponses([
-        fauxAssistantMessage([fauxToolCall("kubectl", input)], { stopReason: "toolUse" }),
+        fauxAssistantMessage([fauxToolCall(program, input)], { stopReason: "toolUse" }),
         fauxAssistantMessage([fauxText("done")]),
       ]);
       await load();
@@ -196,6 +201,18 @@ describe("LensExtensionAiMain", () => {
       const output = JSON.parse(result.text.split("Standard output:\n")[1] ?? "");
       expect(output).toEqual({ args, cluster: "the environment of c1", stdin: "" });
       expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it("runs the cluster's helm for a helm call, with the cluster's environment", async () => {
+      // The fake kubectl prints its arguments, so it stands in for helm too.
+      vi.mocked(Main.Shell.getHelmPath).mockResolvedValue(fakeKubectl);
+
+      const result = await callKubectl({ args: ["list", "-n", "web"] }, undefined, "helm");
+
+      expect(Main.Shell.getHelmPath).toHaveBeenCalledWith("c1");
+      expect(result.isError).toBe(false);
+      const output = JSON.parse(result.text.split("Standard output:\n")[1] ?? "");
+      expect(output).toEqual({ args: ["list", "-n", "web"], cluster: "the environment of c1", stdin: "" });
     });
 
     // A diff runs without a card under Standard, the profile of every cluster.

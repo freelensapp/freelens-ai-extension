@@ -17,11 +17,12 @@ afterEach(() => {
 });
 
 describe("AvailableTools", () => {
-  it("lists the kubectl tool alone, with the first sentence of its description", () => {
+  it("lists the kubectl and helm tools, each with the first sentence of its description", () => {
     render(<AvailableTools />);
 
     expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "Kkubectl - Run one kubectl invocation against the cluster of this chat, through Freelens's connection to it.",
+      "Hhelm - Run one helm invocation against the cluster of this chat, through Freelens's connection to it.",
     ]);
     expect(consoleError).not.toHaveBeenCalled();
   });

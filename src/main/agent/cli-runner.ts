@@ -6,10 +6,12 @@ import { execFile } from "node:child_process";
 
 import type { Main } from "@freelensapp/extensions";
 
+import type { CliProgram } from "../../common/invocation-policy/canonical-form";
+
 /** One CLI invocation for the runner. */
 export interface CliInvocation {
   clusterId: string;
-  program: "kubectl";
+  program: CliProgram;
   /** The arguments after the program name, passed to the process as they are. */
   args: readonly string[];
   /** Sent on standard input; any other invocation gets an empty one. */
@@ -38,6 +40,7 @@ export type CliRunner = (invocation: CliInvocation) => Promise<CliResult>;
 /** What the runner uses of the host's `Main.Shell`. */
 export interface CliShell {
   getKubectlPath: (clusterId: string, options: Main.Shell.KubectlDownloadOptions) => Promise<string>;
+  getHelmPath: (clusterId: string) => Promise<string>;
   getEnvironment: (clusterId: string) => Promise<Record<string, string>>;
 }
 
@@ -52,12 +55,12 @@ const downloadProgress = ({ transferred, total }: Main.Shell.KubectlDownloadProg
     : `Downloading kubectl: ${(transferred / MIB).toFixed(1)} MB`;
 
 /**
- * The runner of main: the kubectl Freelens runs for the cluster, started with
+ * The runner of main: the kubectl or helm Freelens runs for the cluster, started with
  * `execFile` and the argument array, so no shell ever reads the arguments, and
  * with the cluster's environment, which reaches the cluster through Freelens.
  */
 export function createCliRunner(shell: CliShell): CliRunner {
-  return async ({ clusterId, args, manifest, timeoutMs, signal, onProgress }) => {
+  return async ({ clusterId, program, args, manifest, timeoutMs, signal, onProgress }) => {
     // A download reports its progress as the bytes arrive: only a changed text is passed on.
     let lastProgress: string | undefined;
     const report = (message: string) => {
@@ -65,11 +68,15 @@ export function createCliRunner(shell: CliShell): CliRunner {
       lastProgress = message;
       onProgress(message);
     };
-    const path = await shell.getKubectlPath(clusterId, {
-      onPhase: report,
-      onDownloadProgress: (progress) => report(downloadProgress(progress)),
-      onProblem: report,
-    });
+    // helm does not depend on the cluster's version, so it is never downloaded.
+    const path =
+      program === "helm"
+        ? await shell.getHelmPath(clusterId)
+        : await shell.getKubectlPath(clusterId, {
+            onPhase: report,
+            onDownloadProgress: (progress) => report(downloadProgress(progress)),
+            onProblem: report,
+          });
     const env = await shell.getEnvironment(clusterId);
     if (signal?.aborted) return { stdout: "", stderr: "", exitCode: null, killed: "stopped" };
 
@@ -86,7 +93,7 @@ export function createCliRunner(shell: CliShell): CliRunner {
           if (!error) return resolve({ stdout, stderr, exitCode: 0 });
           if (typeof error.code === "number") return resolve({ stdout, stderr, exitCode: error.code });
           if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-            return reject(new Error(`kubectl wrote more than ${MAX_OUTPUT_BYTES / MIB} MiB of output`));
+            return reject(new Error(`${program} wrote more than ${MAX_OUTPUT_BYTES / MIB} MiB of output`));
           }
           reject(error);
         },
