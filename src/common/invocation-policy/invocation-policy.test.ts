@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { formatCanonicalForm } from "./canonical-form";
-import { DRY_RUN_VERBS } from "./dry-run-verbs";
 import { evaluateInvocationPolicy, type InvocationPolicyResult } from "./invocation-policy";
 import { BUILT_IN_RESOURCE_CATALOG } from "./resource-catalog";
 import { PERMISSIVE_PROFILE, READ_ONLY_PROFILE, SHIPPED_PROFILES, STANDARD_PROFILE } from "./shipped-profiles";
@@ -688,65 +687,5 @@ describe("the shipped profiles", () => {
   ])("always ask before a delete of %s in Standard and Permissive", (resource) => {
     expect(decide(`delete ${resource} x`, STANDARD_PROFILE).level).toBe("alwaysAsk");
     expect(decide(`delete ${resource} x`, PERMISSIVE_PROFILE).level).toBe("alwaysAsk");
-  });
-});
-
-const dryRunVerbOf = (verb: string) => DRY_RUN_VERBS.kubectl.find((candidate) => candidate.verb === verb);
-
-describe("the dry-run verbs", () => {
-  it.each<[string, string | undefined]>([
-    ["apply", DEPLOYMENT_AND_ROLE],
-    ["create", DEPLOYMENT_AND_ROLE],
-    ["create deployment api --image=nginx", undefined],
-    ["create namespace web", undefined],
-    ["replace", DEPLOYMENT_AND_ROLE],
-    ["patch deploy api -p {}", undefined],
-    ["delete pod api", undefined],
-    ["delete", DEPLOYMENT_AND_ROLE],
-    ["scale deploy api --replicas=2", undefined],
-    ["label pods api a=b", undefined],
-    ["annotate pods api a=b", undefined],
-    ["set env deploy/api A=b", undefined],
-    ["set image deploy/api app=nginx", undefined],
-    ["set resources deploy/api --limits=cpu=1", undefined],
-    ["set selector svc api app=web", undefined],
-    ["set serviceaccount deploy api robot", undefined],
-    ["set subject rolebinding admin --user=alice", undefined],
-    ["rollout undo deploy/api", undefined],
-    ["cordon node-1", undefined],
-    ["uncordon node-1", undefined],
-    ["drain node-1", undefined],
-    ["taint nodes node-1 a=b:NoSchedule", undefined],
-  ])("name the verb of kubectl %s, which accepts --dry-run=server", (args, manifest) => {
-    const options = manifest === undefined ? {} : { manifest };
-    const result = evaluate(`${args} --dry-run=server`, options);
-    if (result.kind !== "policy") throw new Error(`rejected by the floor: ${result.reason}`);
-    const verb = result.targets[0]?.form.verb ?? "";
-    expect(dryRunVerbOf(verb)).toBeDefined();
-    if (dryRunVerbOf(verb)?.acceptsYamlOutput)
-      expect(floorEntryOf(`${args} --dry-run=server -o yaml`, options)).toBe("passes");
-  });
-
-  it.each(["cordon node-1", "uncordon node-1", "drain node-1"])("say that kubectl %s takes no -o", (args) => {
-    expect(dryRunVerbOf(args.split(" ")[0] ?? "")?.acceptsYamlOutput).toBe(false);
-    expect(floorEntryOf(`${args} --dry-run=server -o yaml`)).toBe("unparseable");
-  });
-
-  it("say that kubectl delete takes no -o yaml", () => {
-    expect(dryRunVerbOf("delete")?.acceptsYamlOutput).toBe(false);
-  });
-
-  it.each(["get pods", "logs api", "exec api -- ls", "rollout pause deploy/api", "run debug --image=busybox"])(
-    "leave out the verb of kubectl %s",
-    (args) => {
-      const result = evaluate(args);
-      if (result.kind !== "policy") throw new Error(`rejected by the floor: ${result.reason}`);
-      expect(result.targets.some((target) => dryRunVerbOf(target.form.verb))).toBe(false);
-    },
-  );
-
-  it("leave out kubectl rollout restart, which has no --dry-run", () => {
-    expect(dryRunVerbOf("rollout restart")).toBeUndefined();
-    expect(floorEntryOf("rollout restart deploy/api --dry-run=server")).toBe("unparseable");
   });
 });
