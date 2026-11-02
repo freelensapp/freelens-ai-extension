@@ -1,5 +1,5 @@
-// What the model hears when the invocation policy blocks a kubectl call. The
-// tool card shows the same text as the reason.
+// What the model hears when the invocation policy, or the server's dry run,
+// blocks a kubectl call. The tool card shows the same text as the reason.
 
 import { formatCanonicalForm } from "../../../common/invocation-policy/canonical-form";
 import { POLICY_LEVEL_LABELS, type PolicyProfile } from "../../../common/invocation-policy/policy-profile";
@@ -23,3 +23,7 @@ export const profileDenyReason = (profile: PolicyProfile, decision: PolicyDecisi
     );
   return `Denied by the policy profile "${profile.name}": ${denied.join("; ")}.`;
 };
+
+/** A dry run the server rejected: the call would be rejected the same way, so it does not run and nobody is asked. */
+export const dryRunRejectionReason = (message: string): string =>
+  `The cluster rejected a server-side dry run of this call, so it did not run: ${message}`;

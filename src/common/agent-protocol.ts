@@ -228,6 +228,22 @@ export interface ToolApprovalRequest {
 /** The policy levels that wait for the user's approval. */
 export type ApprovalLevel = Extract<PolicyLevel, "ask" | "alwaysAsk">;
 
+/** What one target of an invocation would become: a unified diff of its YAML, current against dry run. */
+export interface CliTargetDiff {
+  target: CanonicalForm;
+  /** Without managed fields; empty when the dry run changes nothing. */
+  diff: string;
+}
+
+/**
+ * What the cluster would make of an invocation, from a server-side dry run:
+ * the diff of each target, or the reason no diff could be made, with the
+ * current YAML of the named targets that exist.
+ */
+export type CliApprovalPreview =
+  | { kind: "diffs"; diffs: CliTargetDiff[] }
+  | { kind: "unavailable"; reason: string; backup?: string };
+
 /**
  * Main asks the user to approve a CLI invocation whose policy level waits for
  * approval: pi's `confirm` UI request, with the invocation as the agent asked
@@ -248,6 +264,11 @@ export interface CliApprovalRequest {
   level: ApprovalLevel;
   /** The name of the cluster's policy profile that gave the level. */
   profileName: string;
+  /**
+   * The dry-run preview, for the card only: it never reaches the model or the
+   * chat's file. Absent for a verb without a server-side dry run.
+   */
+  preview?: CliApprovalPreview;
 }
 
 export type ApprovalRequest = ToolApprovalRequest | CliApprovalRequest;

@@ -614,13 +614,16 @@ with, by `"<method> <path>"`. The tool tests assert on the recorded requests.
 `test/stand-in-cli.ts` is a stand-in CLI runner for the `kubectl` tool of the
 agent host: `createStandInCli({ answers, hang, progress })` records every CLI
 invocation (`invocations`: cluster id, program, arguments, manifest, timeout
-and signal; `actions()` leaves out the approval gate's reads of the cluster's
-resources and namespace) and answers it by its arguments joined with spaces
+and signal) and answers it by its arguments joined with spaces
 (`"get pods -n web"`) with standard output, standard error and exit code; an
-invocation without an answer exits with 1. Those two reads answer by default
-with the resources of `STAND_IN_RESOURCES` and no namespace. `hang` leaves the
-given invocations running until their signal aborts, and `progress` sets the
-messages the first invocation reports, as a kubectl download does.
+invocation without an answer exits with 1. `actions()` leaves out the approval
+gate's own invocations: its reads of the cluster's resources and namespace,
+which answer by default with the resources of `STAND_IN_RESOURCES` and no
+namespace, and its dry-run previews, which `previews()` returns (the dry runs
+and the `get <resource> <name> -n <ns> -o yaml` reads of the current objects).
+`hang` leaves the given invocations running until their signal aborts, and
+`progress` sets the messages the first invocation reports, as a kubectl
+download does.
 `test/fake-kubectl.mjs` is a fake kubectl, a Node script that the extension
 entry test runs through the real CLI runner (its header lists what its
 arguments make it do).

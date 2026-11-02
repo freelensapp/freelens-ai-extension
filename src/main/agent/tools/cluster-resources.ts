@@ -80,12 +80,17 @@ export function parseApiResources(stdout: string): ResourceCatalog | undefined {
   });
 }
 
-const runGateInvocation = (context: ClusterReadContext, args: readonly string[]) =>
+/** The timeout of the gate's own invocations. */
+export const GATE_INVOCATION_TIMEOUT_MS = DEFAULT_CLI_TIMEOUT_SECONDS * 1000;
+
+/** Runs one of the gate's own invocations, with pi's signal for the call and the default timeout. */
+export const runGateInvocation = (context: ClusterReadContext, args: readonly string[], manifest?: string) =>
   context.runCli({
     clusterId: context.clusterId,
     program: "kubectl",
     args,
-    timeoutMs: DEFAULT_CLI_TIMEOUT_SECONDS * 1000,
+    ...(manifest === undefined ? {} : { manifest }),
+    timeoutMs: GATE_INVOCATION_TIMEOUT_MS,
     signal: context.signal,
     onProgress: context.onProgress,
   });

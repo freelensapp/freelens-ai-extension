@@ -92,6 +92,15 @@ export interface StandInCliOptions {
 
 const DISCOVERY_KEYS: readonly string[] = [API_RESOURCES_KEY, KUBECONFIG_NAMESPACE_KEY];
 
+/**
+ * Whether an invocation is one of the gate's previews: a server-side dry run,
+ * or a read of a target's current object (`get <resource> <name> -n <ns> -o
+ * yaml`). An agent's own read in that exact form counts as one too, so the
+ * tests of the agent's reads use another output.
+ */
+const isPreview = ({ args }: RecordedInvocation) =>
+  args.includes("--dry-run=server") || /^get \S+ \S+( -n \S+)? -o yaml$/.test(args.join(" "));
+
 export function createStandInCli({ answers = {}, hang = [], progress = [] }: StandInCliOptions = {}) {
   const invocations: RecordedInvocation[] = [];
   const defaults: Record<string, Partial<CliResult>> = {
@@ -117,8 +126,11 @@ export function createStandInCli({ answers = {}, hang = [], progress = [] }: Sta
     return { stdout: "", stderr: "", exitCode: 0, ...answer };
   };
 
-  /** The invocations other than the gate's reads of the cluster's resources and namespace. */
-  const actions = () => invocations.filter((invocation) => !DISCOVERY_KEYS.includes(invocation.args.join(" ")));
+  /** The invocations other than the gate's own: its reads of the cluster's resources and namespace, and its previews. */
+  const actions = () =>
+    invocations.filter((invocation) => !DISCOVERY_KEYS.includes(invocation.args.join(" ")) && !isPreview(invocation));
+  /** The gate's previews: its dry runs and its reads of the current objects. */
+  const previews = () => invocations.filter(isPreview);
 
-  return { run, invocations, actions };
+  return { run, invocations, actions, previews };
 }

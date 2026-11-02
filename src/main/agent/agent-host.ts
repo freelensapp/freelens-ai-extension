@@ -22,6 +22,7 @@ import {
 import { prepareApproval } from "../../common/agent-tools/approval";
 import { requiresApproval, type ToolApprovalOverrides } from "../../common/agent-tools/approval-settings";
 import { kubectlTool } from "../../common/agent-tools/kubectl-tool";
+import { DRY_RUN_VERBS } from "../../common/invocation-policy/dry-run-verbs";
 import {
   evaluateInvocationPolicy,
   type InvocationPolicyResult,
@@ -39,7 +40,8 @@ import {
 } from "./tools/cluster-resources";
 import { describeRequestError } from "./tools/describe-request-error";
 import { type KubectlToolInput, prepareKubectlInvocation, runKubectl } from "./tools/kubectl";
-import { floorBlockReason, profileDenyReason } from "./tools/kubectl-policy";
+import { dryRunRejectionReason, floorBlockReason, profileDenyReason } from "./tools/kubectl-policy";
+import { previewKubectlInvocation } from "./tools/kubectl-preview";
 import { READ_TOOL_RUNNERS } from "./tools/read-tools";
 import { WRITE_TOOL_RUNNERS } from "./tools/write-tools";
 
@@ -53,6 +55,7 @@ import type {
   ApprovalRequest,
   ApprovalTarget,
   ChatMessage,
+  CliApprovalPreview,
   CliApprovalRequest,
   TranscriptEntry,
 } from "../../common/agent-protocol";
@@ -787,6 +790,25 @@ export class AgentHost {
     if (decision.level === "allow") return undefined;
     if (decision.level === "ask" && agent.autoApprove) return undefined;
 
+    // Before asking, the server's dry run of a verb that has one: a change the
+    // server rejects fails without a card, with the server's message.
+    const dryRunVerb = DRY_RUN_VERBS.kubectl.find((verb) =>
+      decision.targets.some((target) => target.form.verb === verb.verb),
+    );
+    let preview: CliApprovalPreview | undefined;
+    if (dryRunVerb && agent.clusterResources) {
+      const outcome = await previewKubectlInvocation(read, {
+        args: prepared.args,
+        ...(prepared.manifest === undefined ? {} : { manifest: prepared.manifest }),
+        verb: dryRunVerb,
+        targets: decision.targets.map((target) => target.form),
+        catalog: agent.clusterResources.catalog,
+      });
+      if (outcome.kind === "stopped") return { block: true, reason: DENIED_REASON };
+      if (outcome.kind === "rejected") return { block: true, reason: dryRunRejectionReason(outcome.message) };
+      preview = outcome.preview;
+    }
+
     const request: CliApprovalRequest = {
       id: randomUUID(),
       toolCallId: event.toolCallId,
@@ -797,6 +819,7 @@ export class AgentHost {
       canonicalForms: decision.targets.map((target) => target.form),
       level: decision.level,
       profileName: profile.name,
+      ...(preview ? { preview } : {}),
     };
     return this.askUser(clusterId, agent, signal, request);
   }

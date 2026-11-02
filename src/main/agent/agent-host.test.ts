@@ -735,6 +735,8 @@ describe("AgentHost", () => {
         ],
         level: "ask",
         profileName: "Standard",
+        // The stand-in CLI has no answer for the dry run here; "the dry-run preview" covers it.
+        preview: expect.objectContaining({ kind: "unavailable" }),
       });
       expect(cli.actions()).toEqual([]);
       expect((await snapshotOf(host)).pendingUiRequest).toEqual(request);
@@ -886,6 +888,487 @@ describe("AgentHost", () => {
       expect(cli.actions().map((invocation) => invocation.args)).toEqual([scaleWeb]);
       await answer(host, false);
       await waitFor(settled);
+    });
+
+    describe("the dry-run preview", () => {
+      const scaleWebDryRun = [...scaleWeb, "--dry-run=server", "-o", "yaml"].join(" ");
+      const readWeb = "get deployments web -n default -o yaml";
+      const webYaml = (replicas: number, generation: number) =>
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: default\n" +
+        `  generation: ${generation}\n  managedFields:\n  - manager: kubectl\n    operation: Update\n` +
+        `spec:\n  replicas: ${replicas}\nstatus:\n  readyReplicas: 2\n`;
+      const scaleForm = {
+        program: "kubectl",
+        verb: "scale",
+        resource: "deployments",
+        name: "web",
+        namespace: "default",
+      };
+      const cliRequests = () => uiRequests().filter(isCliApprovalRequest);
+      const toolStarts = () =>
+        envelopes.flatMap((e) => (e.kind === "event" && e.payload.type === "tool_execution_start" ? [e.payload] : []));
+
+      it("runs the call as a server-side dry run and shows the diff of its target, without managed fields", async () => {
+        cli = createStandInCli({
+          answers: { [scaleWebDryRun]: { stdout: webYaml(3, 2) }, [readWeb]: { stdout: webYaml(2, 1) } },
+        });
+        faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(cli.previews().map((invocation) => invocation.args.join(" "))).toEqual([scaleWebDryRun, readWeb]);
+        expect(cli.previews()[0]?.signal).toBeInstanceOf(AbortSignal);
+        expect(cliRequests()[0]?.preview).toEqual({
+          kind: "diffs",
+          diffs: [
+            {
+              target: scaleForm,
+              diff:
+                "--- current\n+++ dry run\n@@ -3,8 +3,8 @@\n metadata:\n   name: web\n   namespace: default\n" +
+                "-  generation: 1\n+  generation: 2\n spec:\n-  replicas: 2\n+  replicas: 3\n status:\n" +
+                "   readyReplicas: 2\n",
+            },
+          ],
+        });
+        expect((await snapshotOf(host)).pendingUiRequest).toEqual(uiRequests()[0]);
+        expect(toolStarts()).toHaveLength(1);
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("keeps the preview on the card: neither the tool result nor the chat's file holds it", async () => {
+        cli = createStandInCli({
+          answers: {
+            [scaleWebDryRun]: { stdout: webYaml(3, 2) },
+            [readWeb]: { stdout: webYaml(2, 1) },
+            [scaleWeb.join(" ")]: { stdout: "deployment.apps/web scaled\n" },
+          },
+        });
+        faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+        await waitFor(() => uiRequests().length > 0);
+        await answer(host, true);
+        await waitFor(settled);
+
+        expect(cli.actions()).toEqual([expect.objectContaining({ args: scaleWeb })]);
+        expect(toolResultTexts()).toEqual(["Exit code: 0\n\nStandard output:\ndeployment.apps/web scaled"]);
+        const chatFile = readdirSync(join(dataDir, "sessions", "c1")).find((file) => file.endsWith(".jsonl"))!;
+        const saved = readFileSync(join(dataDir, "sessions", "c1", chatFile), "utf8");
+        expect(saved).toContain("deployment.apps/web scaled");
+        expect(saved).not.toContain("readyReplicas");
+        expect(saved).not.toContain("dry run");
+      });
+
+      it.each([
+        ["Invalid", 'The Deployment "web" is invalid: spec.replicas: Invalid value: -1: must be >= 0'],
+        ["Forbidden", 'deployments.apps "web" is forbidden: User "dev" cannot patch resource "deployments/scale"'],
+        ["NotFound", 'deployments.apps "web" not found'],
+        ["AlreadyExists", 'deployments.apps "web" already exists'],
+        ["Conflict", 'Operation cannot be fulfilled on deployments.apps "web": the object has been modified'],
+      ])(
+        "blocks a call whose dry run the server rejects as %s with its message, and asks nobody",
+        async (status, text) => {
+          const message = `Error from server (${status}): ${text}`;
+          cli = createStandInCli({ answers: { [scaleWebDryRun]: { stderr: `${message}\n`, exitCode: 1 } } });
+          faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+          const host = kubectlHost();
+
+          await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+          await waitFor(settled);
+
+          expect(uiRequests()).toEqual([]);
+          expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "kubectl", isError: true })]);
+          expect(toolResultTexts()).toEqual([
+            `The cluster rejected a server-side dry run of this call, so it did not run: ${message}`,
+          ]);
+          expect(cli.previews().map((invocation) => invocation.args.join(" "))).toEqual([scaleWebDryRun]);
+          expect(cli.actions()).toEqual([]);
+        },
+      );
+
+      it("blocks a call whose dry run an admission webhook denies", async () => {
+        const message =
+          'Error from server: admission webhook "validate.kyverno.svc-fail" denied the request: replicas must be odd';
+        cli = createStandInCli({ answers: { [scaleWebDryRun]: { stderr: `${message}\n`, exitCode: 1 } } });
+        faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+        await waitFor(settled);
+
+        expect(uiRequests()).toEqual([]);
+        expect(toolResultTexts()).toEqual([
+          `The cluster rejected a server-side dry run of this call, so it did not run: ${message}`,
+        ]);
+        expect(cli.actions()).toEqual([]);
+      });
+
+      it.each<[string, Partial<CliResult>, string]>([
+        [
+          "a webhook without dry-run support",
+          {
+            stderr: 'Error from server (BadRequest): admission webhook "legacy.example.com" does not support dry run\n',
+            exitCode: 1,
+          },
+          'the dry run failed: Error from server (BadRequest): admission webhook "legacy.example.com" does not support dry run',
+        ],
+        [
+          "a connection error",
+          {
+            stderr: "Unable to connect to the server: dial tcp 127.0.0.1:6443: connect: connection refused\n",
+            exitCode: 1,
+          },
+          "the dry run failed: Unable to connect to the server: dial tcp 127.0.0.1:6443: connect: connection refused",
+        ],
+        ["a timeout", { exitCode: null, killed: "timeout" }, "the dry run did not end within its timeout of 30 s"],
+        [
+          "an internal error",
+          {
+            stderr: "Error from server (InternalError): Internal error occurred: etcdserver: leader changed\n",
+            exitCode: 1,
+          },
+          "the dry run failed: Error from server (InternalError): Internal error occurred: etcdserver: leader changed",
+        ],
+        [
+          "output it does not recognize",
+          { stdout: "deployment.apps/web scaled (server dry run)\n" },
+          "kubectl printed a dry run the preview does not recognize",
+        ],
+      ])(
+        "still asks after %s, with Preview unavailable, its reason and the current YAML",
+        async (_case, dryRun, reason) => {
+          cli = createStandInCli({ answers: { [scaleWebDryRun]: dryRun, [readWeb]: { stdout: webYaml(2, 1) } } });
+          faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+          const host = kubectlHost();
+
+          await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+          await waitFor(() => uiRequests().length > 0);
+
+          expect(cliRequests()[0]?.preview).toEqual({
+            kind: "unavailable",
+            reason,
+            backup:
+              "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: default\n  generation: 1\n" +
+              "spec:\n  replicas: 2\nstatus:\n  readyReplicas: 2\n",
+          });
+          await answer(host, true);
+          await waitFor(settled);
+          expect(cli.actions()).toEqual([expect.objectContaining({ args: scaleWeb })]);
+        },
+      );
+
+      it("shows Preview unavailable without a backup when the target does not exist yet", async () => {
+        const createArgs = ["create", "configmap", "settings", "--from-literal=mode=fast", "-n", "web"];
+        const createDryRun = [...createArgs, "--dry-run=server", "-o", "yaml"].join(" ");
+        cli = createStandInCli({
+          answers: {
+            [createDryRun]: {
+              stderr: "Error from server (ServiceUnavailable): the server is currently unable\n",
+              exitCode: 1,
+            },
+            "get configmaps settings -n web -o yaml": {
+              stderr: 'Error from server (NotFound): configmaps "settings" not found\n',
+              exitCode: 1,
+            },
+          },
+        });
+        faux.setResponses(callThenEcho("kubectl", { args: createArgs }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "create the settings" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(cliRequests()[0]?.preview).toEqual({
+          kind: "unavailable",
+          reason: "the dry run failed: Error from server (ServiceUnavailable): the server is currently unable",
+        });
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("shows a target that does not exist yet as added in full", async () => {
+        const createArgs = ["create", "configmap", "settings", "--from-literal=mode=fast", "-n", "web"];
+        const createDryRun = [...createArgs, "--dry-run=server", "-o", "yaml"].join(" ");
+        cli = createStandInCli({
+          answers: {
+            [createDryRun]: {
+              stdout:
+                "apiVersion: v1\ndata:\n  mode: fast\nkind: ConfigMap\nmetadata:\n  name: settings\n  namespace: web\n",
+            },
+            "get configmaps settings -n web -o yaml": {
+              stderr: 'Error from server (NotFound): configmaps "settings" not found\n',
+              exitCode: 1,
+            },
+          },
+        });
+        faux.setResponses(callThenEcho("kubectl", { args: createArgs }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "create the settings" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(cliRequests()[0]?.preview).toEqual({
+          kind: "diffs",
+          diffs: [
+            {
+              target: {
+                program: "kubectl",
+                verb: "create",
+                resource: "configmaps",
+                name: "settings",
+                namespace: "web",
+              },
+              diff:
+                "--- current\n+++ dry run\n@@ -0,0 +1,7 @@\n+apiVersion: v1\n+data:\n+  mode: fast\n+kind: ConfigMap\n" +
+                "+metadata:\n+  name: settings\n+  namespace: web\n",
+            },
+          ],
+        });
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("shows Preview unavailable when the current object cannot be read", async () => {
+        cli = createStandInCli({
+          answers: {
+            [scaleWebDryRun]: { stdout: webYaml(3, 2) },
+            [readWeb]: { stderr: "Unable to connect to the server: EOF\n", exitCode: 1 },
+          },
+        });
+        faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(cliRequests()[0]?.preview).toEqual({
+          kind: "unavailable",
+          reason: "reading kubectl scale deployments web -n default failed: Unable to connect to the server: EOF",
+        });
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("shows a diff per object of a manifest, from the List the dry run prints", async () => {
+        const manifest =
+          "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n  namespace: web\ndata:\n  mode: slow\n---\n" +
+          "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: web\nspec:\n  replicas: 2\n";
+        const settings = (mode: string) =>
+          `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n  namespace: web\ndata:\n  mode: ${mode}\n`;
+        const web = (replicas: number) =>
+          `apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: web\nspec:\n  replicas: ${replicas}\n`;
+        const indent = (yaml: string) =>
+          yaml
+            .trimEnd()
+            .split("\n")
+            .map((line, index) => `${index === 0 ? "- " : "  "}${line}\n`)
+            .join("");
+        cli = createStandInCli({
+          answers: {
+            "apply -f - --dry-run=server -o yaml": {
+              stdout: `apiVersion: v1\nkind: List\nitems:\n${indent(settings("slow"))}${indent(web(2))}`,
+            },
+            "get configmaps settings -n web -o yaml": { stdout: settings("fast") },
+            "get deployments web -n web -o yaml": { stdout: web(2) },
+          },
+        });
+        faux.setResponses(callThenEcho("kubectl", { args: ["apply"], manifest }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "apply it" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(cli.previews()[0]).toMatchObject({
+          args: ["apply", "-f", "-", "--dry-run=server", "-o", "yaml"],
+          manifest,
+        });
+        expect(cliRequests()[0]?.preview).toEqual({
+          kind: "diffs",
+          diffs: [
+            {
+              target: { program: "kubectl", verb: "apply", resource: "configmaps", name: "settings", namespace: "web" },
+              diff: "--- current\n+++ dry run\n@@ -4,4 +4,4 @@\n   name: settings\n   namespace: web\n data:\n-  mode: fast\n+  mode: slow\n",
+            },
+            {
+              target: { program: "kubectl", verb: "apply", resource: "deployments", name: "web", namespace: "web" },
+              diff: "",
+            },
+          ],
+        });
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("shows a named object a delete would remove as removed in full", async () => {
+        const deleteArgs = ["delete", "configmap", "settings", "-n", "web"];
+        cli = createStandInCli({
+          answers: {
+            [[...deleteArgs, "--dry-run=server", "-o", "name"].join(" ")]: { stdout: "configmap/settings\n" },
+            "get configmaps settings -n web -o yaml": {
+              stdout: "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n  namespace: web\n",
+            },
+          },
+        });
+        faux.setResponses(callThenEcho("kubectl", { args: deleteArgs }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "delete the settings" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(cliRequests()[0]?.preview).toEqual({
+          kind: "diffs",
+          diffs: [
+            {
+              target: {
+                program: "kubectl",
+                verb: "delete",
+                resource: "configmaps",
+                name: "settings",
+                namespace: "web",
+              },
+              diff:
+                "--- current\n+++ dry run\n@@ -1,5 +0,0 @@\n-apiVersion: v1\n-kind: ConfigMap\n-metadata:\n" +
+                "-  name: settings\n-  namespace: web\n",
+            },
+          ],
+        });
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("lists the objects a delete by selector would remove, without reading them", async () => {
+        const deleteArgs = ["delete", "pods", "-l", "app=web", "-n", "web"];
+        const names = Array.from({ length: 52 }, (_, index) => `pod/web-${index}`);
+        cli = createStandInCli({
+          answers: {
+            [[...deleteArgs, "--dry-run=server", "-o", "name"].join(" ")]: { stdout: `${names.join("\n")}\n` },
+          },
+        });
+        faux.setResponses(callThenEcho("kubectl", { args: deleteArgs }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "delete the web pods" });
+        await waitFor(() => uiRequests().length > 0);
+
+        const listed = Array.from({ length: 50 }, (_, index) => `pods/web-${index}`).join(", ");
+        expect(cliRequests()[0]?.preview).toEqual({
+          kind: "unavailable",
+          reason:
+            "the targets are not all named (a selector, --all or no name), so their current objects are not read; " +
+            `the dry run reports 52 objects: ${listed} and 2 more`,
+        });
+        expect(cli.previews()).toHaveLength(1);
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("lists the objects of a dry run by selector by their resource", async () => {
+        const labelArgs = ["label", "deployments", "-l", "app=web", "tier=front"];
+        cli = createStandInCli({
+          answers: {
+            [[...labelArgs, "--dry-run=server", "-o", "yaml"].join(" ")]: {
+              stdout:
+                "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: default\n---\n" +
+                "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: default\n",
+            },
+          },
+        });
+        faux.setResponses(callThenEcho("kubectl", { args: labelArgs }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "label them" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(cliRequests()[0]?.preview).toMatchObject({
+          kind: "unavailable",
+          reason: expect.stringMatching(/; the dry run reports 2 objects: deployments\/web, deployments\/api$/),
+        });
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("runs the dry run of a verb without -o and shows the current YAML as the backup", async () => {
+        const nodeYaml = "apiVersion: v1\nkind: Node\nmetadata:\n  name: node-1\nspec:\n  podCIDR: 10.244.0.0/24\n";
+        cli = createStandInCli({
+          answers: {
+            "cordon node-1 --dry-run=server": { stdout: "node/node-1 cordoned (server dry run)\n" },
+            "get nodes node-1 -o yaml": { stdout: nodeYaml },
+          },
+        });
+        faux.setResponses(callThenEcho("kubectl", { args: ["cordon", "node-1"] }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "cordon node-1" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(cliRequests()[0]?.preview).toEqual({
+          kind: "unavailable",
+          reason: "kubectl cordon prints no object in a dry run",
+          backup: nodeYaml,
+        });
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("makes no preview for a verb without a server-side dry run", async () => {
+        faux.setResponses(callThenEcho("kubectl", { args: ["rollout", "restart", "deployment/web"] }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "restart web" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(cliRequests()[0]).not.toHaveProperty("preview");
+        expect(cli.previews()).toEqual([]);
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("runs no dry run for a call the profile allows, nor for one approved by approving all in this chat", async () => {
+        faux.setResponses(kubectlCalls(scaleWeb, scaleApi));
+        const host = kubectlHost({ getPolicyProfile: () => ALLOW_ALL_PROFILE });
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web and api" });
+        await waitFor(settled);
+
+        expect(cli.previews()).toEqual([]);
+        expect(cli.actions().map((invocation) => invocation.args)).toEqual([scaleWeb, scaleApi]);
+      });
+
+      it("runs no dry run for an Ask call once the user approved all in this chat", async () => {
+        faux.setResponses(kubectlCalls(scaleWeb, scaleApi));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web and api" });
+        await waitFor(() => uiRequests().length > 0);
+        await answer(host, true, true);
+        await waitFor(settled);
+
+        expect(cli.previews().map((invocation) => invocation.args.join(" "))).toEqual([scaleWebDryRun, readWeb]);
+        expect(cli.actions().map((invocation) => invocation.args)).toEqual([scaleWeb, scaleApi]);
+      });
+
+      it("ends the dry run on Stop, shows no card, and the call never runs", async () => {
+        cli = createStandInCli({ hang: [scaleWebDryRun] });
+        faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+        await waitFor(() => cli.previews().length > 0);
+        expect(cli.previews()[0]?.signal?.aborted).toBe(false);
+
+        expect(await host.handleCommand("c1", { type: "abort" })).toMatchObject({ success: true });
+        await waitFor(settled);
+
+        expect(cli.previews()[0]?.signal?.aborted).toBe(true);
+        expect(cli.previews()).toHaveLength(1);
+        expect(uiRequests()).toEqual([]);
+        expect(cli.actions()).toEqual([]);
+        expect((await snapshotOf(host)).isStreaming).toBe(false);
+      });
     });
 
     describe("the resources of the cluster", () => {
