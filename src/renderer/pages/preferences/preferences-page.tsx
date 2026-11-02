@@ -10,13 +10,8 @@ const { observer } = MobxReact;
 const { useCallback, useEffect, useRef, useState } = React;
 
 import { DEFAULT_CHAT_RETENTION_DAYS } from "../../../common/agent-protocol";
-import { AGENT_TOOLS, kubectlTool } from "../../../common/agent-tools";
-import { requiresApproval, withApprovalOverride } from "../../../common/agent-tools/approval-settings";
 import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore, parseRetentionDays } from "../../../common/store";
 import { THINKING_LEVELS, type ThinkingLevel } from "../../../common/thinking-level";
-
-// The invocation policy decides the kubectl calls, so kubectl has no approval setting.
-const APPROVAL_SETTING_TOOLS = AGENT_TOOLS.filter((tool) => tool.name !== kubectlTool.name);
 
 interface DraftFieldProps {
   value: string;
@@ -72,7 +67,7 @@ function useStoreValueOnBlur(value: string, commit: (next: string) => void): Dra
 }
 
 const {
-  Component: { Input, Select, Switch, HorizontalLine },
+  Component: { Input, Select, HorizontalLine },
 } = Renderer;
 
 type SelectOption<T> = Renderer.Component.SelectOption<T>;
@@ -158,34 +153,6 @@ export const PreferencesPage = observer(() => {
         onFocus={chatRetentionField.onFocus}
         onBlur={chatRetentionField.onBlur}
       />
-
-      <HorizontalLine />
-
-      <div style={{ fontWeight: "bold", fontSize: 16 }}>Tool approvals</div>
-      <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
-        The agent asks before each call of a tool that requires approval. Tools that change the cluster require it by
-        default, and so does reading pod logs, which can contain secrets or personal data. A change applies to the next
-        call.
-      </div>
-      {APPROVAL_SETTING_TOOLS.map((tool) => (
-        <div key={tool.name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <span style={{ flex: 1, fontFamily: "monospace" }}>{tool.name}</span>
-          <span style={{ minWidth: 110, fontSize: 12, opacity: 0.7 }}>
-            {tool.mutating ? "Changes the cluster" : "Reads the cluster"}
-          </span>
-          <Switch
-            label="Requires approval"
-            checked={requiresApproval(tool, preferencesStore.toolApprovalOverrides)}
-            onChange={(checked: boolean) =>
-              (preferencesStore.toolApprovalOverrides = withApprovalOverride(
-                preferencesStore.toolApprovalOverrides,
-                tool,
-                checked,
-              ))
-            }
-          />
-        </div>
-      ))}
 
       <HorizontalLine />
 

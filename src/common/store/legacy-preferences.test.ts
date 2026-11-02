@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  APPROVAL_CHOICE_KEYS,
   clearedLegacyPreferences,
   hasLegacyValues,
   legacyOpenAISettings,
@@ -53,6 +54,16 @@ describe("clearedLegacyPreferences", () => {
       bypassApprovals: null,
     });
     expect(hasLegacyValues(cleared)).toBe(false);
+  });
+
+  it("sets only the fields of one import to null, and keeps the others", () => {
+    const legacy = pickLegacyPreferences({ ...oldStore, toolApprovalOverrides: { getPodLogs: false } });
+    const cleared = clearedLegacyPreferences(legacy, APPROVAL_CHOICE_KEYS);
+
+    expect(cleared).toEqual({ ...pickLegacyPreferences(oldStore), toolApprovalOverrides: null });
+    expect(hasLegacyValues(legacy, APPROVAL_CHOICE_KEYS)).toBe(true);
+    expect(hasLegacyValues(cleared, APPROVAL_CHOICE_KEYS)).toBe(false);
+    expect(hasLegacyValues(cleared)).toBe(true);
   });
 
   it("round-trips: a cleared store is still cleared when read back", () => {

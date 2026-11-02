@@ -90,7 +90,11 @@ describe("AgentHost on a custom OpenAI-compatible endpoint", () => {
       getClusterStatus: () => "connected",
       getClusterApi: () => createFakeKubeJsonApi().api,
       runCli: createStandInCli().run,
-      getPolicyProfile: () => STANDARD_PROFILE,
+      getPolicyProfileSettings: () => ({
+        userProfiles: [],
+        profileAssignments: {},
+        defaultProfileId: STANDARD_PROFILE.id,
+      }),
       getPodLogsTailLines: () => 500,
       getModelRef: () => ({ provider: "my-litellm", id: "qwen3" }),
       retry: false,

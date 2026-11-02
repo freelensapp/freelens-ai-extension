@@ -378,7 +378,8 @@ build.
 
 The host saves a store key by key, so a field only left out of `toJSON()`
 stays in the file. The fields of the old OpenAI settings are therefore
-written back as `null` once main has imported them into pi
+written back as `null` once main has imported them into pi, and those of the
+old per-tool approval choices once main has moved them into a policy profile
 (`src/common/store/legacy-preferences.ts`, `clearLegacy()`).
 
 The build still lowers a decorator, should one be added: MobX 7 supports
@@ -896,12 +897,26 @@ resource, version summary) are shared and tested on their own.
 
 ### Approvals
 
-pi's `tool_call` hook (`AgentHost#gate`) runs before every call. A call that
-needs approval (`requiresApproval` of `approval-settings.ts`: the tool's
-default or the user's choice in `toolApprovalOverrides`, read per call), and
-every mutating call, is validated and prepared by `prepareApproval`
-(`src/common/agent-tools/approval.ts`), and the prepared input replaces the
-model's in place. A call that needs approval then waits for the user:
+pi's `tool_call` hook (`AgentHost#gate`) runs before every call. A `kubectl`
+call goes through the invocation policy with the policy profile of its
+cluster, which the host resolves per call from the `getPolicyProfileSettings`
+option (`clusterPolicyProfile` of
+`src/common/invocation-policy/profile-assignment.ts`): the profile assigned to
+the cluster, else the default profile, else Standard. `PreferencesStore` holds
+the user profiles, the assignments and the default profile id, and main checks
+every pending `kubectl` approval again (`recheckPendingApprovals()`) when any
+of them is replaced: one the new profile denies is denied with the reason, any
+other stays pending. At startup main turns the old per-tool approval choices
+(`toolApprovalOverrides`, `podLogsRequireApproval`) that differ from the
+tools' defaults into the user profile "Standard (migrated)", the new default
+profile (`src/common/store/approval-migration.ts`), and writes the old fields
+back as `null`.
+
+For the other tools, a call of a tool that requires approval by default
+(`requiresApprovalByDefault`), and every mutating call, is validated and
+prepared by `prepareApproval` (`src/common/agent-tools/approval.ts`), and the
+prepared input replaces the model's in place. A call that needs approval then
+waits for the user:
 
 - Unless "Approve all in this chat" is on, the gate loads the backup
   (`tools/approval-backup.ts`): the current YAML (apiVersion, kind, metadata,

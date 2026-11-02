@@ -281,6 +281,46 @@ describe("LensExtensionAiMain", () => {
       await waitFor(() => !isRunning(pid));
     });
 
+    describe("a pending approval when the policy profiles change in the preferences", () => {
+      const scaleWeb = ["scale", "deployment", "web", "--replicas=3"];
+      const uiRequests = () =>
+        agentEnvelopes().flatMap((envelope) => (envelope.kind === "ui_request" ? [envelope] : []));
+      const uiResolved = () =>
+        agentEnvelopes().flatMap((envelope) => (envelope.kind === "ui_resolved" ? [envelope.payload] : []));
+
+      it("is denied with the reason once the cluster is assigned a profile that denies it", async () => {
+        const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+
+        const result = await callKubectl({ args: scaleWeb }, async () => {
+          await waitFor(() => uiRequests().length > 0, 10_000);
+          preferencesStore.profileAssignments = { c1: "read-only" };
+        });
+
+        expect(uiResolved()).toEqual([{ id: uiRequests()[0]?.payload.id, confirmed: false }]);
+        expect(result).toEqual({
+          text:
+            'Denied by the policy profile "Read only": kubectl scale deployments web -n default gets Deny from the ' +
+            "profile's fallback level.",
+          isError: true,
+        });
+      });
+
+      it("is denied once the rules of the cluster's profile are edited to deny it", async () => {
+        const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+        const dev = { id: "dev", name: "Development", rules: [], fallbackLevel: "ask" } as const;
+        preferencesStore.userProfiles = [dev];
+        preferencesStore.defaultProfileId = "dev";
+
+        const result = await callKubectl({ args: scaleWeb }, async () => {
+          await waitFor(() => uiRequests().length > 0, 10_000);
+          preferencesStore.userProfiles = [{ ...dev, rules: [{ pattern: "kubectl scale *", level: "deny" }] }];
+        });
+
+        expect(uiResolved()).toEqual([{ id: uiRequests()[0]?.payload.id, confirmed: false }]);
+        expect(result.text).toMatch(/^Denied by the policy profile "Development": .* "kubectl scale \*"\.$/);
+      });
+    });
+
     // Freelens downloads the cluster's kubectl for the first invocation, the gate's read of the resources.
     it("reports the phases and the progress of a kubectl download as partial tool updates", async () => {
       vi.mocked(Main.Shell.getKubectlPath).mockImplementationOnce(async (_clusterId, options) => {
@@ -308,6 +348,50 @@ describe("LensExtensionAiMain", () => {
         "Downloading kubectl: 3.0 MB",
         "Verifying the download failed, using the bundled kubectl",
       ]);
+    });
+  });
+
+  describe("the old per-tool approval choices", () => {
+    it("become the default profile Standard (migrated), and the old fields are written back as null", async () => {
+      const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+      preferencesStore.legacy = { toolApprovalOverrides: { deletePod: false }, podLogsRequireApproval: true };
+
+      await load();
+
+      expect(preferencesStore.userProfiles).toEqual([
+        expect.objectContaining({
+          id: "standard-migrated",
+          name: "Standard (migrated)",
+          rules: expect.arrayContaining([{ pattern: "kubectl delete pods *", level: "allow" }]),
+        }),
+      ]);
+      expect(preferencesStore.defaultProfileId).toBe("standard-migrated");
+      expect(preferencesStore.toJSON()).toMatchObject({ toolApprovalOverrides: null, podLogsRequireApproval: null });
+    });
+
+    it("leave a user who never changed them on Standard, without a new profile", async () => {
+      const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+      preferencesStore.legacy = { toolApprovalOverrides: {} };
+
+      await load();
+
+      expect(preferencesStore.userProfiles).toEqual([]);
+      expect(preferencesStore.defaultProfileId).toBe("standard");
+      expect(preferencesStore.toJSON()).toMatchObject({ toolApprovalOverrides: null });
+    });
+
+    it("are moved once, even when an old field comes back", async () => {
+      const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+      preferencesStore.legacy = { toolApprovalOverrides: { deletePod: false } };
+      const first = await load();
+      await first.disable();
+      preferencesStore.defaultProfileId = "standard";
+      preferencesStore.legacy = { toolApprovalOverrides: { deletePod: false } };
+
+      await load();
+
+      expect(preferencesStore.userProfiles.map((profile) => profile.id)).toEqual(["standard-migrated"]);
+      expect(preferencesStore.defaultProfileId).toBe("standard");
     });
   });
 

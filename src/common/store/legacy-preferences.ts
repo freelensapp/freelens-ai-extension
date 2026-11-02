@@ -1,7 +1,8 @@
-// The preference fields of the LangChain agent. Nothing reads them any more
-// except the one-time imports in main, which move them into pi; the others,
-// such as the old "bypass approvals" flag, are only cleared. Kept free of
-// host and MobX imports so it is unit-tested alone.
+// The preference fields of the LangChain agent and the per-tool approval
+// choices. Nothing reads them any more except the one-time imports in main,
+// which move the OpenAI settings into pi and the approval choices into a
+// policy profile; the others, such as the old "bypass approvals" flag, are only
+// cleared. Kept free of host and MobX imports so it is unit-tested alone.
 
 export const LEGACY_PREFERENCE_KEYS = [
   "openAIKey",
@@ -13,6 +14,7 @@ export const LEGACY_PREFERENCE_KEYS = [
   "selectedModel",
   "models",
   "podLogsRequireApproval",
+  "toolApprovalOverrides",
   "mcpEnabled",
   "mcpConfiguration",
   "bypassApprovals",
@@ -45,17 +47,30 @@ export function mergeLegacyPreferences(current: LegacyPreferences, saved: object
   return incoming;
 }
 
+/** The old fields of one import: the per-tool approval choices. */
+export const APPROVAL_CHOICE_KEYS = ["toolApprovalOverrides", "podLogsRequireApproval"] as const;
+
 /**
- * The same fields set to `null`. Freelens saves a store key by key, so a field
- * left out of the saved model would stay in the file; `null` overwrites it.
+ * The same fields, those of `keys` set to `null`. Freelens saves a store key by
+ * key, so a field left out of the saved model would stay in the file; `null`
+ * overwrites it.
  */
-export function clearedLegacyPreferences(legacy: LegacyPreferences): LegacyPreferences {
-  return Object.fromEntries(Object.keys(legacy).map((key) => [key, null]));
+export function clearedLegacyPreferences(
+  legacy: LegacyPreferences,
+  keys: readonly LegacyPreferenceKey[] = LEGACY_PREFERENCE_KEYS,
+): LegacyPreferences {
+  const cleared = { ...legacy };
+  for (const key of keys) {
+    if (legacy[key] !== undefined) cleared[key] = null;
+  }
+  return cleared;
 }
 
-/** Whether any old field still holds a value. */
-export const hasLegacyValues = (legacy: LegacyPreferences): boolean =>
-  Object.values(legacy).some((value) => value !== null);
+/** Whether any old field, or any of `keys`, still holds a value. */
+export const hasLegacyValues = (
+  legacy: LegacyPreferences,
+  keys: readonly LegacyPreferenceKey[] = LEGACY_PREFERENCE_KEYS,
+): boolean => keys.some((key) => legacy[key] !== undefined && legacy[key] !== null);
 
 export interface LegacyOpenAISettings {
   openAIKey: string;

@@ -21,5 +21,12 @@ See the spec, "Renderer" (profile editor).
 - [ ] A user profile shows its rules as rows of pattern and level, which can
       be added, edited and removed, and its fallback level.
 - [ ] A default profile picker sets the default profile.
-- [ ] The per-tool approval list is gone from the preferences.
+- [x] The per-tool approval list is gone from the preferences.
 - [ ] View tests in jsdom cover each of the above, with no `console.error`.
+
+## Comments
+
+- Ticket 06 removed the per-tool approval list from the preferences page,
+  together with `toolApprovalOverrides` and `approval-settings.ts`: the old
+  choices are migrated into "Standard (migrated)" and nothing reads the field
+  any more.
