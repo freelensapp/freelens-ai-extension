@@ -190,11 +190,12 @@ export const Main = {
 interface ButtonProps {
   label?: string;
   className?: string;
+  disabled?: boolean;
   onClick?: () => void;
 }
 
-function Button({ label, className, onClick }: ButtonProps) {
-  return React.createElement("button", { type: "button", className, onClick }, label);
+function Button({ label, className, disabled, onClick }: ButtonProps) {
+  return React.createElement("button", { type: "button", className, disabled, onClick }, label);
 }
 
 function MonacoEditor({ value }: { value: string }) {
@@ -209,16 +210,22 @@ interface InputProps {
   type?: string;
   placeholder?: string;
   value?: string;
+  "aria-label"?: string;
   onChange?: (value: string) => void;
   onSubmit?: (value: string) => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 // The host's Input calls `onChange` and `onSubmit` with the value.
-function Input({ type, placeholder, value, onChange, onSubmit }: InputProps) {
+function Input({ type, placeholder, value, "aria-label": ariaLabel, onChange, onSubmit, onFocus, onBlur }: InputProps) {
   return React.createElement("input", {
     type,
     placeholder,
     value,
+    "aria-label": ariaLabel,
+    onFocus,
+    onBlur,
     onChange: (event: React.ChangeEvent<HTMLInputElement>) => onChange?.(event.target.value),
     onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
       if (event.key === "Enter") onSubmit?.(event.currentTarget.value);
@@ -228,19 +235,26 @@ function Input({ type, placeholder, value, onChange, onSubmit }: InputProps) {
 
 interface SelectProps {
   options: { value: unknown; label: string }[];
+  value?: unknown;
+  "aria-label"?: string;
   onChange?: (option: { value: unknown; label: string } | null) => void;
 }
 
-// One button per option, and one that clears the selection as react-select
-// does, with `null`.
-function Select({ options, onChange }: SelectProps) {
+// One button per option, pressed when it is the selected value, and one that
+// clears the selection as react-select does, with `null`.
+function Select({ options, value, "aria-label": ariaLabel, onChange }: SelectProps) {
   return React.createElement(
     "div",
-    { "data-testid": "select" },
+    { "data-testid": "select", role: "group", "aria-label": ariaLabel },
     ...options.map((option) =>
       React.createElement(
         "button",
-        { type: "button", key: option.label, onClick: () => onChange?.(option) },
+        {
+          type: "button",
+          key: option.label,
+          "aria-pressed": option.value === value,
+          onClick: () => onChange?.(option),
+        },
         option.label,
       ),
     ),

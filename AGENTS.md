@@ -163,7 +163,11 @@ only. So `customResources` of the renderer extension is not set.
   `window.open(url)`, for `http:` and `https:` URLs only; Freelens hands it to
   the system browser. The host's `Switch` renders only its `children` in its
   label and passes every other prop, `className` and `style` included, to the
-  checkbox.
+  checkbox. Its profile editor, `policy-profiles/`, writes the policy
+  profile fields (`userProfiles`, `profileAssignments`, `defaultProfileId`)
+  through `policy-profile-edits.ts`, each replaced as a whole in a MobX
+  action and never changed in place, since replacing one is what makes main
+  check the pending approvals again (see "Approvals").
 - **Navigation.** A registration hands the extension instance to its view
   (`<MainPage extension={this} />`, `<MenuEntry {...props} extension={this} />`),
   never through module state. A view opens the chat page with
@@ -601,7 +605,9 @@ loaded, so it throws under Vitest. `vitest.config.ts` aliases the package to
   `Main.Util.fetch` and the terminal of `Renderer.Component`;
 - plain DOM stand-ins for the host components the views render (`Button`,
   `Icon`, `Input`, `Switch`, `HorizontalLine`, `MonacoEditor`, which shows its
-  value as text, and `Select`, a button per option and one that clears it with
+  value as text, `Input`, which passes its `aria-label`, `onFocus` and
+  `onBlur`, and `Select`, a group named by its `aria-label` with a button per
+  option, pressed when it is the `value`, and one that clears it with
   `null`).
 
 Extend it when a test needs more of the host; it is runtime only, the types
