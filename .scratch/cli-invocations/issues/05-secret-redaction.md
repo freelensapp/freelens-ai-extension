@@ -71,6 +71,20 @@ Decisions taken while building it:
    including the extra reveal forms of writes that print Secrets (ticket 02,
    Comments, item 1).
 
+Decision of the final fix pass, taken by the supervisor after the review of
+the integration branch:
+
+10. **describe of Secrets.** kubectl's `describe` of a
+    `kubernetes.io/service-account-token` Secret prints its token in full, so
+    "`describe` of a Secret prints sizes only" was wrong. A `describe` whose
+    targets include `secrets` (by name, `TYPE/NAME`, several resources or a
+    category) is treated like the value-printing cases of ticket 02,
+    Comments, item 1: without `revealSecrets` the floor rejects it under
+    `secret-output`, with a reason that points the agent to `get secrets`,
+    whose values are redacted, or to `revealSecrets`; with `revealSecrets`
+    its Secret forms have the verb `reveal`, as a get's do, and the profile
+    decides. The spec's "Secret redaction" section says so now.
+
 Manual check in Freelens dev, still to run, on `kind-kind` under Standard:
 
 - `kubectl create secret generic db -n default --from-literal=password=hunter22`,

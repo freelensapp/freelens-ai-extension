@@ -922,7 +922,9 @@ into an invocation for the runner, and its result into what the model reads.
   them, becomes its size (`redacted, 8 bytes`). The result is printed as YAML
   when the agent asked for `yaml` or `kyaml`, as JSON otherwise, with a line
   that says the values are redacted; an output that is not JSON is withheld.
-  Table output (no `-o`, `-o wide`, `-o name`) runs as asked. With
+  Table output (no `-o`, `-o wide`, `-o name`) runs as asked. A `describe`
+  of Secrets, which prints the token of a service-account token Secret in
+  full, is rejected by the floor without `revealSecrets`. With
   `revealSecrets` the call runs as asked, and the profile decides about its
   `reveal` targets. Nothing outside Secret objects is redacted.
 

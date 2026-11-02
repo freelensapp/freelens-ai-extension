@@ -347,9 +347,15 @@ the user controls per cluster:
   the values. The result is then printed as YAML when the agent
   asked for YAML, and as JSON otherwise. Table output (no `-o`, or `-o wide`
   or `-o name`) shows no values and runs as asked.
-- `describe` of a Secret prints sizes only and needs no redaction.
-- With `revealSecrets`, the canonical form's verb is `reveal`, so a profile
-  decides about reveals with rules such as `kubectl reveal secrets *`.
+- `describe` of Secrets prints sizes for most types, but the token of a
+  `kubernetes.io/service-account-token` Secret in full, and no redaction
+  reaches its output. Without `revealSecrets` the floor rejects a `describe`
+  whose targets include `secrets` (the Secret output entry), and its reason
+  points the agent to `get secrets`, whose values are redacted, or to
+  `revealSecrets`.
+- With `revealSecrets`, the canonical form's verb of a `get` or a
+  `describe` of Secrets is `reveal`, so a profile decides about reveals with
+  rules such as `kubectl reveal secrets *`.
 
 ### Policy profiles and their storage
 

@@ -2,6 +2,7 @@ import { isRejection } from "./cli-invocation";
 import { type FloorRejection, rejectByFloor } from "./floor";
 import { DEFAULT_SELECTORS } from "./kubectl-commands";
 import { isFlagOn, type KubectlInvocation } from "./kubectl-invocation";
+import { SECRET_READ_VERBS } from "./kubectl-secret-output";
 import {
   type CatalogResource,
   findCatalogKind,
@@ -196,7 +197,7 @@ export function kubectlCanonicalForms(input: KubectlFormsInput): CanonicalForm[]
   const forms: CanonicalForm[] = [];
   const seen = new Set<string>();
   for (const target of targets) {
-    const reveal = revealSecrets && command.verb === "get" && target.resource.name === "secrets";
+    const reveal = revealSecrets && SECRET_READ_VERBS.has(command.verb) && target.resource.name === "secrets";
     const form: CanonicalForm = {
       program: "kubectl",
       verb: reveal ? "reveal" : command.verb,

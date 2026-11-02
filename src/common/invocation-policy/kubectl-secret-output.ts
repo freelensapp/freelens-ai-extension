@@ -31,10 +31,19 @@ const printsObjects = (invocation: KubectlInvocation): boolean => {
 const isSecret = (form: CanonicalForm): boolean => form.resource === "secrets";
 
 /**
+ * The verbs that read Secrets with their values: `get`, whose output the
+ * redaction covers, and `describe`, which prints the values of some types,
+ * the token of a service-account token Secret among them. With
+ * `revealSecrets`, their forms on Secrets have the verb `reveal`.
+ */
+export const SECRET_READ_VERBS: ReadonlySet<string> = new Set(["get", "describe"]);
+
+/**
  * Checks the output of an invocation that targets Secrets. Without
- * `revealSecrets`, a get takes no value-printing format, and any other verb
- * prints at most the names. With it, any other verb that prints the objects
- * gets a `reveal` form for each Secret next to its own.
+ * `revealSecrets`, a get takes no value-printing format, a describe is
+ * rejected, since no redaction reaches its output, and any other verb prints
+ * at most the names. With it, a verb other than get and describe that prints
+ * the objects gets a `reveal` form for each Secret next to its own.
  */
 export function checkSecretOutput(
   invocation: KubectlInvocation,
@@ -43,8 +52,15 @@ export function checkSecretOutput(
 ): CanonicalForm[] | FloorRejection {
   if (!forms.some(isSecret)) return [...forms];
   const isGet = invocation.command.verb === "get";
+  const isRead = SECRET_READ_VERBS.has(invocation.command.verb);
 
   if (!revealSecrets) {
+    if (invocation.command.verb === "describe") {
+      return rejectByFloor(
+        "secret-output",
+        "kubectl describe prints the values of Secrets such as service-account tokens without revealSecrets; use get secrets, whose values are redacted, or set revealSecrets",
+      );
+    }
     const format = outputFormat(invocation);
     if (isGet && ((format !== undefined && VALUE_PRINTING_FORMATS.has(format)) || hasTemplate(invocation))) {
       return rejectByFloor(
@@ -52,7 +68,7 @@ export function checkSecretOutput(
         `a get of Secrets cannot use -o ${format ?? "go-template"} without revealSecrets; use -o yaml or -o json, whose values are redacted`,
       );
     }
-    if (!isGet && printsObjects(invocation)) {
+    if (!isRead && printsObjects(invocation)) {
       return rejectByFloor(
         "secret-output",
         `kubectl ${invocation.command.path.join(" ")} on Secrets prints at most their names without revealSecrets; use -o name or no -o`,
@@ -61,6 +77,6 @@ export function checkSecretOutput(
     return [...forms];
   }
 
-  if (isGet || !printsObjects(invocation)) return [...forms];
+  if (isRead || !printsObjects(invocation)) return [...forms];
   return forms.flatMap((form) => (isSecret(form) ? [form, { ...form, verb: "reveal" }] : [form]));
 }

@@ -226,7 +226,14 @@ describe("reveal", () => {
     ["get secrets db -o yaml", true, undefined, ["kubectl reveal secrets db -n default"]],
     ["get secret -n web -o jsonpath={.data}", true, undefined, ["kubectl reveal secrets * -n web"]],
     ["get pods,secrets", true, undefined, ["kubectl get pods * -n default", "kubectl reveal secrets * -n default"]],
-    ["describe secrets db", true, undefined, ["kubectl describe secrets db -n default"]],
+    ["describe secrets db", true, undefined, ["kubectl reveal secrets db -n default"]],
+    ["describe secrets/db -n web", true, undefined, ["kubectl reveal secrets db -n web"]],
+    [
+      "describe pods,secrets",
+      true,
+      undefined,
+      ["kubectl describe pods * -n default", "kubectl reveal secrets * -n default"],
+    ],
     ["delete secrets db -o name", true, undefined, ["kubectl delete secrets db -n default"]],
     [
       "apply -o yaml",
@@ -344,6 +351,11 @@ describe("the floor", () => {
     ["create secret generic db --from-literal=password=x -o yaml", "secret-output"],
     ["delete secret db -o json", "secret-output"],
     ["label secret db team=web -o yaml", "secret-output"],
+    ["describe secret db", "secret-output"],
+    ["describe secrets", "secret-output"],
+    ["describe secrets/db -n web", "secret-output"],
+    ["describe pods,secrets -A", "secret-output"],
+    ["describe sa,secrets default", "secret-output"],
     ["get pods --raw /api/v1/secrets", "unparseable"],
     ["get --raw /api/v1/secrets", "unparseable"],
     ["get pods --no-such-flag", "unparseable"],
@@ -413,7 +425,6 @@ describe("the floor", () => {
     ["get secrets db -o json", undefined],
     ["get secrets -o wide", undefined],
     ["get secrets -o name", undefined],
-    ["describe secret db", undefined],
     ["delete secret db -o name", undefined],
     ["delete secret db", undefined],
     ["apply -o name", SECRET],
@@ -423,6 +434,31 @@ describe("the floor", () => {
     ["create --dry-run=server -o yaml", DEPLOYMENT_AND_ROLE],
   ])("kubectl %s passes the floor", (args, manifest) => {
     expect(floorEntryOf(args, manifest === undefined ? {} : { manifest })).toBe("passes");
+  });
+
+  it("rejects a describe of a category that includes Secrets, and lets it through with revealSecrets as a reveal", () => {
+    const catalog = BUILT_IN_RESOURCE_CATALOG.map((resource) =>
+      resource.name === "secrets" || resource.name === "configmaps"
+        ? { ...resource, categories: [...resource.categories, "settings"] }
+        : resource,
+    );
+    const describeSettings = (revealSecrets: boolean) =>
+      evaluateInvocationPolicy({
+        program: "kubectl",
+        args: ["describe", "settings", "-n", "web"],
+        revealSecrets,
+        profile: ASK_EVERYTHING,
+        catalog,
+        defaultNamespace: "default",
+      });
+
+    const rejected = describeSettings(false);
+    expect(rejected.kind === "floor" && rejected.entry.id).toBe("secret-output");
+    const revealed = describeSettings(true);
+    expect(revealed.kind === "policy" && revealed.targets.map((target) => formatCanonicalForm(target.form))).toEqual([
+      "kubectl describe configmaps * -n web",
+      "kubectl reveal secrets * -n web",
+    ]);
   });
 
   it("names the flag it does not support, so that the agent can run the invocation without it", () => {
@@ -449,6 +485,12 @@ describe("the floor", () => {
     ],
     ["get pods --context prod", "Flags that change the cluster or the identity: --context is never allowed."],
     ["get pods -v=8", "Credentials and configuration: -v 8 is never allowed."],
+    [
+      "describe secrets db",
+      "Output that prints Secret values around the redaction: kubectl describe prints the values of Secrets such " +
+        "as service-account tokens without revealSecrets; use get secrets, whose values are redacted, or set " +
+        "revealSecrets.",
+    ],
     ["get frobnicators", "Resources the cluster does not serve: the resource catalog has no resource frobnicators."],
   ])("explains why kubectl %s is rejected", (args, reason) => {
     expect(evaluate(args)).toMatchObject({ kind: "floor", reason });

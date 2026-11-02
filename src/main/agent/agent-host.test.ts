@@ -1939,6 +1939,20 @@ describe("AgentHost", () => {
       );
       expect(cli.actions()).toEqual([]);
     });
+
+    it("blocks a describe of Secrets without revealSecrets by the floor, since it prints service-account tokens", async () => {
+      faux.setResponses(callThenEcho("kubectl", { args: ["describe", "secrets", "-n", "kube-system"] }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "describe the secrets" });
+      await waitFor(settled);
+
+      expect(toolEnd()).toEqual([expect.objectContaining({ isError: true })]);
+      expect(toolResultText()).toMatch(
+        /^Blocked by the floor, which no policy profile lifts\. .*kubectl describe prints the values of Secrets .* use get secrets, whose values are redacted, or set revealSecrets/,
+      );
+      expect(cli.actions()).toEqual([]);
+    });
   });
 
   describe("helm tool", () => {
