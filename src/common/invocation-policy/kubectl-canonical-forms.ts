@@ -1,3 +1,4 @@
+import { isRejection } from "./cli-invocation";
 import { type FloorRejection, rejectByFloor } from "./floor";
 import { DEFAULT_SELECTORS } from "./kubectl-commands";
 import { isFlagOn, type KubectlInvocation } from "./kubectl-invocation";
@@ -48,9 +49,6 @@ const resolveResources = (catalog: ResourceCatalog, spelling: string): CatalogRe
 
 const resolveResource = (catalog: ResourceCatalog, spelling: string): CatalogResource | FloorRejection =>
   findCatalogResource(catalog, spelling) ?? unknownResource(spelling);
-
-const isRejection = (value: unknown): value is FloorRejection =>
-  typeof value === "object" && value !== null && "kind" in value && value.kind === "floor";
 
 /** `TYPE/NAME`, split; undefined when the argument is not of that shape. */
 const splitTypeName = (argument: string): [string, string] | undefined => {
