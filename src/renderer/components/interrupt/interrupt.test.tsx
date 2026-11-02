@@ -111,6 +111,25 @@ describe("Interrupt of a kubectl call", () => {
     ).toBeDefined();
   });
 
+  it("says that the values of the Secrets of a reveal target go to the model", () => {
+    render(
+      <Interrupt
+        {...cliProps({
+          args: ["get", "secrets", "db", "-n", "web", "-o", "yaml"],
+          canonicalForms: [{ program: "kubectl", verb: "reveal", resource: "secrets", name: "db", namespace: "web" }],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Reveal: the values of these Secrets will be sent to the model unredacted.")).toBeDefined();
+  });
+
+  it("says nothing of a reveal for a call without one", () => {
+    render(<Interrupt {...cliProps()} />);
+
+    expect(screen.queryByText(/^Reveal:/)).toBeNull();
+  });
+
   it("shows the manifest the call sends", () => {
     const manifest = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n";
     render(<Interrupt {...cliProps({ args: ["apply"], manifest })} />);

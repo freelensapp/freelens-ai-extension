@@ -22,8 +22,20 @@ export interface KubectlInvocation {
   flags: ReadonlyMap<string, string>;
   /** The positional arguments past the verb words and before `--`. */
   operands: readonly string[];
+  /** Where each flag token sits in the arguments, in order, so that main can change one flag of the invocation. */
+  flagArgs: readonly FlagArgs[];
   /** The arguments after `--`, the command of `exec` or `run`; absent without `--`. */
   commandArgs?: readonly string[];
+}
+
+/** One flag token in the arguments: `-o yaml`, `--output=yaml` or the grouped `-Ao yaml`. */
+export interface FlagArgs {
+  /** The index of the token in the arguments. */
+  index: number;
+  /** How many arguments the token uses, its value included. */
+  count: number;
+  /** The flags the token sets, by their long spelling. */
+  longs: readonly string[];
 }
 
 /** The spellings of `false` that kubectl takes for a boolean flag. */
@@ -158,9 +170,16 @@ const applyFlags = (
   return undefined;
 };
 
+const flagArgsOf = (token: FlagToken, index: number): FlagArgs => ({
+  index,
+  count: token.used,
+  longs: token.set.map(({ found }) => found.spec.long),
+});
+
 /** Parses the arguments of kubectl into its command, flags and operands, or rejects them by the floor. */
 export function parseKubectlInvocation(args: readonly string[]): KubectlInvocation | FloorRejection {
   const flags = new Map<string, string>();
+  const flagArgs: FlagArgs[] = [];
   const path: string[] = [];
   let index = 0;
 
@@ -174,6 +193,7 @@ export function parseKubectlInvocation(args: readonly string[]): KubectlInvocati
       if ("kind" in token) return token;
       const rejection = applyFlags(token, flags, path);
       if (rejection) return rejection;
+      flagArgs.push(flagArgsOf(token, index));
       index += token.used;
       continue;
     }
@@ -210,13 +230,14 @@ export function parseKubectlInvocation(args: readonly string[]): KubectlInvocati
   while (index < args.length) {
     const argument = args[index] ?? "";
     if (argument === "--") {
-      return { command, flags, operands, commandArgs: args.slice(index + 1) };
+      return { command, flags, operands, flagArgs, commandArgs: args.slice(index + 1) };
     }
     if (isFlagToken(argument)) {
       const token = readFlagToken(args, index, lookup, command.path);
       if ("kind" in token) return token;
       const rejection = applyFlags(token, flags, command.path);
       if (rejection) return rejection;
+      flagArgs.push(flagArgsOf(token, index));
       index += token.used;
       continue;
     }
@@ -225,5 +246,5 @@ export function parseKubectlInvocation(args: readonly string[]): KubectlInvocati
     operands.push(argument);
     index++;
   }
-  return { command, flags, operands };
+  return { command, flags, operands, flagArgs };
 }

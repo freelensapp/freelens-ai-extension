@@ -1567,6 +1567,335 @@ describe("AgentHost", () => {
     });
   });
 
+  describe("Secret redaction", () => {
+    const uiRequests = () => envelopes.flatMap((e) => (e.kind === "ui_request" ? [e.payload] : []));
+    const toolResultText = () =>
+      (toolEnd()[0]?.result.content ?? []).map((part) => (part.type === "text" ? part.text : "")).join("");
+    const kubectlHost = (overrides: Partial<AgentHostOptions> = {}) =>
+      createHost({ tools: [kubectlTool], getPolicyProfile: () => ALLOW_ALL_PROFILE, ...overrides });
+    const REDACTION_NOTE =
+      "Secret values are redacted: each value of data and stringData, and the annotation " +
+      "kubectl.kubernetes.io/last-applied-configuration, is replaced by its size. Set revealSecrets to read them.";
+    // "hunter22" and "admin" in base64; kubectl prints JSON with four spaces.
+    const DB_SECRET = {
+      apiVersion: "v1",
+      data: { password: "aHVudGVyMjI=", username: "YWRtaW4=" },
+      kind: "Secret",
+      metadata: { name: "db", namespace: "web" },
+      type: "Opaque",
+    };
+    const json = (value: unknown) => `${JSON.stringify(value, null, 4)}\n`;
+
+    it("runs a get of one Secret with -o json and prints it as YAML with each value replaced by its size", async () => {
+      cli = createStandInCli({ answers: { "get secrets db -n web -o json": { stdout: json(DB_SECRET) } } });
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "secrets", "db", "-n", "web", "-o", "yaml"] }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "show the db secret" });
+      await waitFor(settled);
+
+      expect(cli.actions()).toEqual([
+        expect.objectContaining({ args: ["get", "secrets", "db", "-n", "web", "-o", "json"] }),
+      ]);
+      expect(toolEnd()).toEqual([expect.objectContaining({ isError: false })]);
+      expect(toolResultText()).toBe(
+        `Exit code: 0\n\n${REDACTION_NOTE}\n\nStandard output:\n` +
+          "apiVersion: v1\n" +
+          "data:\n" +
+          "  password: redacted, 8 bytes\n" +
+          "  username: redacted, 5 bytes\n" +
+          "kind: Secret\n" +
+          "metadata:\n" +
+          "  name: db\n" +
+          "  namespace: web\n" +
+          "type: Opaque",
+      );
+    });
+
+    it("redacts the Secrets of a list mixed with other resources and prints it as JSON, the others as they are", async () => {
+      const settings = {
+        apiVersion: "v1",
+        data: { mode: "fast" },
+        kind: "ConfigMap",
+        metadata: { name: "settings", namespace: "web" },
+      };
+      const list = { apiVersion: "v1", items: [DB_SECRET, settings], kind: "List", metadata: { resourceVersion: "" } };
+      cli = createStandInCli({ answers: { "get secrets,configmaps -n web -o json": { stdout: json(list) } } });
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "secrets,configmaps", "-n", "web", "-o", "json"] }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "show the secrets and config maps" });
+      await waitFor(settled);
+
+      expect(cli.actions()).toEqual([
+        expect.objectContaining({ args: ["get", "secrets,configmaps", "-n", "web", "-o", "json"] }),
+      ]);
+      expect(toolResultText()).toBe(
+        `Exit code: 0\n\n${REDACTION_NOTE}\n\nStandard output:\n` +
+          "{\n" +
+          '    "apiVersion": "v1",\n' +
+          '    "items": [\n' +
+          "        {\n" +
+          '            "apiVersion": "v1",\n' +
+          '            "data": {\n' +
+          '                "password": "redacted, 8 bytes",\n' +
+          '                "username": "redacted, 5 bytes"\n' +
+          "            },\n" +
+          '            "kind": "Secret",\n' +
+          '            "metadata": {\n' +
+          '                "name": "db",\n' +
+          '                "namespace": "web"\n' +
+          "            },\n" +
+          '            "type": "Opaque"\n' +
+          "        },\n" +
+          "        {\n" +
+          '            "apiVersion": "v1",\n' +
+          '            "data": {\n' +
+          '                "mode": "fast"\n' +
+          "            },\n" +
+          '            "kind": "ConfigMap",\n' +
+          '            "metadata": {\n' +
+          '                "name": "settings",\n' +
+          '                "namespace": "web"\n' +
+          "            }\n" +
+          "        }\n" +
+          "    ],\n" +
+          '    "kind": "List",\n' +
+          '    "metadata": {\n' +
+          '        "resourceVersion": ""\n' +
+          "    }\n" +
+          "}",
+      );
+    });
+
+    describe("the annotation kubectl apply leaves on a Secret", () => {
+      // What client-side apply records: the whole manifest, values included, 114 bytes.
+      const lastApplied =
+        '{"apiVersion":"v1","data":{"password":"aHVudGVyMjI="},"kind":"Secret","metadata":{"name":"db","namespace":"web"}}\n';
+      const APPLIED_SECRET = {
+        apiVersion: "v1",
+        data: { password: "aHVudGVyMjI=" },
+        kind: "Secret",
+        metadata: {
+          annotations: { "kubectl.kubernetes.io/last-applied-configuration": lastApplied, team: "web" },
+          managedFields: [
+            {
+              fieldsType: "FieldsV1",
+              fieldsV1: { "f:data": { ".": {}, "f:password": {} }, "f:type": {} },
+              manager: "kubectl-client-side-apply",
+              operation: "Update",
+            },
+          ],
+          name: "db",
+          namespace: "web",
+        },
+        type: "Opaque",
+      };
+
+      it("is replaced by its size on a single Secret, its other annotations and its managed fields kept", async () => {
+        const args = ["get", "secret", "db", "-n", "web", "-o", "yaml", "--show-managed-fields"];
+        cli = createStandInCli({
+          answers: { "get secret db -n web --show-managed-fields -o json": { stdout: json(APPLIED_SECRET) } },
+        });
+        faux.setResponses(callThenEcho("kubectl", { args }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "show the db secret" });
+        await waitFor(settled);
+
+        expect(toolResultText()).toBe(
+          `Exit code: 0\n\n${REDACTION_NOTE}\n\nStandard output:\n` +
+            "apiVersion: v1\n" +
+            "data:\n" +
+            "  password: redacted, 8 bytes\n" +
+            "kind: Secret\n" +
+            "metadata:\n" +
+            "  annotations:\n" +
+            "    kubectl.kubernetes.io/last-applied-configuration: redacted, 114 bytes\n" +
+            "    team: web\n" +
+            "  managedFields:\n" +
+            "    - fieldsType: FieldsV1\n" +
+            "      fieldsV1:\n" +
+            "        f:data:\n" +
+            "          .: {}\n" +
+            "          f:password: {}\n" +
+            "        f:type: {}\n" +
+            "      manager: kubectl-client-side-apply\n" +
+            "      operation: Update\n" +
+            "  name: db\n" +
+            "  namespace: web\n" +
+            "type: Opaque",
+        );
+      });
+
+      it("is replaced by its size on the Secrets of a list", async () => {
+        const list = { apiVersion: "v1", items: [APPLIED_SECRET], kind: "List", metadata: { resourceVersion: "" } };
+        cli = createStandInCli({ answers: { "get secrets -n web -o json": { stdout: json(list) } } });
+        faux.setResponses(callThenEcho("kubectl", { args: ["get", "secrets", "-n", "web", "-o", "json"] }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "show the secrets" });
+        await waitFor(settled);
+
+        const text = toolResultText();
+        expect(text).toContain('"kubectl.kubernetes.io/last-applied-configuration": "redacted, 114 bytes"');
+        expect(text).toContain('"password": "redacted, 8 bytes"');
+        expect(text).not.toContain("aHVudGVyMjI=");
+      });
+    });
+
+    it.each<[string, string[]]>([
+      ["no -o", ["get", "secrets", "-n", "web"]],
+      ["-o wide", ["get", "secrets", "-n", "web", "-o", "wide"]],
+      ["-o name", ["get", "secrets", "-n", "web", "-o", "name"]],
+    ])("runs a get of Secrets with %s as asked, since a table shows no values", async (_case, args) => {
+      const stdout = "NAME   TYPE     DATA   AGE\ndb     Opaque   2      3d\n";
+      cli = createStandInCli({ answers: { [args.join(" ")]: { stdout } } });
+      faux.setResponses(callThenEcho("kubectl", { args }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "list the secrets" });
+      await waitFor(settled);
+
+      expect(cli.actions()).toEqual([expect.objectContaining({ args })]);
+      expect(toolResultText()).toBe(
+        "Exit code: 0\n\nStandard output:\nNAME   TYPE     DATA   AGE\ndb     Opaque   2      3d",
+      );
+    });
+
+    it.each<[string[], string[]]>([
+      [
+        ["get", "secret/db", "-oyaml", "-n", "web"],
+        ["get", "secret/db", "-n", "web", "-o", "json"],
+      ],
+      [
+        ["get", "secret/db", "--output=yaml", "-n", "web"],
+        ["get", "secret/db", "-n", "web", "-o", "json"],
+      ],
+      [
+        ["get", "secret/db", "--output", "yaml", "-n", "web"],
+        ["get", "secret/db", "-n", "web", "-o", "json"],
+      ],
+      [
+        ["get", "secret/db", "-o", "kyaml", "-n", "web"],
+        ["get", "secret/db", "-n", "web", "-o", "json"],
+      ],
+    ])("runs kubectl %j as %j and prints the result as YAML", async (args, run) => {
+      cli = createStandInCli({ answers: { [run.join(" ")]: { stdout: json(DB_SECRET) } } });
+      faux.setResponses(callThenEcho("kubectl", { args }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "show the db secret" });
+      await waitFor(settled);
+
+      expect(cli.actions()).toEqual([expect.objectContaining({ args: run })]);
+      expect(toolResultText()).toContain("Standard output:\napiVersion: v1\ndata:\n  password: redacted, 8 bytes\n");
+    });
+
+    it("withholds an output that is not JSON, since its values cannot be found", async () => {
+      cli = createStandInCli({
+        answers: { "get secrets db -n web -o json": { stdout: "password: aHVudGVyMjI=\n" } },
+      });
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "secrets", "db", "-n", "web", "-o", "json"] }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "show the db secret" });
+      await waitFor(settled);
+
+      expect(toolResultText()).toBe(
+        `Exit code: 0\n\n${REDACTION_NOTE}\n\nStandard output:\n` +
+          "(withheld: the output was not JSON, so the values of its Secrets could not be redacted)",
+      );
+    });
+
+    it("keeps the standard error of a get of Secrets that failed", async () => {
+      const stderr = 'Error from server (NotFound): secrets "gone" not found\n';
+      cli = createStandInCli({ answers: { "get secrets gone -n web -o json": { stderr, exitCode: 1 } } });
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "secrets", "gone", "-n", "web", "-o", "yaml"] }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "show the gone secret" });
+      await waitFor(settled);
+
+      expect(toolEnd()).toEqual([expect.objectContaining({ isError: true })]);
+      expect(toolResultText()).toBe(
+        `Exit code: 1\n\n${REDACTION_NOTE}\n\nStandard output: (empty)\n\n` +
+          'Standard error:\nError from server (NotFound): secrets "gone" not found',
+      );
+    });
+
+    it("applies grep to the redacted output", async () => {
+      cli = createStandInCli({ answers: { "get secrets db -n web -o json": { stdout: json(DB_SECRET) } } });
+      faux.setResponses(
+        callThenEcho("kubectl", { args: ["get", "secrets", "db", "-n", "web", "-o", "yaml"], grep: "password" }),
+      );
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "how long is the password?" });
+      await waitFor(settled);
+
+      expect(toolResultText()).toBe(
+        `Exit code: 0\n\n${REDACTION_NOTE}\n\nStandard output:\n  password: redacted, 8 bytes`,
+      );
+    });
+
+    describe("revealSecrets", () => {
+      const revealArgs = ["get", "secrets", "db", "-n", "web", "-o", "jsonpath={.data.password}"];
+      const answer = (host: AgentHost, confirmed: boolean) =>
+        host.handleCommand("c1", { type: "ui_response", id: uiRequests()[0]!.id, confirmed });
+
+      it("asks under Standard with a reveal target, and runs the call as asked, unredacted, once approved", async () => {
+        cli = createStandInCli({ answers: { [revealArgs.join(" ")]: { stdout: "aHVudGVyMjI=" } } });
+        faux.setResponses(callThenEcho("kubectl", { args: revealArgs, revealSecrets: true }));
+        const host = kubectlHost({ getPolicyProfile: () => STANDARD_PROFILE });
+
+        await host.handleCommand("c1", { type: "prompt", message: "what is the db password?" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(uiRequests()[0]).toMatchObject({
+          args: revealArgs,
+          canonicalForms: [{ program: "kubectl", verb: "reveal", resource: "secrets", name: "db", namespace: "web" }],
+          level: "ask",
+          profileName: "Standard",
+        });
+        expect(cli.actions()).toEqual([]);
+
+        await answer(host, true);
+        await waitFor(settled);
+
+        expect(cli.actions()).toEqual([expect.objectContaining({ args: revealArgs })]);
+        expect(toolResultText()).toBe("Exit code: 0\n\nStandard output:\naHVudGVyMjI=");
+      });
+
+      it("never runs a reveal the user denies", async () => {
+        faux.setResponses(callThenEcho("kubectl", { args: revealArgs, revealSecrets: true }));
+        const host = kubectlHost({ getPolicyProfile: () => STANDARD_PROFILE });
+
+        await host.handleCommand("c1", { type: "prompt", message: "what is the db password?" });
+        await waitFor(() => uiRequests().length > 0);
+        await answer(host, false);
+        await waitFor(settled);
+
+        expect(toolResultText()).toBe("The user denied the action");
+        expect(cli.actions()).toEqual([]);
+      });
+    });
+
+    it("blocks a value-printing format on Secrets without revealSecrets by the floor, and the call never runs", async () => {
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "secrets", "db", "-o", "jsonpath={.data}"] }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "show the values" });
+      await waitFor(settled);
+
+      expect(toolEnd()).toEqual([expect.objectContaining({ isError: true })]);
+      expect(toolResultText()).toMatch(
+        /^Blocked by the floor, which no policy profile lifts\. .*a get of Secrets cannot use -o jsonpath without revealSecrets/,
+      );
+      expect(cli.actions()).toEqual([]);
+    });
+  });
+
   it("refuses a prompt when no model is selected", async () => {
     const host = createHost({ getModelRef: () => undefined });
     const response = await host.handleCommand("c1", { type: "prompt", message: "hi" });

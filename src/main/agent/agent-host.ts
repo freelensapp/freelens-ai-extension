@@ -43,6 +43,7 @@ import { type KubectlToolInput, prepareKubectlInvocation, runKubectl } from "./t
 import { dryRunRejectionReason, floorBlockReason, profileDenyReason } from "./tools/kubectl-policy";
 import { previewKubectlInvocation } from "./tools/kubectl-preview";
 import { READ_TOOL_RUNNERS } from "./tools/read-tools";
+import { planSecretRedaction, type SecretRedaction } from "./tools/secret-redaction";
 import { WRITE_TOOL_RUNNERS } from "./tools/write-tools";
 
 import type { Model } from "@earendil-works/pi-ai";
@@ -153,6 +154,13 @@ interface ClusterAgent {
   // first kubectl call and kept for its session; the resources are read again
   // when a call names one they lack.
   clusterResources?: ClusterResources;
+  // The kubectl calls the gate let through, by tool call id, until they run:
+  // a call runs only after the gate, with what the policy decided about it.
+  passedKubectlCalls: Map<string, PassedKubectlCall>;
+}
+
+interface PassedKubectlCall {
+  secretRedaction?: SecretRedaction;
 }
 
 // An AI Explain run: a throwaway pi session that is never saved. Registered
@@ -787,8 +795,13 @@ export class AgentHost {
     }
     if (decision.kind === "floor") return { block: true, reason: floorBlockReason(decision) };
     if (decision.level === "deny") return { block: true, reason: profileDenyReason(profile, decision) };
-    if (decision.level === "allow") return undefined;
-    if (decision.level === "ask" && agent.autoApprove) return undefined;
+    const secretRedaction = planSecretRedaction(input.args, decision.targets);
+    const pass = () => {
+      agent.passedKubectlCalls.set(event.toolCallId, secretRedaction ? { secretRedaction } : {});
+      return undefined;
+    };
+    if (decision.level === "allow") return pass();
+    if (decision.level === "ask" && agent.autoApprove) return pass();
 
     // Before asking, the server's dry run of a verb that has one: a change the
     // server rejects fails without a card, with the server's message.
@@ -821,7 +834,7 @@ export class AgentHost {
       profileName: profile.name,
       ...(preview ? { preview } : {}),
     };
-    return this.askUser(clusterId, agent, signal, request);
+    return (await this.askUser(clusterId, agent, signal, request)) ?? pass();
   }
 
   // The policy's result for a kubectl call, with the agent's own arguments,
@@ -982,7 +995,7 @@ export class AgentHost {
 
     this.useInjectedFetch(session);
 
-    const agent: ClusterAgent = { session, autoApprove: false };
+    const agent: ClusterAgent = { session, autoApprove: false, passedKubectlCalls: new Map() };
     // Called from pi's listener loop and from a microtask, where a throw would
     // break the run or go uncaught in main, so a failure is only logged.
     const sendStats = () => {
@@ -1062,12 +1075,17 @@ export class AgentHost {
       description: tool.description,
       parameters: tool.parameters,
       executionMode: "sequential",
-      execute: async (_toolCallId, params, signal, onUpdate) => {
+      execute: async (toolCallId, params, signal, onUpdate) => {
         // No process starts for a cluster that is not connected.
         if (this.options.getClusterStatus(clusterId) !== CONNECTED) {
           throw new Error(CLUSTER_NOT_CONNECTED);
         }
+        const agent = await this.clusters.get(clusterId);
+        const passed = agent?.passedKubectlCalls.get(toolCallId);
+        agent?.passedKubectlCalls.delete(toolCallId);
+        if (!passed) throw new Error("The invocation policy has not checked this call.");
         const result = await runKubectl(params as KubectlToolInput, {
+          ...passed,
           clusterId,
           runCli: this.options.runCli,
           signal,

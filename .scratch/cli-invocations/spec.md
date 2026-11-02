@@ -342,7 +342,9 @@ the user controls per cluster:
 - A read of Secrets (`get` of the resource `secrets`, alone or with other
   resources) without `revealSecrets` is run with `-o json`, whatever output
   the agent asked for. In the result, `data` and `stringData` have every value
-  replaced by its size. The result is then printed as YAML when the agent
+  replaced by its size, and so does the annotation
+  `kubectl.kubernetes.io/last-applied-configuration`, which holds a copy of
+  the values. The result is then printed as YAML when the agent
   asked for YAML, and as JSON otherwise. Table output (no `-o`, or `-o wide`
   or `-o name`) shows no values and runs as asked.
 - `describe` of a Secret prints sizes only and needs no redaction.

@@ -2,6 +2,7 @@
 // and its result into the text the model reads.
 
 import { DEFAULT_CLI_TIMEOUT_SECONDS, MAX_CLI_TIMEOUT_SECONDS } from "../../../common/agent-tools/kubectl-tool";
+import { redactSecretOutput, SECRET_REDACTION_NOTE, type SecretRedaction } from "./secret-redaction";
 
 import type { CliInvocationDetails } from "../../../common/agent-protocol";
 import type { CliResult, CliRunner } from "../cli-runner";
@@ -24,6 +25,8 @@ export interface KubectlToolContext {
   podLogsTailLines: number;
   /** What the runner reports before the process starts, such as a kubectl download. */
   onProgress: (message: string) => void;
+  /** Set for a get of Secrets without revealSecrets. */
+  secretRedaction?: SecretRedaction;
 }
 
 export interface KubectlToolResult {
@@ -39,20 +42,33 @@ const setsLogWindow = (arg: string) => LOG_WINDOW_FLAGS.some((flag) => arg === f
 
 /** A call made ready to run, or the reason it cannot run. */
 export type PreparedKubectlInvocation =
-  | { ok: true; args: string[]; manifest?: string; timeoutMs: number; grep?: RegExp }
+  | {
+      ok: true;
+      args: string[];
+      manifest?: string;
+      timeoutMs: number;
+      grep?: RegExp;
+      secretRedaction?: SecretRedaction;
+    }
   | { ok: false; error: string };
 
 /**
  * Builds the arguments kubectl runs with: `-f -` for a manifest, and for logs
  * without a tail or a time window the "pod logs tail lines" preference as
- * `--tail`. The arguments after `--` belong to the command `exec` runs, so
- * they are left alone. The invocation policy has checked the arguments and the
- * manifest before; only `grep` is checked here.
+ * `--tail`; for a get of Secrets without revealSecrets, `-o json`. The
+ * arguments after `--` belong to the command `exec` runs, so they are left
+ * alone. The invocation policy has checked the arguments and the manifest
+ * before; only `grep` is checked here.
  */
-export function prepareKubectlInvocation(input: KubectlToolInput, podLogsTailLines: number): PreparedKubectlInvocation {
-  const end = input.args.indexOf("--");
-  const own = end < 0 ? [...input.args] : input.args.slice(0, end);
-  const rest = end < 0 ? [] : input.args.slice(end);
+export function prepareKubectlInvocation(
+  input: KubectlToolInput,
+  podLogsTailLines: number,
+  secretRedaction?: SecretRedaction,
+): PreparedKubectlInvocation {
+  const args = secretRedaction?.args ?? input.args;
+  const end = args.indexOf("--");
+  const own = end < 0 ? [...args] : args.slice(0, end);
+  const rest = end < 0 ? [] : args.slice(end);
   if (input.manifest !== undefined) own.push("-f", "-");
   if (own[0] === "logs" && !own.some(setsLogWindow)) {
     own.push(`--tail=${podLogsTailLines}`);
@@ -70,6 +86,7 @@ export function prepareKubectlInvocation(input: KubectlToolInput, podLogsTailLin
     ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
     timeoutMs: timeoutSeconds * 1000,
     grep,
+    ...(secretRedaction ? { secretRedaction } : {}),
   };
 }
 
@@ -107,12 +124,18 @@ const endLine = (result: CliResult, timeoutMs: number): string => {
 };
 
 // How it ended, the standard output, and the standard error when there is any.
-const resultText = (result: CliResult, invocation: { grep?: RegExp; timeoutMs: number }): string => {
-  const { grep, timeoutMs } = invocation;
-  const stdout = withoutFinalNewline(capOutput(grep ? grepLines(result.stdout, grep) : result.stdout));
+// The output of a get of Secrets is redacted before grep and the cap.
+const resultText = (
+  result: CliResult,
+  invocation: { grep?: RegExp; timeoutMs: number; secretRedaction?: SecretRedaction },
+): string => {
+  const { grep, timeoutMs, secretRedaction } = invocation;
+  const output = secretRedaction ? redactSecretOutput(result.stdout, secretRedaction.print) : result.stdout;
+  const stdout = withoutFinalNewline(capOutput(grep ? grepLines(output, grep) : output));
   const stderr = withoutFinalNewline(capOutput(result.stderr));
   return [
     endLine(result, timeoutMs),
+    ...(secretRedaction ? [SECRET_REDACTION_NOTE] : []),
     stdout ? `Standard output:\n${stdout}` : "Standard output: (empty)",
     ...(stderr ? [`Standard error:\n${stderr}`] : []),
   ].join("\n\n");
@@ -120,7 +143,7 @@ const resultText = (result: CliResult, invocation: { grep?: RegExp; timeoutMs: n
 
 /** Runs a call through the CLI runner; throws the reason a call cannot run. */
 export async function runKubectl(input: KubectlToolInput, context: KubectlToolContext): Promise<KubectlToolResult> {
-  const invocation = prepareKubectlInvocation(input, context.podLogsTailLines);
+  const invocation = prepareKubectlInvocation(input, context.podLogsTailLines, context.secretRedaction);
   if (!invocation.ok) throw new Error(invocation.error);
   const result = await context.runCli({
     clusterId: context.clusterId,
