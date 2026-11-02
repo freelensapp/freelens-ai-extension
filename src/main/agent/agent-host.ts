@@ -166,8 +166,34 @@ interface ExplainRun {
 interface PendingApproval {
   clusterId: string;
   request: ApprovalRequest;
-  settle: (confirmed: boolean) => void;
+  /** Settles the approval; a denial blocks the call with `reason`, the user's denial by default. */
+  settle: (confirmed: boolean, reason?: string) => void;
+  /** For a kubectl call: the reason to block it under the cluster's profile as it is now, or undefined. */
+  blockReasonNow?: () => string | undefined;
 }
+
+// The policy's result for a kubectl call with the agent's own arguments, before
+// the tool adds `-f -` or a logs tail.
+const evaluateKubectlWith = (
+  input: KubectlToolInput,
+  profile: PolicyProfile,
+  { catalog, defaultNamespace }: ClusterResources,
+): InvocationPolicyResult =>
+  evaluateInvocationPolicy({
+    program: "kubectl",
+    args: input.args,
+    ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
+    revealSecrets: input.revealSecrets === true,
+    profile,
+    catalog,
+    defaultNamespace,
+  });
+
+// Why a kubectl call is blocked: the floor entry or the profile's Deny; undefined for any other level.
+const kubectlBlockReason = (profile: PolicyProfile, decision: InvocationPolicyResult): string | undefined => {
+  if (decision.kind === "floor") return floorBlockReason(decision);
+  return decision.level === "deny" ? profileDenyReason(profile, decision) : undefined;
+};
 
 // The chat shows only these, the tool results under their calls; pi's system
 // prompt and custom entries stay in main.
@@ -230,6 +256,19 @@ export class AgentHost {
         return this.turnOffAutoApprove(clusterId);
       default:
         return failureResponse((command as { type?: string }).type ?? "unknown", "Unknown command");
+    }
+  }
+
+  /**
+   * Checks every pending kubectl approval again under the profile of its
+   * cluster as it is now: one the profile now denies is denied with the
+   * reason, and any other stays pending until the user answers. Main calls it
+   * when a profile, an assignment or the default profile changes.
+   */
+  recheckPendingApprovals(): void {
+    for (const pending of [...this.pendingApprovals.values()]) {
+      const reason = pending.blockReasonNow?.();
+      if (reason !== undefined) pending.settle(false, reason);
     }
   }
 
@@ -798,7 +837,14 @@ export class AgentHost {
       level: decision.level,
       profileName: profile.name,
     };
-    return this.askUser(clusterId, agent, signal, request);
+    // The resources read for this call stay on the agent, so the call is
+    // evaluated again with them when the profiles change.
+    const blockReasonNow = () => {
+      const current = this.policyProfile(clusterId);
+      const resources = agent.clusterResources;
+      return resources && kubectlBlockReason(current, evaluateKubectlWith(input, current, resources));
+    };
+    return this.askUser(clusterId, agent, signal, request, blockReasonNow);
   }
 
   // The policy's result for a kubectl call, with the agent's own arguments,
@@ -811,16 +857,7 @@ export class AgentHost {
     profile: PolicyProfile,
     read: ClusterReadContext,
   ): Promise<InvocationPolicyResult> {
-    const evaluate = ({ catalog, defaultNamespace }: ClusterResources) =>
-      evaluateInvocationPolicy({
-        program: "kubectl",
-        args: input.args,
-        ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
-        revealSecrets: input.revealSecrets === true,
-        profile,
-        catalog,
-        defaultNamespace,
-      });
+    const evaluate = (resources: ClusterResources) => evaluateKubectlWith(input, profile, resources);
     const known = agent.clusterResources;
     if (!known) {
       const catalog = await readResourceCatalog(read);
@@ -844,24 +881,30 @@ export class AgentHost {
     agent: ClusterAgent,
     signal: AbortSignal | undefined,
     request: ApprovalRequest,
+    blockReasonNow?: () => string | undefined,
   ): Promise<ToolCallEventResult | undefined> {
     if (signal?.aborted) return { block: true, reason: DENIED_REASON };
-    const confirmed = await new Promise<boolean>((resolve) => {
+    const answer = await new Promise<{ confirmed: boolean; reason: string }>((resolve) => {
       const onAbort = () => settle(false);
-      const settle = (answer: boolean) => {
+      const settle = (confirmed: boolean, reason = DENIED_REASON) => {
         if (!this.pendingApprovals.delete(request.id)) return;
         signal?.removeEventListener("abort", onAbort);
         this.send(clusterId, agent.session.sessionId, {
           kind: "ui_resolved",
-          payload: { id: request.id, confirmed: answer },
+          payload: { id: request.id, confirmed },
         });
-        resolve(answer);
+        resolve({ confirmed, reason });
       };
-      this.pendingApprovals.set(request.id, { clusterId, request, settle });
+      this.pendingApprovals.set(request.id, {
+        clusterId,
+        request,
+        settle,
+        ...(blockReasonNow ? { blockReasonNow } : {}),
+      });
       signal?.addEventListener("abort", onAbort, { once: true });
       this.send(clusterId, agent.session.sessionId, { kind: "ui_request", payload: request });
     });
-    return confirmed ? undefined : { block: true, reason: DENIED_REASON };
+    return answer.confirmed ? undefined : { block: true, reason: answer.reason };
   }
 
   // Best effort: a cluster that is not connected, or an object that cannot be

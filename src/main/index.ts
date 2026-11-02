@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Main } from "@freelensapp/extensions";
+import { reaction } from "mobx";
 import { AGENT_COMMAND_CHANNEL, AGENT_ENVELOPE_CHANNEL, type AgentCommand } from "../common/agent-protocol";
 import { AGENT_TOOLS } from "../common/agent-tools";
 import { PROVIDER_COMMAND_CHANNEL, PROVIDER_ENVELOPE_CHANNEL, type ProviderCommand } from "../common/provider-protocol";
@@ -42,6 +43,7 @@ const importApprovalChoices = (preferencesStore: PreferencesStore) => {
 export default class LensExtensionAiMain extends Main.LensExtension {
   private agentHost?: AgentHost;
   private providerService?: ProviderService;
+  private stopRecheckingApprovals?: () => void;
 
   async onActivate() {
     const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
@@ -58,6 +60,8 @@ export default class LensExtensionAiMain extends Main.LensExtension {
   }
 
   async onDeactivate() {
+    this.stopRecheckingApprovals?.();
+    this.stopRecheckingApprovals = undefined;
     this.agentHost?.dispose();
     this.agentHost = undefined;
     this.providerService?.dispose();
@@ -133,6 +137,13 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       knownClusterIds: () => Main.Catalog.getAllClusters().map((cluster) => cluster.id),
     });
     this.agentHost = agentHost;
+    // The three fields are replaced as a whole, so editing a profile's rules or
+    // fallback level, an assignment or the default profile checks the pending
+    // approvals again at once.
+    this.stopRecheckingApprovals = reaction(
+      () => [preferencesStore.userProfiles, preferencesStore.profileAssignments, preferencesStore.defaultProfileId],
+      () => agentHost.recheckPendingApprovals(),
+    );
     ipc.handle(AGENT_COMMAND_CHANNEL, (_event, clusterId: string, command: AgentCommand) =>
       agentHost.handleCommand(clusterId, command),
     );

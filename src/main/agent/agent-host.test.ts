@@ -948,6 +948,88 @@ describe("AgentHost", () => {
       it("is Standard when the default profile no longer exists", async () => {
         expect(await profileOfScale("c1", { defaultProfileId: "deleted" })).toBe("Standard");
       });
+
+      describe("a pending approval checked again", () => {
+        let settings: PolicyProfileSettings;
+        // A scale of web waiting for its approval on c1, under `initial`.
+        const pendingScale = async (initial: Partial<PolicyProfileSettings> = {}) => {
+          settings = { userProfiles: [DEV_PROFILE], profileAssignments: {}, defaultProfileId: "standard", ...initial };
+          faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+          const host = kubectlHost({ getPolicyProfileSettings: () => settings });
+          await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+          await waitFor(() => uiRequests().length > 0);
+          return host;
+        };
+
+        it("is denied with the reason once the cluster is assigned a profile that denies it", async () => {
+          const host = await pendingScale();
+
+          settings = { ...settings, profileAssignments: { c1: "read-only" } };
+          host.recheckPendingApprovals();
+          await waitFor(settled);
+
+          expect(uiResolved()).toEqual([{ id: uiRequests()[0]!.id, confirmed: false }]);
+          expect(toolResultTexts()).toEqual([
+            'Denied by the policy profile "Read only": kubectl scale deployments web -n default gets Deny from the ' +
+              "profile's fallback level.",
+          ]);
+          expect(cli.actions()).toEqual([]);
+          expect((await snapshotOf(host)).pendingUiRequest).toBeUndefined();
+        });
+
+        it("is denied once the default profile of a cluster without an assignment denies it", async () => {
+          const host = await pendingScale();
+
+          settings = { ...settings, defaultProfileId: "dev" };
+          host.recheckPendingApprovals();
+          await waitFor(settled);
+
+          expect(toolResultTexts()).toEqual([
+            'Denied by the policy profile "Development": kubectl scale deployments web -n default gets Deny from ' +
+              'the rule "kubectl scale *".',
+          ]);
+          expect(cli.actions()).toEqual([]);
+        });
+
+        it("is denied once the rules of the cluster's profile are edited to deny it", async () => {
+          const host = await pendingScale({
+            userProfiles: [{ ...DEV_PROFILE, rules: [], fallbackLevel: "ask" }],
+            profileAssignments: { c1: "dev" },
+          });
+          expect(uiRequests()[0]).toMatchObject({ profileName: "Development", level: "ask" });
+
+          settings = { ...settings, userProfiles: [DEV_PROFILE] };
+          host.recheckPendingApprovals();
+          await waitFor(settled);
+
+          expect(uiResolved()).toEqual([{ id: uiRequests()[0]!.id, confirmed: false }]);
+          expect(toolResultTexts()[0]).toMatch(/^Denied by the policy profile "Development": .* "kubectl scale \*"\.$/);
+          expect(cli.actions()).toEqual([]);
+        });
+
+        it("stays pending when the new level is not Deny, and runs once approved", async () => {
+          const host = await pendingScale();
+
+          settings = everyClusterOn(ALLOW_ALL_PROFILE);
+          host.recheckPendingApprovals();
+
+          expect(uiResolved()).toEqual([]);
+          expect((await snapshotOf(host)).pendingUiRequest).toEqual(uiRequests()[0]);
+          await answer(host, true);
+          await waitFor(settled);
+          expect(cli.actions()).toEqual([expect.objectContaining({ args: scaleWeb })]);
+        });
+
+        it("stays pending when only another cluster's profile changes", async () => {
+          const host = await pendingScale();
+
+          settings = { ...settings, profileAssignments: { c2: "read-only" } };
+          host.recheckPendingApprovals();
+
+          expect(uiResolved()).toEqual([]);
+          expect((await snapshotOf(host)).pendingUiRequest).toEqual(uiRequests()[0]);
+        });
+      });
     });
 
     describe("the resources of the cluster", () => {

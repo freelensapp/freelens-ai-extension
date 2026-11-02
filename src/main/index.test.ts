@@ -281,6 +281,46 @@ describe("LensExtensionAiMain", () => {
       await waitFor(() => !isRunning(pid));
     });
 
+    describe("a pending approval when the policy profiles change in the preferences", () => {
+      const scaleWeb = ["scale", "deployment", "web", "--replicas=3"];
+      const uiRequests = () =>
+        agentEnvelopes().flatMap((envelope) => (envelope.kind === "ui_request" ? [envelope] : []));
+      const uiResolved = () =>
+        agentEnvelopes().flatMap((envelope) => (envelope.kind === "ui_resolved" ? [envelope.payload] : []));
+
+      it("is denied with the reason once the cluster is assigned a profile that denies it", async () => {
+        const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+
+        const result = await callKubectl({ args: scaleWeb }, async () => {
+          await waitFor(() => uiRequests().length > 0, 10_000);
+          preferencesStore.profileAssignments = { c1: "read-only" };
+        });
+
+        expect(uiResolved()).toEqual([{ id: uiRequests()[0]?.payload.id, confirmed: false }]);
+        expect(result).toEqual({
+          text:
+            'Denied by the policy profile "Read only": kubectl scale deployments web -n default gets Deny from the ' +
+            "profile's fallback level.",
+          isError: true,
+        });
+      });
+
+      it("is denied once the rules of the cluster's profile are edited to deny it", async () => {
+        const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
+        const dev = { id: "dev", name: "Development", rules: [], fallbackLevel: "ask" } as const;
+        preferencesStore.userProfiles = [dev];
+        preferencesStore.defaultProfileId = "dev";
+
+        const result = await callKubectl({ args: scaleWeb }, async () => {
+          await waitFor(() => uiRequests().length > 0, 10_000);
+          preferencesStore.userProfiles = [{ ...dev, rules: [{ pattern: "kubectl scale *", level: "deny" }] }];
+        });
+
+        expect(uiResolved()).toEqual([{ id: uiRequests()[0]?.payload.id, confirmed: false }]);
+        expect(result.text).toMatch(/^Denied by the policy profile "Development": .* "kubectl scale \*"\.$/);
+      });
+    });
+
     // Freelens downloads the cluster's kubectl for the first invocation, the gate's read of the resources.
     it("reports the phases and the progress of a kubectl download as partial tool updates", async () => {
       vi.mocked(Main.Shell.getKubectlPath).mockImplementationOnce(async (_clusterId, options) => {
