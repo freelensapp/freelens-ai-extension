@@ -56,6 +56,11 @@ describe("canonical forms of kubectl invocations", () => {
     ["get clusterrole admin", ["kubectl get clusterroles admin"]],
     ["get crd", ["kubectl get customresourcedefinitions *"]],
     ["describe deploy api", ["kubectl describe deployments api -n default"]],
+    ["get resourceclaims.resource.k8s.io gpu", ["kubectl get resourceclaims gpu -n default"]],
+    ["get deviceclass", ["kubectl get deviceclasses *"]],
+    ["get vac", ["kubectl get volumeattributesclasses *"]],
+    ["get ev", ["kubectl get events * -n default"]],
+    ["get events.events.k8s.io", ["kubectl get events * -n default"]],
   ])("kubectl %s", (args, expected) => {
     expect(formsOf(args)).toEqual(expected);
   });
@@ -425,6 +430,28 @@ describe("the floor", () => {
       kind: "floor",
       reason: "Arguments the parser cannot place: --raw is not a supported flag of kubectl get; run it without --raw.",
     });
+  });
+
+  it.each([
+    [
+      "create -n web deployment api --image=nginx",
+      "Arguments the parser cannot place: write kubectl create deployment before the flags.",
+    ],
+    [
+      "apply view-last-applied deploy/api",
+      "Arguments the parser cannot place: kubectl apply does not take the argument view-last-applied.",
+    ],
+    ["apply", "Arguments the parser cannot place: kubectl apply needs the manifest parameter."],
+    ["get pods -n", "Arguments the parser cannot place: -n of kubectl get needs a value."],
+    [
+      "frobnicate pods",
+      "The user's disk and local code: frobnicate is not a kubectl verb, and kubectl would look for a plugin of that name.",
+    ],
+    ["get pods --context prod", "Flags that change the cluster or the identity: --context is never allowed."],
+    ["get pods -v=8", "Credentials and configuration: -v 8 is never allowed."],
+    ["get frobnicators", "Resources the cluster does not serve: the resource catalog has no resource frobnicators."],
+  ])("explains why kubectl %s is rejected", (args, reason) => {
+    expect(evaluate(args)).toMatchObject({ kind: "floor", reason });
   });
 
   it("gives the floor entry's reason for verbose logging", () => {

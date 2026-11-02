@@ -27,8 +27,9 @@ const resource = (
 ): CatalogResource => ({ name, shortNames, group, kind, namespaced, categories });
 
 /**
- * The built-in kinds of Kubernetes, for callers without a cluster (the test box
- * of the preferences). The cluster's own catalog comes from its discovery.
+ * The built-in kinds of Kubernetes 1.36 that its API server serves by default,
+ * for callers without a cluster (the test box of the preferences). The
+ * cluster's own catalog comes from its discovery.
  */
 export const BUILT_IN_RESOURCE_CATALOG: ResourceCatalog = [
   resource("bindings", "", "Binding", true),
@@ -86,6 +87,10 @@ export const BUILT_IN_RESOURCE_CATALOG: ResourceCatalog = [
   resource("servicecidrs", "networking.k8s.io", "ServiceCIDR", false),
   resource("runtimeclasses", "node.k8s.io", "RuntimeClass", false),
   resource("poddisruptionbudgets", "policy", "PodDisruptionBudget", true, ["pdb"]),
+  resource("deviceclasses", "resource.k8s.io", "DeviceClass", false),
+  resource("resourceclaims", "resource.k8s.io", "ResourceClaim", true),
+  resource("resourceclaimtemplates", "resource.k8s.io", "ResourceClaimTemplate", true),
+  resource("resourceslices", "resource.k8s.io", "ResourceSlice", false),
   resource("clusterrolebindings", "rbac.authorization.k8s.io", "ClusterRoleBinding", false),
   resource("clusterroles", "rbac.authorization.k8s.io", "ClusterRole", false),
   resource("rolebindings", "rbac.authorization.k8s.io", "RoleBinding", true),
@@ -96,6 +101,7 @@ export const BUILT_IN_RESOURCE_CATALOG: ResourceCatalog = [
   resource("csistoragecapacities", "storage.k8s.io", "CSIStorageCapacity", true),
   resource("storageclasses", "storage.k8s.io", "StorageClass", false, ["sc"]),
   resource("volumeattachments", "storage.k8s.io", "VolumeAttachment", false),
+  resource("volumeattributesclasses", "storage.k8s.io", "VolumeAttributesClass", false, ["vac"]),
 ];
 
 const VERSION = /^v\d+((alpha|beta)\d+)?$/;

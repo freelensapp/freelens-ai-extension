@@ -131,6 +131,12 @@ const ALL_PATHS: readonly (readonly string[])[] = [
   ...KUBECTL_FLOOR_COMMANDS.map((command) => command.path),
 ];
 
+/** The path of a subcommand that an operand names after flags, such as `deployment` of `create -n web deployment`. */
+const subcommandAfterFlags = (path: readonly string[], operand: string): string[] | undefined => {
+  const subcommand = [...path, KUBECTL_COMMAND_ALIASES[path.join(" ")]?.[operand] ?? operand];
+  return ALL_PATHS.some((candidate) => startsPath(candidate, subcommand)) ? subcommand : undefined;
+};
+
 /**
  * The flags each invocation sets, applied in order. A flag of the floor that is
  * set is rejected; a flag that only the floor knows is not supported otherwise.
@@ -214,6 +220,8 @@ export function parseKubectlInvocation(args: readonly string[]): KubectlInvocati
       index += token.used;
       continue;
     }
+    const subcommand = operands.length === 0 ? subcommandAfterFlags(path, argument) : undefined;
+    if (subcommand) return rejectByFloor("unparseable", `write ${commandLine(subcommand)} before the flags`);
     operands.push(argument);
     index++;
   }

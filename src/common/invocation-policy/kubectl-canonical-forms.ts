@@ -178,13 +178,15 @@ export function kubectlCanonicalForms(input: KubectlFormsInput): CanonicalForm[]
       return unplaceable(invocation, `takes its targets from the manifest, not from ${invocation.operands[0]}`);
     }
     targets = manifestTargets(input, manifestObjects);
-  } else if (command.takesManifest && command.operands.kind === "none") {
-    return unplaceable(invocation, "needs the manifest parameter");
   } else {
     targets = operandTargets(input);
   }
   if (isRejection(targets)) return targets;
-  if (targets === "verb-only") return [{ program: "kubectl", verb: command.verb }];
+  if (targets === "verb-only") {
+    return command.takesManifest
+      ? unplaceable(invocation, "needs the manifest parameter")
+      : [{ program: "kubectl", verb: command.verb }];
+  }
 
   const namespaceFlag = invocation.flags.get("--namespace");
   const namespace = isFlagOn(invocation, "--all-namespaces")
