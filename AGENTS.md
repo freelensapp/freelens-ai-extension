@@ -100,13 +100,14 @@ pnpm clean:all            # Clean everything (dist, dts, node_modules, tgz)
 ```text
 src/
   main/index.ts                      # Extension entry point (main process, ESM): store, pi's ModelRuntime, agent host, provider service, IPC handlers
-  main/agent/                        # Agent host, approval gate, system prompts, provider service, custom endpoints, old-settings import
-  main/agent/tools/                  # Cluster tools, by path through KubeJsonApi.forCluster; approval backups; request errors
+  main/agent/                        # Agent host, approval gate, CLI runner, system prompts, provider service, custom endpoints, old-settings import
+  main/agent/tools/                  # The kubectl tool: the gate's reads of the cluster, dry-run previews, Secret redaction, block reasons
   main/utils/                        # Logger of main
   renderer/index.tsx                 # Extension entry point (renderer process, ESM): pages, menus, preferences
   renderer/business/agent-client/    # Frame side of the agent protocol and the pure chat reducer
   renderer/business/provider-client/ # Frame side of the provider protocol and the chat's model picker
   renderer/business/cluster/         # Cluster id of the frame
+  renderer/business/cli/             # Command line of a CLI invocation, as the cards show it
   renderer/business/objects/         # Chat message objects of the views
   renderer/components/, pages/       # Views: chat, messages, approvals, code blocks, preferences, error boundary
   renderer/context/                  # Application context of a cluster frame
@@ -114,11 +115,12 @@ src/
   renderer/icons/, utils/            # The sidebar icon; the useLog hook of the views
   common/agent-protocol.ts           # Agent IPC protocol: commands, envelopes, snapshot, pi's shapes
   common/provider-protocol.ts        # Provider IPC protocol: status, models, logins, custom endpoints
-  common/agent-tools/                # Tool definitions and their pure helpers, approval preparation and settings
+  common/agent-tools/                # Tool definitions, shared with the chat's tool list
+  common/invocation-policy/          # The invocation policy: parser, canonical forms, floor, rules, shipped profiles, dry-run verbs
   common/store/                      # PreferencesStore, shared by both processes, and the old-preference fields
   common/objects/                    # Chat message object types
   common/utils/                      # Logger factory, redaction, ids
-test/                                # Test stub of @freelensapp/extensions and the stand-in cluster client
+test/                                # Test stub of @freelensapp/extensions, the stand-in CLI and the fake kubectl
 environment-tests/                   # Probes that prove the per-environment type check (see "TypeScript")
 integration/__tests__/               # Integration tests, run inside a Freelens checkout (see "Lint and CI")
 build/                               # Vite plugins and the checks of the built output
@@ -128,9 +130,9 @@ Build output goes to `dist/`: `dist/main.js`, `dist/renderer.js` and
 `dist/renderer.css`, the entries `package.json` names.
 
 The extension presents no custom resource and has no `KubeObject` model of its
-own: the cluster tools reach every kind by path from main (see "Cluster tools
-in the main process"), and the views use the host's `KubeEvent` only. So
-`customResources` of the renderer extension is not set.
+own: the agent reaches every kind through kubectl from main (see "CLI
+invocations in the main process"), and the views use the host's `KubeEvent`
+only. So `customResources` of the renderer extension is not set.
 
 ## Renderer Components
 
@@ -233,15 +235,23 @@ mechanism; this is the list to check a change against.
   into main; otherwise a wrong API type-checks and is `undefined` at runtime.
   The environment tests fail on a leak ("TypeScript").
 - **The cluster from the command.** The agent host takes the cluster id with
-  every command (`handleCommand(clusterId, command)`) and runs a tool call on
-  the client of that cluster, never on one kept in module state: two cluster
-  frames run at once, and a module-level cluster sends one chat's request to
-  the other's cluster ("Cluster tools in the main process").
-- **No unset field in a request query.** The host's JSON client at the pinned
-  nightly writes an `undefined` query field as an empty value (`previous=`),
-  which the API server reads as true. Leave a field out instead, and assert
-  queries with `toStrictEqual`, since `toEqual` ignores undefined keys
-  ("Cluster tools in the main process").
+  every command (`handleCommand(clusterId, command)`) and runs a CLI invocation
+  with the kubectl and the environment of that cluster, never of one kept in
+  module state: two cluster frames run at once, and a module-level cluster
+  sends one chat's invocation to the other's cluster ("CLI invocations in the
+  main process").
+- **Every CLI invocation goes through the invocation policy.** The tool runs
+  only a call that the gate let through (`passedKubectlCalls`), with what the
+  policy decided about it, the Secret redaction included. A new tool, or a new
+  path to the runner, that skips the gate runs the agent's arguments past the
+  floor and the profile, and prints Secret values. Only the gate's own reads
+  and dry runs skip it ("Approvals").
+- **`execFile`, never a shell.** The runner passes the argument array to
+  `execFile`, without `shell`. Through a shell (`exec`, or `shell: true`), an
+  argument such as `$(...)` or `; rm -rf ~` runs on the user's machine, and
+  the shell reads the arguments differently from the parser that checked them.
+  Only the manifest goes on standard input ("CLI invocations in the main
+  process").
 - **Every new pi session gets the injected fetch.** A session created without
   `useInjectedFetch(session)` sends its model requests with Node's global
   `fetch`, which works, but ignores the user's proxy and certificate
@@ -586,8 +596,8 @@ loaded, so it throws under Vitest. `vitest.config.ts` aliases the package to
 - `Renderer.K8sApi.menuItemFor`, which returns the registration with the
   components it is given;
 - `vi.fn()` stand-ins for `Common.logger`, `Main.Catalog.getClusterById`,
-  `Main.Catalog.getAllClusters`, `Main.K8sApi.KubeJsonApi.forCluster`,
-  `Main.Shell.getEnvironment`, `Main.Shell.getKubectlPath`,
+  `Main.Catalog.getAllClusters`, `Main.Shell.getEnvironment`,
+  `Main.Shell.getKubectlPath`,
   `Main.Util.fetch` and the terminal of `Renderer.Component`;
 - plain DOM stand-ins for the host components the views render (`Button`,
   `Icon`, `Input`, `Switch`, `HorizontalLine`, `MonacoEditor`, which shows its
@@ -597,20 +607,6 @@ loaded, so it throws under Vitest. `vitest.config.ts` aliases the package to
 Extend it when a test needs more of the host; it is runtime only, the types
 stay the real declaration's. knip does not follow the alias, so the stub is an
 entry of `knip.jsonc`.
-
-`test/kube-json-api.ts` is a stand-in `KubeJsonApi` of one cluster for the
-cluster tools and the agent host: `createFakeKubeJsonApi(objects, {
-responses, hang, answers })` answers a GET, `get` or `getResponse`, from a
-map of paths (the discovery documents included) and records every request
-with its method, path, query, data, headers and signal (`requests`;
-`actions()` leaves out the discovery reads). A `get` of an unknown path
-rejects with `ParsedApiErrorStandIn`, the shape of the host's parsed API
-error, and a `getResponse` answers it 404; `responses` sets what a
-`getResponse` answers by path (a pod log, a failed discovery request), or the
-`Error` it rejects with; `hang` leaves the requests of the given paths
-unanswered until their signal aborts, so a test can stop a run while a request
-is in progress; `answers` sets what a write answers, or the error it rejects
-with, by `"<method> <path>"`. The tool tests assert on the recorded requests.
 
 `test/stand-in-cli.ts` is a stand-in CLI runner for the `kubectl` tool of the
 agent host: `createStandInCli({ answers, hang, progress })` records every CLI
@@ -631,8 +627,8 @@ arguments make it do).
 
 The agent host tests (`src/main/agent/agent-host.test.ts`) drive the host
 through `handleCommand(clusterId, command)` with pi's faux provider as the
-model (`fauxProvider` of `@earendil-works/pi-ai`), the stand-in cluster client
-and the envelopes of the `broadcast` callback. The faux provider's response
+model (`fauxProvider` of `@earendil-works/pi-ai`), the stand-in CLI and the
+envelopes of the `broadcast` callback. The faux provider's response
 factory receives the request options, so a test asserts on the `fetch` a
 request carries. The extension entry test (`src/main/index.test.ts`) drives
 `LensExtensionAiMain` in the host's order on the stub, with the faux provider
@@ -750,7 +746,7 @@ flat, because the workflow copies it with `cp integration/__tests__/*`.
 The chat is one pi agent (`@earendil-works/pi-coding-agent`) in the **main
 process**, with one pi session per cluster. The cluster frames talk to it
 over Freelens IPC and only show the chat and the approval cards; the API keys,
-the logins, the model requests and the cluster tools never leave main. Model
+the logins, the model requests and the CLI invocations never leave main. Model
 ids, prices, context windows and the thinking level come from pi's catalog;
 there is no model list or capability heuristic of our own. When changing the protocol, the reducer, the host or a
 tool, add or adjust the matching `*.test.ts` (run with `pnpm test:unit`).
@@ -773,16 +769,19 @@ and its tests pass stand-ins.
   `DefaultResourceLoader` turned off for pi's extensions, skills, prompt
   templates, themes and context files, the system prompt of
   `src/main/agent/system-prompt.ts`, and `noTools: "builtin"`; an inline
-  extension registers the cluster tools and the hooks below.
+  extension registers the `kubectl` tool and the hooks below. The prompt says
+  that the agent runs kubectl through the tool, within the floor and the
+  profile, and keeps the output small with `grep`, selectors and `-o`.
 - **Prompt sections.** pi's `before_agent_start` hook sets the `cluster`
-  section (the cluster's name in the catalog) and the `user_rules` section
-  (the custom agent rules) before every run, whether a user message or a
-  custom message started it.
+  section (the cluster's name in the catalog), the `user_rules` section (the
+  custom agent rules) and the `cli_policy` section (the cluster's policy
+  profile, its rules and fallback level, and the floor) before every run,
+  whether a user message or a custom message started it.
 - **AI Explain.** The `explain` command runs in a throwaway in-memory session
   with `EXPLAIN_PROMPT` and the user's rules and no tools. It streams as
   `event` envelopes under its own `sessionId` and is never saved.
 - **Approvals** are pi's `tool_call` hook (see "Approvals").
-- **Stop** (`abort`) aborts the run, the cluster request in progress and a
+- **Stop** (`abort`) aborts the run, the CLI invocation in progress and a
   pending approval, which is denied.
 
 ### The IPC protocol
@@ -806,7 +805,7 @@ The frames talk to the agent over Freelens IPC, not a local HTTP bridge
 - **The snapshot** (`get_snapshot`) has everything a frame needs to show the
   chat when it opens or remounts, even mid-run: the transcript with its tool
   results and compaction markers, the answer being streamed, the pending
-  approval with its backup, "Approve all in this chat" and the stats, and the
+  approval with its dry-run preview, "Approve all in this chat" and the stats, and the
   `seq` of the last envelope. The frame then applies only envelopes with a
   higher `seq`, and loads a new snapshot when it sees a gap.
 
@@ -834,105 +833,130 @@ tool-call parts and tool results; it is pure and tested on its own. The
 frame's cluster id is read from its host name
 (`src/renderer/business/cluster/frame-cluster-id.ts`), as Freelens reads it.
 
-### Cluster tools in the main process
+### CLI invocations in the main process
 
-The tools run in main and reach the cluster through Freelens
-(`docs/adr/0002-cluster-tools-run-in-the-main-process.md`).
+The agent reaches the cluster through one tool, `kubectl`, which runs a CLI
+invocation of the real kubectl against the chat's cluster, in main
+(`docs/adr/0003-agent-tools-are-cli-invocations.md`, which supersedes ADR 0002
+for how the tools reach the cluster).
 
-Every tool is defined once in `src/common/agent-tools/`: name, label,
-description, typebox `parameters`, and the `mutating` and
-`requiresApprovalByDefault` flags. The renderer reads the definitions for the
-tool list and the approval settings. In main, `toPiTool` wraps each as a pi
-tool whose `execute` calls the runner of the same name in
-`CLUSTER_TOOL_RUNNERS`: `READ_TOOL_RUNNERS` of `tools/read-tools.ts` (cluster
-version, namespaces, warning events, list and get of any kind, pod logs) and
-`WRITE_TOOL_RUNNERS` of `tools/write-tools.ts` (create, update, patch, delete,
-delete pod, restart). Mutating tools run one at a time. The pure helpers next
-to the definitions (field filter, pod logs, resource handlers, project
-resource, version summary) are shared and tested on their own.
+The tool is defined once, in `src/common/agent-tools/kubectl-tool.ts`: name,
+label, description and typebox `parameters` (`args`, `manifest`, `grep`,
+`timeoutSeconds`, `revealSecrets`). `AGENT_TOOLS` lists it, and the renderer
+reads it for the chat's tool list. In main, `toPiTool` wraps it as a pi tool
+with `executionMode: "sequential"`, so pi runs the calls of a batch one at a
+time and asks an approval only after the previous call has finished; there is
+no read or write classification. `runKubectl` of `tools/kubectl.ts` turns a
+call into an invocation for the runner, and its result into what the model
+reads.
 
-- **The cluster.** Before every call, `runClusterTool` asks
+- **The runner.** `createCliRunner` of `src/main/agent/cli-runner.ts`, which
+  the entry passes as the `runCli` option, runs the kubectl of
+  `Main.Shell.getKubectlPath(clusterId)`, the one Freelens downloads for the
+  cluster's version, with `execFile`, the argument array and the environment
+  of `Main.Shell.getEnvironment(clusterId)`, which reaches the cluster through
+  Freelens. No shell is involved (see "`execFile`, never a shell"), and only
+  the manifest goes on standard input. The download's phases and progress come
+  back through `onProgress`, and the tool card shows them. Output of more than
+  64 MiB on a stream kills the process.
+- **The cluster.** Before every call, the gate and the tool ask
   `getClusterStatus(clusterId)` (the catalog's `status`). Anything but
   `"connected"`, a cluster Freelens does not know included, is the error
-  result "Cluster not connected", and no client is asked for: a tool never
-  connects a cluster. Otherwise the runner gets `getClusterApi(clusterId)`,
-  `Main.K8sApi.KubeJsonApi.forCluster` (`ClusterToolContext` of
-  `tools/cluster-api.ts`), with pi's abort signal for the call and the pod
-  logs tail lines preference.
-- **By path.** A kind and an apiVersion resolve to their plural and scope
-  from the API server's discovery document of the group version
-  (`resolveResource` in `cluster-api.ts`, `resource-paths.ts`), fetched on
-  every call with no cache; subresources in the document are skipped. Built-in
-  kinds, custom resources, irregular plurals, subresources and `/version` are
-  reached the same way. The document is read with `getResponse`, whose status
-  the host's error for a failed `get` would keep private: a group version the
-  server does not serve (404) answers the model "Could not resolve a
-  Kubernetes API", and any other failure (403, 5xx, a request that failed on
-  the way) is an error result described as below.
-- **Abort.** Every request carries pi's signal, so Stop cancels a request in
-  progress. There is no timeout.
-- **What the writes send**, as the host's `KubeApi` does: create (POST) and
-  update (PUT) set the kind, apiVersion, name and, for a namespaced kind, the
-  namespace on the manifest; a patch is a JSON merge patch, a subresource
-  patch (such as `scale` or `resize`) a strategic merge patch; a delete sends
-  `propagationPolicy=Background`, a force delete adds `DeleteOptions` with
-  `gracePeriodSeconds: 0`; "force finalize" is a JSON merge patch with
-  `finalizers: []`; an eviction POSTs an `Eviction` to the pod's `eviction`
-  subresource; a restart is a strategic merge patch of the pod template's
-  `kubectl.kubernetes.io/restartedAt` annotation. Deleting a pod with its
-  finalizers clears them with a JSON merge patch setting
-  `metadata.finalizers` to `null` (a strategic merge patch with an empty list
-  leaves them in place), then force deletes the pod, and the result says what
-  the cluster answered to each step.
-- **Queries.** Only the fields that are set go into `query` (see "No unset
-  field in a request query"); the pod logs query is the one that has optional
-  fields.
-- **Errors.** A runner's rejection becomes the error result
-  `<tool> failed: <text>`, the text from `describeRequestError`
-  (`tools/describe-request-error.ts`): an `Error` by its message, a Kubernetes
-  `Status` (a GET answered 403) by its message or reason, and the host's
-  parsed API error by its string form, the server's message. The host's error
-  keeps the status private, so a missing object is such an error result too,
-  not a "not found" text of our own.
+  result "Cluster not connected", and no process starts: a tool never
+  connects a cluster.
+- **What runs.** The agent's arguments, with `-f -` added for a `manifest`,
+  and `--tail=<pod logs tail lines preference>` added to a `logs` without
+  `--tail`, `--since` or `--since-time`; the arguments after `--` belong to
+  the command of `exec` and are left alone.
+- **Timeout and Stop.** 30 seconds when `timeoutSeconds` is unset, at most
+  300. Stop aborts pi's signal, which kills the process, and the timeout kills
+  it too; the result says which of the two did. A kubectl download in
+  progress is not cancelled: Stop takes effect once the path comes back.
+- **The result.** The model reads the exit code, the standard output and,
+  when present, the standard error; a non-zero exit code makes it an error
+  result. `grep` keeps the lines of the standard output that match it, then
+  the output is capped at 256 KiB, keeping its head and tail with a marker of
+  how much was cut. The result's `details` (`CliInvocationDetails`) carry the
+  arguments that ran and the exit code, which the tool card shows.
+- **Secret redaction** (`tools/secret-redaction.ts`). A `get` whose targets
+  include `secrets`, without `revealSecrets`, runs with `-o json` in place of
+  the agent's output format. In every object of kind Secret, each value of
+  `data` and `stringData`, and the annotation
+  `kubectl.kubernetes.io/last-applied-configuration`, which holds a copy of
+  them, becomes its size (`redacted, 8 bytes`). The result is printed as YAML
+  when the agent asked for `yaml` or `kyaml`, as JSON otherwise, with a line
+  that says the values are redacted; an output that is not JSON is withheld.
+  Table output (no `-o`, `-o wide`, `-o name`) runs as asked. With
+  `revealSecrets` the call runs as asked, and the profile decides about its
+  `reveal` targets. Nothing outside Secret objects is redacted.
 
 ### Approvals
 
-pi's `tool_call` hook (`AgentHost#gate`) runs before every call. A `kubectl`
-call goes through the invocation policy with the policy profile of its
-cluster, which the host resolves per call from the `getPolicyProfileSettings`
-option (`clusterPolicyProfile` of
-`src/common/invocation-policy/profile-assignment.ts`): the profile assigned to
-the cluster, else the default profile, else Standard. `PreferencesStore` holds
-the user profiles, the assignments and the default profile id, and main checks
-every pending `kubectl` approval again (`recheckPendingApprovals()`) when any
-of them is replaced: one the new profile denies is denied with the reason, any
-other stays pending. At startup main turns the old per-tool approval choices
-(`toolApprovalOverrides`, `podLogsRequireApproval`) that differ from the
+pi's `tool_call` hook (`AgentHost#gate`) runs before every call, with the
+invocation policy of `src/common/invocation-policy/`, a pure module that
+reaches no Node, pi or DOM API.
+
+- **The policy.** `evaluateInvocationPolicy` takes the program, the agent's
+  own arguments (before `-f -` or a logs tail), the manifest,
+  `revealSecrets`, the cluster's policy profile, the resource catalog and the
+  default namespace. It returns a floor rejection with its entry
+  (`FLOOR_ENTRIES` of `floor.ts`), or one canonical form per target with the
+  level and the rule that gave it, and the most restrictive of those levels.
+- **The cluster's resources.** Before the chat's first call, the gate runs
+  `kubectl api-resources -o wide` and
+  `kubectl config view --minify -o jsonpath={..namespace}`
+  (`tools/cluster-resources.ts`) through the same runner and pi's signal, and
+  keeps the catalog and the namespace (else `default`) for the chat's
+  session. A resource the catalog lacks reads it again once; a catalog that
+  cannot be read blocks the call.
+- **The profile.** The host resolves it per call from the
+  `getPolicyProfileSettings` option (`clusterPolicyProfile` of
+  `profile-assignment.ts`): the profile assigned to the cluster, else the
+  default profile, else Standard. The shipped profiles (Read only, Standard,
+  Permissive) live in `shipped-profiles.ts`; `PreferencesStore` holds the
+  user profiles, the assignments and the default profile id.
+- **The levels.** A floor rejection or Deny blocks the call with the reason
+  (`tools/kubectl-policy.ts`), which the model gets as the tool's result and
+  the tool card shows. Allow lets it run. Ask asks the user unless "Approve
+  all in this chat" is on; Always ask always asks, and its card does not offer
+  "Approve all in this chat". The gate records every call it lets through in
+  `passedKubectlCalls`, with its Secret redaction, and the tool runs only a
+  call recorded there.
+- **The dry run.** Before asking about a call whose verb is on
+  `DRY_RUN_VERBS` (`dry-run-verbs.ts`), `previewKubectlInvocation`
+  (`tools/kubectl-preview.ts`) runs it with `--dry-run=server` and `-o yaml`
+  (`-o name` for `delete`, no `-o` for `cordon`, `uncordon` and `drain`), then
+  reads each named target with `get <resource> <name> [-n <ns>] -o yaml`. A
+  dry run the server rejects (Invalid, Forbidden, NotFound, AlreadyExists,
+  Conflict, or an admission webhook that denied it) blocks the call with the
+  server's message, and nobody is asked. Any other failure is "Preview
+  unavailable" with the reason, and the current YAML of the named targets as
+  the backup. Otherwise the card shows a diff per target, current against dry
+  run, without managed fields (`line-diff.ts`). Neither Allow nor a call that
+  "Approve all in this chat" lets through gets a dry run. The preview reaches
+  the card only, never the model or the chat's file.
+- **The request.** The `CliApprovalRequest` (the program, the agent's own
+  arguments, the manifest, the canonical forms, the level, the profile's name
+  and the preview) goes out as a `ui_request` envelope and stays in the
+  snapshot until it is answered, so a remounted frame shows the card again.
+  The frame answers with `ui_response`; main broadcasts `ui_resolved`. A
+  denied call is blocked with `DENIED_REASON`, which the model gets as the
+  tool's result.
+- **A profile change.** Main checks every pending approval again
+  (`recheckPendingApprovals()`) when the user profiles, the assignments or
+  the default profile are replaced: one the new profile denies, or the floor
+  rejects, is denied with the reason; any other stays pending.
+- Stop, New chat, Delete all chats and a deactivation deny a pending
+  approval; Stop during the dry run blocks the call without a card.
+- "Approve all in this chat" (`approveAll` on the answer to an Ask approval)
+  is kept in memory only, so New chat, Delete all chats and a restart turn it
+  off.
+
+At startup main turns the old per-tool approval choices
+(`toolApprovalOverrides`, `podLogsRequireApproval`) that differ from the old
 tools' defaults into the user profile "Standard (migrated)", the new default
 profile (`src/common/store/approval-migration.ts`), and writes the old fields
 back as `null`.
-
-For the other tools, a call of a tool that requires approval by default
-(`requiresApprovalByDefault`), and every mutating call, is validated and
-prepared by `prepareApproval` (`src/common/agent-tools/approval.ts`), and the
-prepared input replaces the model's in place. A call that needs approval then
-waits for the user:
-
-- Unless "Approve all in this chat" is on, the gate loads the backup
-  (`tools/approval-backup.ts`): the current YAML (apiVersion, kind, metadata,
-  spec, status) of the object an update, patch, delete, pod delete or restart
-  would change, with pi's signal. A create, a read, a cluster that is not
-  connected or a failed load leave it out (a failed load is logged as a
-  warning), and the card is shown anyway.
-- The `ApprovalRequest`, with the action as YAML in `message`, its
-  `approval` target and the `backup`, goes out as a `ui_request` envelope and
-  stays in the snapshot until it is answered, so a remounted frame shows the
-  card again. The frame answers with `ui_response`; main broadcasts
-  `ui_resolved`. A denied call is blocked with `DENIED_REASON`, which the model
-  gets as the tool's result.
-- Stop, New chat, Delete all chats and a deactivation deny a pending approval.
-- "Approve all in this chat" (`approveAll` on an approval answer) is kept in
-  memory only, so New chat, Delete all chats and a restart turn it off.
 
 ### Providers and models
 
@@ -1052,7 +1076,7 @@ MCP writes its snapshots to `.playwright-mcp/`, which is git-ignored.
   reports a missing `key` and a prop the DOM does not take as console errors;
   they count as failures of the "no error in DevTools" check.
 - **Main.** The agent host, the provider service, the model requests and the
-  cluster tools run in main and log there with the `freelens-ai` scope: in the
+  CLI invocations run in main and log there with the `freelens-ai` scope: in the
   terminal running Freelens, and in its log file (on macOS
   `~/Library/Logs/Freelens/lens.log`). The chats are the JSONL files in the
   extension's `sessions/` folder.
@@ -1096,7 +1120,7 @@ as `python3 -c` imports modules from that tree before the hook's own code.
 
 Extensions run in the same multi-process model as the Freelens host:
 
-- **Main process** (`src/main/`) — Node.js environment, extension lifecycle, the pi agent, the cluster tools and the model requests
+- **Main process** (`src/main/`) — Node.js environment, extension lifecycle, the pi agent, the CLI invocations and the model requests
 - **Renderer process** (`src/renderer/`) — Chromium browser, UI components
 
 Code in `src/common/` is shared between both processes.
@@ -1121,7 +1145,7 @@ Code in `src/common/` is shared between both processes.
 ### Runtime Errors
 
 1. Open Freelens DevTools and check the Console tab for renderer errors; the chat runs in the cluster frame, the preferences in the root frame
-2. Check the terminal where Freelens was launched for main process errors: the agent host, the provider service, the model requests and the cluster tools run there
+2. Check the terminal where Freelens was launched for main process errors: the agent host, the provider service, the model requests and the CLI invocations run there
 3. Look for stack traces with file:line numbers
 4. Check the change against "Rules That Fail Silently"
 5. Validate both with `pnpm type:check` **and** `pnpm build` — runtime failures can appear only in bundled `dist/` code

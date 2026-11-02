@@ -110,13 +110,17 @@ model itself; it sends your prompts and the cluster context to a model provider
 and renders the response.
 
 The agent is built on the [pi](https://github.com/badlogic/pi-mono) agent SDK
-and runs in the Freelens main process: one agent per cluster, with the cluster
-tools, the approval gate and the saved chats. Your API keys and sign-ins stay in
-the main process and are never sent to the Freelens windows. The cluster tools
-run in the main process too, through the same Kubernetes access Freelens itself
-uses, so a cluster you left disconnected is never connected by the agent, and
-the lists you look at in Freelens do not change because the agent looked
-something up.
+and runs in the Freelens main process: one agent per cluster, with its
+`kubectl` tool, the approval gate and the saved chats. Your API keys and
+sign-ins stay in the main process and are never sent to the Freelens windows.
+The agent reaches the cluster by running the kubectl that Freelens downloads
+for the cluster, with the connection Freelens has to it, so a cluster you left
+disconnected is never connected by the agent. kubectl runs directly, never
+through a shell, and every invocation is checked before it runs: it must stay
+on the chat's cluster, never reveal credentials, never touch your disk or run
+local programs, and end on its own, whatever you configured. Within those
+limits, the cluster's policy profile decides whether it runs, asks you or is
+denied.
 
 Usage is billed by the provider you connect: per token with an API key, or
 under your plan when you sign in with a subscription that allows it. Check that
@@ -172,15 +176,18 @@ custom endpoint with the base URL `http://localhost:11434/v1`, no API key, and
 the exact model names including their tag (for example `llama3.2:3b`, as shown
 by `ollama list`).
 
-The model must support **tool calling**: the agent drives every cluster
-operation through tools, so a model without tool support cannot be used.
+The model must support **tool calling**: the agent runs every cluster
+operation through its `kubectl` tool, so a model without tool support cannot be
+used.
 
 ### Upgrading from an earlier version
 
 On the first start after the upgrade, the OpenAI key from the old settings is
 moved into pi, and an old custom Base URL becomes a custom endpoint with its key
-and model names. The old settings are then cleared. Chats from earlier versions
-are not carried over.
+and model names. The old settings are then cleared. If you had changed which
+tools asked for approval, those choices become the policy profile "Standard
+(migrated)", used by every cluster; otherwise every cluster uses Standard.
+Chats from earlier versions are not carried over.
 
 ---
 
@@ -190,36 +197,40 @@ Talk to your cluster in natural language. The agent reads, explains, and (with
 your approval) changes Kubernetes resources, while the chat keeps the full
 context of the conversation.
 
-**Cluster operations through tools**
+**Cluster operations through kubectl**
 
-- **Any resource kind**: list, get, create, update, patch, and delete any
-  Kubernetes resource — built-in kinds and CRDs alike.
-- **Pod logs**: read a snapshot of container logs, including the previous
-  (terminated) instance for `CrashLoopBackOff`, with a regular-expression filter
-  to narrow chatty logs to only the matching lines.
-- **Smaller, focused output**: `metadata.managedFields` is stripped by default,
-  and JSONPath-style field selectors (the `kubectl -o jsonpath` subset) let the
-  agent fetch only the fields it needs.
-- **In-place pod resize and scaling**: patch the `resize` subresource to change a
-  running Pod's CPU/memory without recreating it (Kubernetes 1.33+), or `scale`
-  to change replicas.
-- **Delete and restart variants**: graceful pod eviction that honors
-  PodDisruptionBudgets, force delete with a zero grace period, finalizer
-  clearing for objects stuck in `Terminating`, and `rollout restart` for
-  workloads.
-- **Cluster insight**: query the Kubernetes server version and the warning
-  events of a namespace.
+- **Everything kubectl does**: the agent runs kubectl against the chat's
+  cluster, so it can read any kind the cluster serves, built-in or CRD,
+  `describe` objects, read events, logs of any pod, container or workload,
+  resource usage and rollout status, check permissions with `auth can-i`, and
+  apply, patch, scale, restart, cordon, drain or delete with your approval.
+- **Small, focused output**: label and field selectors, `-o` formats and a
+  regular-expression filter keep only what matters; logs are read with the
+  tail lines set in the preferences unless the agent asks for another window,
+  and very large output is cut with a marker of what was left out.
 - **AI Explain**: explain a Kubernetes event from its menu, with a diagnosis
   and recommended actions.
 
 **Safe, human-in-the-loop changes**
 
-- **Approval gate**: every change is shown for review — rendered as YAML — and
-  applied only after you approve it; reading pod logs asks too by default.
-- **Approve all in this chat**: skip the approvals for the rest of one chat,
-  until you turn it off or start a new chat.
-- **Backups**: the current state of a resource is presented before it is
-  changed, so a modification can be reverted.
+- **The floor**: no setting lets an invocation leave the chat's cluster,
+  reveal credentials, read or write files on your computer, run local
+  programs, or run without end.
+- **Policy profiles**: Read only, Standard and Permissive give each
+  invocation a level: it runs, asks you, always asks you, or is denied.
+  Standard, the default, runs reads, asks before changes and before reading
+  logs, and always asks before `exec`, `drain` and deleting cluster-scoped
+  resources such as namespaces.
+- **Approval card**: shows the command line, every target, the profile and
+  its level, the manifest, and what the cluster would actually become: a diff
+  from a server-side dry run, or the reason no preview could be made with the
+  current YAML of the target. A change the cluster would reject fails without
+  asking you.
+- **Approve all in this chat**: skip the Ask approvals for the rest of one
+  chat, until you turn it off or start a new chat; Always ask still asks.
+- **Secrets stay hidden**: Secret values are replaced by their sizes before
+  the model sees them, unless the agent asks to reveal them and the profile
+  allows it.
 
 **Chat experience**
 
