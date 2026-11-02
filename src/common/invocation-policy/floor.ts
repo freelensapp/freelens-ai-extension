@@ -48,7 +48,7 @@ export const FLOOR_ENTRIES: Readonly<Record<FloorEntryId, FloorEntry>> = {
     id: "credentials-or-configuration",
     title: "Credentials and configuration",
     reason:
-      "Credentials never reach the model, and the configuration of kubectl stays as the user set it. Verbose logging prints request headers, the bearer token included, and response bodies, Secret values included.",
+      "Credentials never reach the model, and the configuration of kubectl stays as the user set it. Verbose logging from level 6 prints the requests: from level 7 their request headers, the bearer token included, and from level 8 the response bodies, Secret values included.",
     covers: ["config", "kuberc", "create token", "certificate", "-v, --v at 6 or higher", "--vmodule"],
   },
   "local-disk-or-code": {

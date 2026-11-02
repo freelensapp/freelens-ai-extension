@@ -2,7 +2,8 @@
 // documents it: the global flags, the verbs and their subcommands, the flags of
 // each and the arguments each takes. The parser accepts nothing else, so a
 // flag that is missing here is rejected as not supported rather than guessed.
-// `--raw`, `apply --prune` and `set env --resolve` are left out on purpose:
+// `--raw`, `apply --prune`, `--all` and `--prune-allowlist`, `diff --prune`
+// and `--prune-allowlist`, and `set env --resolve` are left out on purpose:
 // they reach objects the canonical forms would not name.
 
 import type { FloorEntryId } from "./floor";
@@ -141,7 +142,16 @@ export const KUBECTL_FLOOR_ONLY_FLAGS: readonly FlagSpec[] = flags(
   flag("--follow", NEVER_ENDS),
 );
 
-const OUTPUT = flags("-o|--output=", "--template=", "--allow-missing-template-keys", "--show-managed-fields");
+/** `-o go-template-file=...`, `jsonpath-file`, `custom-columns-file` and `templatefile` read a file. */
+const readsOutputFile = (value: string): boolean => {
+  const format = value.split("=", 1)[0] ?? "";
+  return format.endsWith("-file") || format === "templatefile";
+};
+
+/** `-o` of every command: a format read from a file is rejected by the floor. */
+const OUTPUT_FORMAT = flag("-o|--output=", DISK, readsOutputFile);
+
+const OUTPUT = flags(OUTPUT_FORMAT, "--template=", "--allow-missing-template-keys", "--show-managed-fields");
 const FILES = flags(flag("-f|--filename=", DISK), flag("-k|--kustomize=", DISK), "-R|--recursive");
 const SELECTOR = flags("-l|--selector=");
 const FIELD_SELECTOR = flags("--field-selector=");
@@ -241,7 +251,7 @@ export const KUBECTL_COMMANDS: readonly KubectlCommand[] = [
     TARGETS,
   ),
   command("describe", flags(FILES, SELECTOR, ALL_NAMESPACES, "--chunk-size=", "--show-events"), TARGETS),
-  command("explain", flags("--api-version=", "-o|--output=", "-R|--recursive"), { kind: "free", max: 1 }),
+  command("explain", flags("--api-version=", OUTPUT_FORMAT, "-R|--recursive"), { kind: "free", max: 1 }),
   command("events", flags(OUTPUT, ALL_NAMESPACES, WATCH, "--chunk-size=", "--for=", "--no-headers", "--types="), {
     kind: "names",
     resource: "events",
@@ -299,7 +309,7 @@ export const KUBECTL_COMMANDS: readonly KubectlCommand[] = [
       "--categories=",
       "--namespaced",
       "--no-headers",
-      "-o|--output=",
+      OUTPUT_FORMAT,
       "--show-managed-fields",
       "--sort-by=",
       "--verbs=",
@@ -307,7 +317,7 @@ export const KUBECTL_COMMANDS: readonly KubectlCommand[] = [
     NONE,
   ),
   command("api-versions", [], NONE),
-  command("version", flags("--client", "-o|--output="), NONE),
+  command("version", flags("--client", OUTPUT_FORMAT), NONE),
   command("cluster-info", [], NONE),
   command(
     "cluster-info dump",
@@ -467,7 +477,7 @@ export const KUBECTL_COMMANDS: readonly KubectlCommand[] = [
       "--ignore-not-found",
       flag("-i|--interactive", NEVER_ENDS),
       "--now",
-      "-o|--output=",
+      OUTPUT_FORMAT,
       "--timeout=",
       "--wait",
     ),

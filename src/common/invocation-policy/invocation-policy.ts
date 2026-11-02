@@ -1,10 +1,10 @@
+import { type FloorRejection, rejectByFloor } from "./floor";
 import { kubectlCanonicalForms } from "./kubectl-canonical-forms";
 import { parseKubectlInvocation } from "./kubectl-invocation";
 import { checkSecretOutput } from "./kubectl-secret-output";
 import { type ManifestObject, readManifestObjects } from "./manifest";
 
 import type { CanonicalForm, CliProgram } from "./canonical-form";
-import type { FloorRejection } from "./floor";
 import type { PolicyLevel, PolicyProfile, PolicyRule } from "./policy-profile";
 import type { ResourceCatalog } from "./resource-catalog";
 
@@ -50,6 +50,12 @@ export function evaluateInvocationPolicy(input: InvocationPolicyInput): Invocati
 
   let manifestObjects: ManifestObject[] | undefined;
   if (input.manifest !== undefined) {
+    if (!invocation.command.takesManifest) {
+      return rejectByFloor(
+        "manifest",
+        `kubectl ${invocation.command.path.join(" ")} takes no manifest; only apply, create, replace, delete and diff do`,
+      );
+    }
     const objects = readManifestObjects(input.manifest);
     if ("kind" in objects) return objects;
     manifestObjects = objects;

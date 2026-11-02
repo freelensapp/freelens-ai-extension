@@ -3,6 +3,7 @@ import { formatCanonicalForm } from "./canonical-form";
 import { evaluateInvocationPolicy, type InvocationPolicyResult } from "./invocation-policy";
 import { BUILT_IN_RESOURCE_CATALOG } from "./resource-catalog";
 
+import type { FloorEntryId } from "./floor";
 import type { PolicyProfile } from "./policy-profile";
 
 const ASK_EVERYTHING: PolicyProfile = { id: "test", name: "Test", rules: [], fallbackLevel: "ask" };
@@ -246,5 +247,186 @@ describe("reveal", () => {
     ],
   ])("kubectl %s with revealSecrets %s", (args, revealSecrets, manifest, expected) => {
     expect(formsOf(args, { revealSecrets, ...(manifest ? { manifest } : {}) })).toEqual(expected);
+  });
+});
+
+/** The floor entry that rejects an invocation, or "passes". */
+const floorEntryOf = (args: string | readonly string[], options: EvaluateOptions = {}): FloorEntryId | "passes" => {
+  const result = evaluate(args, options);
+  return result.kind === "floor" ? result.entry.id : "passes";
+};
+
+describe("the floor", () => {
+  it.each<[string, FloorEntryId]>([
+    ["get pods --kubeconfig /tmp/other", "cluster-or-identity"],
+    ["--context prod get pods", "cluster-or-identity"],
+    ["get pods --context=prod", "cluster-or-identity"],
+    ["get pods --cluster prod", "cluster-or-identity"],
+    ["get pods --server https://example.com", "cluster-or-identity"],
+    ["get pods -s https://example.com", "cluster-or-identity"],
+    ["get pods --token abc", "cluster-or-identity"],
+    ["get pods --user admin", "cluster-or-identity"],
+    ["get pods --username admin", "cluster-or-identity"],
+    ["get pods --password secret", "cluster-or-identity"],
+    ["get pods --as system:admin", "cluster-or-identity"],
+    ["get pods --as-group system:masters", "cluster-or-identity"],
+    ["get pods --as-uid 1", "cluster-or-identity"],
+    ["get pods --as-user-extra a=b", "cluster-or-identity"],
+    ["get pods --certificate-authority ca.crt", "cluster-or-identity"],
+    ["get pods --client-certificate a.crt", "cluster-or-identity"],
+    ["get pods --client-key a.key", "cluster-or-identity"],
+    ["get pods --insecure-skip-tls-verify", "cluster-or-identity"],
+    ["get pods --tls-server-name example.com", "cluster-or-identity"],
+    ["get pods --cache-dir /tmp/cache", "cluster-or-identity"],
+    ["config view --raw", "credentials-or-configuration"],
+    ["config use-context prod", "credentials-or-configuration"],
+    ["kuberc view", "credentials-or-configuration"],
+    ["create token default", "credentials-or-configuration"],
+    ["certificate approve csr-1", "credentials-or-configuration"],
+    ["get pods -v=6", "credentials-or-configuration"],
+    ["get pods -v 9", "credentials-or-configuration"],
+    ["get pods --v=7", "credentials-or-configuration"],
+    ["get pods -v8", "credentials-or-configuration"],
+    ["get pods --vmodule=round_trippers=8", "credentials-or-configuration"],
+    ["apply -f deployment.yaml", "local-disk-or-code"],
+    ["apply --filename=deployment.yaml", "local-disk-or-code"],
+    ["get -f pod.yaml", "local-disk-or-code"],
+    ["apply -k overlays/dev", "local-disk-or-code"],
+    ["delete --kustomize=overlays/dev", "local-disk-or-code"],
+    ["cp web:/etc/passwd ./passwd", "local-disk-or-code"],
+    ["create configmap settings --from-file=app.properties", "local-disk-or-code"],
+    ["create secret generic db --from-env-file=.env", "local-disk-or-code"],
+    ["create secret tls web --cert=tls.crt --key=tls.key", "local-disk-or-code"],
+    ["patch deploy api --patch-file=patch.yaml", "local-disk-or-code"],
+    ["get pods -o go-template-file=template.txt", "local-disk-or-code"],
+    ["get pods -o jsonpath-file=path.txt", "local-disk-or-code"],
+    ["get pods -o custom-columns-file=columns.txt", "local-disk-or-code"],
+    ["get pods -o templatefile=template.txt", "local-disk-or-code"],
+    ["get pods --profile=cpu", "local-disk-or-code"],
+    ["get pods --profile-output=/tmp/profile", "local-disk-or-code"],
+    ["get pods --kuberc /tmp/kuberc", "local-disk-or-code"],
+    ["cluster-info dump --output-directory=/tmp/dump", "local-disk-or-code"],
+    ["kustomize overlays/dev", "local-disk-or-code"],
+    ["plugin list", "local-disk-or-code"],
+    ["ctx prod", "local-disk-or-code"],
+    ["proxy", "never-ends-or-terminal"],
+    ["port-forward svc/api 8080:80", "never-ends-or-terminal"],
+    ["attach api", "never-ends-or-terminal"],
+    ["edit deploy api", "never-ends-or-terminal"],
+    ["create --edit", "never-ends-or-terminal"],
+    ["exec -it api -- sh", "never-ends-or-terminal"],
+    ["exec api -i -- sh", "never-ends-or-terminal"],
+    ["exec api --stdin -- sh", "never-ends-or-terminal"],
+    ["exec api --tty -- sh", "never-ends-or-terminal"],
+    ["exec api -t -- sh", "never-ends-or-terminal"],
+    ["run shell --image=busybox -i -- sh", "never-ends-or-terminal"],
+    ["get pods -w", "never-ends-or-terminal"],
+    ["get pods --watch", "never-ends-or-terminal"],
+    ["get pods --watch-only", "never-ends-or-terminal"],
+    ["rollout status deploy/api -w", "never-ends-or-terminal"],
+    ["logs api -f", "never-ends-or-terminal"],
+    ["logs api --follow", "never-ends-or-terminal"],
+    ["delete pods --all -i", "never-ends-or-terminal"],
+    ["get secrets -o jsonpath={.data}", "secret-output"],
+    ["get secret db -o=jsonpath-as-json={.data}", "secret-output"],
+    ["get secrets -o go-template={{.data}}", "secret-output"],
+    ["get secrets -o template={{.data}}", "secret-output"],
+    ["get secrets -o custom-columns=DATA:.data", "secret-output"],
+    ["get secrets --template={{.data}}", "secret-output"],
+    ["get pods,secrets -o jsonpath={..data}", "secret-output"],
+    ["create secret generic db --from-literal=password=x -o yaml", "secret-output"],
+    ["delete secret db -o json", "secret-output"],
+    ["label secret db team=web -o yaml", "secret-output"],
+    ["get pods --raw /api/v1/secrets", "unparseable"],
+    ["get --raw /api/v1/secrets", "unparseable"],
+    ["get pods --no-such-flag", "unparseable"],
+    ["get pods -Z", "unparseable"],
+    ["get pods -n", "unparseable"],
+    ["get", "unparseable"],
+    ["", "unparseable"],
+    ["-n web", "unparseable"],
+    ["rollout", "unparseable"],
+    ["rollout deploy/api", "unparseable"],
+    ["auth reconcile", "unparseable"],
+    ["create secret", "unparseable"],
+    ["debug api -it --image=busybox", "unparseable"],
+    ["completion bash", "unparseable"],
+    ["version extra", "unparseable"],
+    ["get pods/a b", "unparseable"],
+    ["get pods,", "unparseable"],
+    ["get pods a/b/c", "unparseable"],
+    ["get pods -- a", "unparseable"],
+    ["logs a b c", "unparseable"],
+    ["logs", "unparseable"],
+    ["create deployment --image=nginx", "unparseable"],
+    ["apply", "unparseable"],
+    ["create -n web deployment api --image=nginx", "unparseable"],
+    ["set env deploy/api --from=secret/db --resolve", "unparseable"],
+    ["set selector svc", "unparseable"],
+    ["cordon node/node-1", "unparseable"],
+    ["events api", "unparseable"],
+    ["get frobnicators", "unknown-resource"],
+    ["get pods,frobnicators", "unknown-resource"],
+    ["logs frobnicator/a", "unknown-resource"],
+    ["get deployments.example.com", "unknown-resource"],
+  ])("kubectl %s is rejected by %s", (args, entry) => {
+    expect(floorEntryOf(args === "" ? [] : args)).toBe(entry);
+  });
+
+  it.each<[string, FloorEntryId, string]>([
+    ["apply --prune -l app=web", "unparseable", DEPLOYMENT_AND_ROLE],
+    ["apply --all", "unparseable", DEPLOYMENT_AND_ROLE],
+    ["get pods", "manifest", DEPLOYMENT_AND_ROLE],
+    ["create deployment api --image=nginx", "manifest", DEPLOYMENT_AND_ROLE],
+    ["apply", "manifest", "kind: [unclosed"],
+    ["apply", "manifest", ""],
+    ["apply", "manifest", "---\n---\n"],
+    ["apply", "manifest", "apiVersion: v1\nmetadata:\n  name: x\n"],
+    ["apply", "manifest", "apiVersion: v1\nkind: ConfigMap\nmetadata: {}\n"],
+    ["apply", "manifest", "- a\n- b\n"],
+    ["apply", "unknown-resource", "apiVersion: example.com/v1\nkind: Widget\nmetadata:\n  name: x\n"],
+    ["delete pods api", "unparseable", SECRET],
+    ["apply -o yaml", "secret-output", SECRET],
+    ["diff --show-secrets", "secret-output", SECRET],
+  ])("kubectl %s with a manifest is rejected by %s", (args, entry, manifest) => {
+    expect(floorEntryOf(args, { manifest })).toBe(entry);
+  });
+
+  it.each<[string, string | undefined]>([
+    ["get pods --watch=false", undefined],
+    ["get pods -w=false", undefined],
+    ["rollout status deploy/api --watch=false", undefined],
+    ["exec api --stdin=false -- ls", undefined],
+    ["get pods --insecure-skip-tls-verify=false", undefined],
+    ["get pods -v=5", undefined],
+    ["get pods --v 2", undefined],
+    ["logs api --follow=false", undefined],
+    ["get pods --request-timeout=10s", undefined],
+    ["get secrets -o yaml", undefined],
+    ["get secrets db -o json", undefined],
+    ["get secrets -o wide", undefined],
+    ["get secrets -o name", undefined],
+    ["describe secret db", undefined],
+    ["delete secret db -o name", undefined],
+    ["delete secret db", undefined],
+    ["apply -o name", SECRET],
+    ["diff", SECRET],
+    ["get pods -o jsonpath={.items[*].metadata.name}", undefined],
+    ["apply --dry-run=server -o yaml", DEPLOYMENT_AND_ROLE],
+    ["create --dry-run=server -o yaml", DEPLOYMENT_AND_ROLE],
+  ])("kubectl %s passes the floor", (args, manifest) => {
+    expect(floorEntryOf(args, manifest === undefined ? {} : { manifest })).toBe("passes");
+  });
+
+  it("names the flag it does not support, so that the agent can run the invocation without it", () => {
+    expect(evaluate("get pods --raw /api")).toMatchObject({
+      kind: "floor",
+      reason: "Arguments the parser cannot place: --raw is not a supported flag of kubectl get; run it without --raw.",
+    });
+  });
+
+  it("gives the floor entry's reason for verbose logging", () => {
+    const result = evaluate("get pods -v=7");
+    expect(result.kind === "floor" && result.entry.reason).toMatch(/request headers.*bearer token.*response bodies/);
   });
 });

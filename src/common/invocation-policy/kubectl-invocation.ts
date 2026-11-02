@@ -144,7 +144,7 @@ const applyFlags = (
     const { spec } = found;
     const rejected = spec.takesValue || !FALSE_VALUES.has(value);
     if (spec.floor && rejected && (spec.floorRejects?.(value) ?? true)) {
-      return rejectByFloor(spec.floor, `${spelling} is never allowed`);
+      return rejectByFloor(spec.floor, `${spec.floorRejects ? `${spelling} ${value}` : spelling} is never allowed`);
     }
     if (found.source === "floor-only") return unsupportedFlag(spelling, path);
     flags.set(spec.long, value);
