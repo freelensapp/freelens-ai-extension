@@ -11,8 +11,8 @@
 // - `get pods fail`: prints an error on the standard error and exits with 3;
 // - `get pods flood`: prints a line, 400 KiB of "y" and a line;
 // - anything else: prints its arguments, the `FAKE_KUBECTL_CLUSTER` and
-//   `FAKE_KUBECTL_LEAK` variables of its environment and its standard input,
-//   as JSON.
+//   `FAKE_KUBECTL_LEAK` variables of its environment, its working directory
+//   and its standard input, as JSON.
 
 import { writeFileSync } from "node:fs";
 import { text } from "node:stream/consumers";
@@ -49,6 +49,7 @@ switch (args[0] === "get" && args[1] === "pods" ? `get pods ${args[2]}` : args[0
         args,
         cluster: process.env.FAKE_KUBECTL_CLUSTER,
         leak: process.env.FAKE_KUBECTL_LEAK,
+        cwd: process.cwd(),
         stdin: await text(process.stdin),
       })}\n`,
     );

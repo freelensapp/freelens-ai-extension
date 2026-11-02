@@ -58,8 +58,11 @@ const downloadProgress = ({ transferred, total }: Main.Shell.KubectlDownloadProg
  * The runner of main: the kubectl or helm Freelens runs for the cluster, started with
  * `execFile` and the argument array, so no shell ever reads the arguments, and
  * with the cluster's environment, which reaches the cluster through Freelens.
+ * Both run in `workingDirectory`, an empty folder of the extension: helm looks
+ * for a chart on the local disk before the repositories, so `repo/chart` would
+ * load a folder of that name from the working directory of main.
  */
-export function createCliRunner(shell: CliShell): CliRunner {
+export function createCliRunner(shell: CliShell, workingDirectory: string): CliRunner {
   return async ({ clusterId, program, args, manifest, timeoutMs, signal, onProgress }) => {
     // A download reports its progress as the bytes arrive: only a changed text is passed on.
     let lastProgress: string | undefined;
@@ -85,7 +88,7 @@ export function createCliRunner(shell: CliShell): CliRunner {
       const child = execFile(
         path,
         [...args],
-        { env, signal, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true },
+        { cwd: workingDirectory, env, signal, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true },
         (error, stdout, stderr) => {
           clearTimeout(timer);
           if (timedOut) return resolve({ stdout, stderr, exitCode: null, killed: "timeout" });

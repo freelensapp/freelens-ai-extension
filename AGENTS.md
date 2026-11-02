@@ -889,7 +889,11 @@ into an invocation for the runner, and its result into what the model reads.
   with `execFile`, the argument array and the environment
   of `Main.Shell.getEnvironment(clusterId)`, which reaches the cluster through
   Freelens. No shell is involved (see "`execFile`, never a shell"), and only
-  the manifest goes on standard input. The download's phases and progress come
+  the manifest goes on standard input. Both run in
+  `<extension folder>/cli-working-directory/`, which the entry empties and
+  creates at activation: helm looks for a chart on the local disk before the
+  repositories, so `repo/chart` would otherwise load a folder of that name
+  from main's working directory. The download's phases and progress come
   back through `onProgress`, and the tool card shows them. Output of more than
   64 MiB on a stream kills the process.
 - **The cluster.** Before every call, the gate and the tool ask

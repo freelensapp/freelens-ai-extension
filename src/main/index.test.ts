@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -129,6 +129,8 @@ describe("LensExtensionAiMain", () => {
   describe("kubectl calls through the real CLI runner", () => {
     const fakeKubectl = join(import.meta.dirname, "../../test/fake-kubectl.mjs");
     let pidFile: string;
+    // The working directory of the CLI invocations, as the process sees it.
+    const cliWorkingDirectory = () => join(realpathSync(dataDir), "cli-working-directory");
 
     beforeEach(() => {
       pidFile = join(dataDir, "fake-kubectl.pid");
@@ -199,8 +201,20 @@ describe("LensExtensionAiMain", () => {
       expect(Main.Shell.getEnvironment).toHaveBeenCalledWith("c1");
       expect(result.isError).toBe(false);
       const output = JSON.parse(result.text.split("Standard output:\n")[1] ?? "");
-      expect(output).toEqual({ args, cluster: "the environment of c1", stdin: "" });
+      expect(output).toEqual({ args, cluster: "the environment of c1", cwd: cliWorkingDirectory(), stdin: "" });
       expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it("runs kubectl and helm in an empty folder of the extension, emptied at activation, so a relative path finds nothing", async () => {
+      // A chart left there would be what `helm upgrade web repo/chart` loads, before the repository's.
+      mkdirSync(join(cliWorkingDirectory(), "repo", "chart"), { recursive: true });
+      vi.mocked(Main.Shell.getHelmPath).mockResolvedValue(fakeKubectl);
+
+      const result = await callKubectl({ args: ["history", "web"] }, undefined, "helm");
+
+      const output = JSON.parse(result.text.split("Standard output:\n")[1] ?? "");
+      expect(output.cwd).toBe(cliWorkingDirectory());
+      expect(readdirSync(cliWorkingDirectory())).toEqual([]);
     });
 
     it("runs the cluster's helm for a helm call, with the cluster's environment", async () => {
@@ -212,7 +226,12 @@ describe("LensExtensionAiMain", () => {
       expect(Main.Shell.getHelmPath).toHaveBeenCalledWith("c1");
       expect(result.isError).toBe(false);
       const output = JSON.parse(result.text.split("Standard output:\n")[1] ?? "");
-      expect(output).toEqual({ args: ["list", "-n", "web"], cluster: "the environment of c1", stdin: "" });
+      expect(output).toEqual({
+        args: ["list", "-n", "web"],
+        cluster: "the environment of c1",
+        cwd: cliWorkingDirectory(),
+        stdin: "",
+      });
     });
 
     // A diff runs without a card under Standard, the profile of every cluster.

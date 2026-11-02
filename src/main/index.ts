@@ -1,3 +1,4 @@
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -92,6 +93,13 @@ export default class LensExtensionAiMain extends Main.LensExtension {
 
     await this.importLegacySettings(preferencesStore, modelRuntime, piDir, modelsPath);
 
+    // kubectl and helm run in an empty folder of the extension, so that a
+    // relative path, such as a chart helm would look for on the local disk,
+    // finds nothing; emptied at every activation.
+    const cliWorkingDirectory = join(dataDir, "cli-working-directory");
+    rmSync(cliWorkingDirectory, { recursive: true, force: true });
+    mkdirSync(cliWorkingDirectory, { recursive: true });
+
     const ipc = AgentMainIpc.createInstance(this) as AgentMainIpc;
 
     // Provider status, models and logins for the settings page. Global, not per
@@ -112,11 +120,14 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       getClusterStatus: (clusterId) => Main.Catalog.getClusterById(clusterId)?.status,
       // kubectl and helm run here, with the binaries and the environment
       // Freelens uses for the cluster's terminal.
-      runCli: createCliRunner({
-        getKubectlPath: (clusterId, options) => Main.Shell.getKubectlPath(clusterId, options),
-        getHelmPath: (clusterId) => Main.Shell.getHelmPath(clusterId),
-        getEnvironment: (clusterId) => Main.Shell.getEnvironment(clusterId),
-      }),
+      runCli: createCliRunner(
+        {
+          getKubectlPath: (clusterId, options) => Main.Shell.getKubectlPath(clusterId, options),
+          getHelmPath: (clusterId) => Main.Shell.getHelmPath(clusterId),
+          getEnvironment: (clusterId) => Main.Shell.getEnvironment(clusterId),
+        },
+        cliWorkingDirectory,
+      ),
       // The store holds the user profiles, the assignments and the default
       // profile, read at every kubectl or helm call and every prompt.
       getPolicyProfileSettings: () => preferencesStore,
