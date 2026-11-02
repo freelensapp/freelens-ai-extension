@@ -119,7 +119,7 @@ src/
   common/invocation-policy/          # The invocation policy: parser, canonical forms, floor, rules, shipped profiles, dry-run verbs
   common/store/                      # PreferencesStore, shared by both processes, and the old-preference fields
   common/objects/                    # Chat message object types
-  common/utils/                      # Logger factory, redaction, ids
+  common/utils/                      # Logger factory, redaction, ids, command-line splitting
 test/                                # Test stub of @freelensapp/extensions, the stand-in CLI and the fake kubectl
 environment-tests/                   # Probes that prove the per-environment type check (see "TypeScript")
 integration/__tests__/               # Integration tests, run inside a Freelens checkout (see "Lint and CI")
@@ -178,7 +178,13 @@ only. So `customResources` of the renderer extension is not set.
   profile fields (`userProfiles`, `profileAssignments`, `defaultProfileId`)
   through `policy-profile-edits.ts`, each replaced as a whole in a MobX
   action and never changed in place, since replacing one is what makes main
-  check the pending approvals again (see "Approvals").
+  check the pending approvals again (see "Approvals"). Its test box,
+  `profile-test-box.tsx`, splits a typed command line with `splitCommandLine`
+  of `src/common/utils/`, without a shell, and evaluates it with
+  `evaluateInvocationPolicy`, as the gate does, but with
+  `BUILT_IN_RESOURCE_CATALOG` and the namespace `default`; its floor list,
+  `floor-list.tsx`, reads `FLOOR_ENTRIES`, so an entry added to the policy
+  shows there.
 - **Navigation.** A registration hands the extension instance to its view
   (`<MainPage extension={this} />`, `<MenuEntry {...props} extension={this} />`),
   never through module state. A view opens the chat page with
