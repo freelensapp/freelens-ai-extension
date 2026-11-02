@@ -82,7 +82,7 @@ const toolCallMessage = (toolCall: ToolCallView): MessageObject => ({
 const resultText = (content: (TextContent | ImageContent)[] = []) =>
   content.map((part) => (part.type === "text" ? part.text : "")).join("");
 
-// The arguments a kubectl call ran with and its exit code, kept by the tool in
+// The arguments a kubectl or helm call ran with and its exit code, kept by the tool in
 // its result's details.
 const invocationOf = (details: unknown) => (isCliInvocationDetails(details) ? { invocation: details } : {});
 
@@ -209,7 +209,7 @@ export const APPROVE_ALL_OPTION = "Approve all in this chat";
 
 const APPROVAL_QUESTION = "Do you want to approve this action?";
 
-// A kubectl call shows as its command line; its body comes from the request.
+// A kubectl or helm call shows as its command line; its body comes from the request.
 // "Approve all in this chat" never covers Always ask, so it is not offered there.
 const approvalCard = (request: CliApprovalRequest): MessageObject => ({
   messageId: generateUuid(),

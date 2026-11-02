@@ -17,8 +17,12 @@ import {
   KUBECONFIG_NAMESPACE_KEY,
   STAND_IN_RESOURCES,
 } from "../../../test/stand-in-cli";
-import { kubectlTool } from "../../common/agent-tools";
-import { READ_ONLY_PROFILE, STANDARD_PROFILE } from "../../common/invocation-policy/shipped-profiles";
+import { AGENT_TOOLS, helmTool, kubectlTool } from "../../common/agent-tools";
+import {
+  PERMISSIVE_PROFILE,
+  READ_ONLY_PROFILE,
+  STANDARD_PROFILE,
+} from "../../common/invocation-policy/shipped-profiles";
 import { AgentHost, type AgentHostOptions } from "./agent-host";
 import { API_RESOURCES_ARGS, KUBECONFIG_NAMESPACE_ARGS } from "./tools/cluster-resources";
 
@@ -1578,7 +1582,22 @@ describe("AgentHost", () => {
         expect(sectionsSeen[1]?.cli_policy).toContain("Fallback level: Deny");
       });
 
-      it("is not set for an agent without the kubectl tool", async () => {
+      it("lists the helm rules of the profile for an agent with the helm tool only", async () => {
+        faux.setResponses([recordSections]);
+        const host = createHost({ tools: [helmTool] });
+
+        await ask(host);
+
+        const section = sectionsSeen[0]?.cli_policy ?? "";
+        expect(section).toContain("Every kubectl and helm call first passes the floor");
+        expect(section).toContain("- helm list *: Allow\n");
+        expect(section).toContain("- helm uninstall *: Always ask\n");
+        expect(section).toMatch(
+          /- The user's disk and local code: .*helm upgrade and helm show with a local chart path/,
+        );
+      });
+
+      it("is not set for an agent without the kubectl and helm tools", async () => {
         faux.setResponses([recordSections]);
         const host = createHost({ tools: [] });
 
@@ -1922,6 +1941,421 @@ describe("AgentHost", () => {
     });
   });
 
+  describe("helm tool", () => {
+    const uiRequests = () => envelopes.flatMap((e) => (e.kind === "ui_request" ? [e.payload] : []));
+    const toolResultTexts = () =>
+      toolEnd().map((end) =>
+        (end.result.content ?? []).map((part) => (part.type === "text" ? part.text : "")).join(""),
+      );
+    const helmHost = (overrides: Partial<AgentHostOptions> = {}) =>
+      createHost({ tools: [kubectlTool, helmTool], ...overrides });
+    const answer = (host: AgentHost, confirmed: boolean) =>
+      host.handleCommand("c1", { type: "ui_response", id: uiRequests()[uiRequests().length - 1]!.id, confirmed });
+    const previewKeys = () => cli.previews().map((invocation) => `${invocation.program} ${invocation.args.join(" ")}`);
+    const manifestOf = (replicas: number) =>
+      "---\n# Source: nginx/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n" +
+      `  name: web-nginx\nspec:\n  replicas: ${replicas}\n`;
+    const releaseForm = (verb: string) => ({
+      program: "helm",
+      verb,
+      resource: "releases",
+      name: "web",
+      namespace: "default",
+    });
+
+    it("runs a helm call the profile allows, with the helm of the chat's cluster and without a card", async () => {
+      cli = createStandInCli({ answers: { "list -A": { stdout: "NAME\tNAMESPACE\nweb \tdefault\n" } } });
+      faux.setResponses(callThenEcho("helm", { args: ["list", "-A"] }));
+      const host = helmHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "list the releases" });
+      await waitFor(settled);
+
+      expect(uiRequests()).toEqual([]);
+      expect(cli.actions()).toEqual([
+        { clusterId: "c1", program: "helm", args: ["list", "-A"], timeoutMs: 30_000, signal: expect.any(AbortSignal) },
+      ]);
+      expect(toolEnd()).toEqual([
+        expect.objectContaining({
+          toolName: "helm",
+          isError: false,
+          result: expect.objectContaining({ details: { args: ["list", "-A"], exitCode: 0 } }),
+        }),
+      ]);
+      expect(answerText()).toBe("Result: Exit code: 0\n\nStandard output:\nNAME\tNAMESPACE\nweb \tdefault");
+    });
+
+    it("keeps only the lines that match grep and says when the timeout killed helm", async () => {
+      cli = createStandInCli({
+        answers: {
+          "history web": { stdout: "REVISION\tSTATUS\n1\tsuperseded\n2\tdeployed\n" },
+          "status web": { stdout: "STATUS: pending\n", exitCode: null, killed: "timeout" },
+        },
+      });
+      faux.setResponses([
+        fauxAssistantMessage([fauxToolCall("helm", { args: ["history", "web"], grep: "deployed" })], {
+          stopReason: "toolUse",
+        }),
+        fauxAssistantMessage([fauxToolCall("helm", { args: ["status", "web"], timeoutSeconds: 5 })], {
+          stopReason: "toolUse",
+        }),
+        fauxAssistantMessage([fauxText("done")]),
+      ]);
+      const host = helmHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "how is web" });
+      await waitFor(settled);
+
+      expect(toolResultTexts()).toEqual([
+        "Exit code: 0\n\nStandard output:\n2\tdeployed",
+        "helm was killed after its timeout of 5 s.\n\nStandard output:\nSTATUS: pending",
+      ]);
+    });
+
+    it.each<[string, string[], string | RegExp]>([
+      [
+        "a local chart",
+        ["upgrade", "web", "./chart", "--reuse-values"],
+        "Blocked by the floor, which no policy profile lifts. The user's disk and local code: ./chart is a local " +
+          "chart path or a chart URL; name a chart of a repository as <repository>/<chart>. A cluster chat never " +
+          "reads or writes files on the user's computer, nor runs programs there.",
+      ],
+      [
+        "a --kube-* flag",
+        ["list", "--kube-context", "prod"],
+        /^Blocked by the floor.* --kube-context is never allowed/,
+      ],
+      [
+        "repo add",
+        ["repo", "add", "x", "https://example.com"],
+        /^Blocked by the floor.* Credentials and configuration/,
+      ],
+      ["install", ["install", "web", "bitnami/nginx"], /helm install is not supported/],
+    ])("blocks %s by the floor with its reason, and the call never runs", async (_case, args, reason) => {
+      faux.setResponses(callThenEcho("helm", { args }));
+      const host = helmHost({ getPolicyProfileSettings: () => everyClusterOn(ALLOW_ALL_PROFILE) });
+
+      await host.handleCommand("c1", { type: "prompt", message: "go" });
+      await waitFor(settled);
+
+      expect(uiRequests()).toEqual([]);
+      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "helm", isError: true })]);
+      expect(toolResultTexts()[0]).toMatch(reason);
+      expect(cli.actions()).toEqual([]);
+    });
+
+    it("blocks a helm call the profile denies, and the call never runs", async () => {
+      faux.setResponses(callThenEcho("helm", { args: ["uninstall", "web"] }));
+      const host = helmHost({ getPolicyProfileSettings: () => everyClusterOn(READ_ONLY_PROFILE) });
+
+      await host.handleCommand("c1", { type: "prompt", message: "remove web" });
+      await waitFor(settled);
+
+      expect(toolResultTexts()).toEqual([
+        'Denied by the policy profile "Read only": helm uninstall releases web -n default gets Deny from the ' +
+          "profile's fallback level.",
+      ]);
+      expect(cli.actions()).toEqual([]);
+    });
+
+    it("always asks before an uninstall in Standard, without a preview, and runs it once approved", async () => {
+      cli = createStandInCli({ answers: { "uninstall web": { stdout: 'release "web" uninstalled\n' } } });
+      faux.setResponses(callThenEcho("helm", { args: ["uninstall", "web"] }));
+      const host = helmHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "remove web" });
+      await waitFor(() => uiRequests().length > 0);
+
+      expect(uiRequests()[0]).toEqual({
+        id: expect.any(String),
+        toolCallId: expect.any(String),
+        method: "confirm",
+        program: "helm",
+        args: ["uninstall", "web"],
+        canonicalForms: [releaseForm("uninstall")],
+        level: "alwaysAsk",
+        profileName: "Standard",
+      });
+      expect(cli.invocations.filter((invocation) => invocation.program === "helm")).toEqual([]);
+
+      await answer(host, true);
+      await waitFor(settled);
+
+      expect(cli.actions()).toEqual([expect.objectContaining({ program: "helm", args: ["uninstall", "web"] })]);
+      expect(answerText()).toBe('Result: Exit code: 0\n\nStandard output:\nrelease "web" uninstalled');
+    });
+
+    it("gives a release without -n the namespace the cluster's kubeconfig selects", async () => {
+      cli = createStandInCli({ answers: { [KUBECONFIG_NAMESPACE_KEY]: { stdout: "apps" } } });
+      faux.setResponses(callThenEcho("helm", { args: ["uninstall", "web"] }));
+      const host = helmHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "remove web" });
+      await waitFor(() => uiRequests().length > 0);
+
+      expect(uiRequests()[0]?.canonicalForms).toEqual([{ ...releaseForm("uninstall"), namespace: "apps" }]);
+      await answer(host, false);
+      await waitFor(settled);
+    });
+
+    it("starts no process for a cluster that is not connected", async () => {
+      faux.setResponses(callThenEcho("helm", { args: ["list"] }));
+      const host = helmHost();
+
+      await host.handleCommand("gone", { type: "prompt", message: "list the releases" });
+      await waitFor(() => envelopes.some((e) => e.kind === "event" && e.payload.type === "agent_settled"));
+
+      expect(toolResultTexts()).toEqual(["Cluster not connected"]);
+      expect(cli.invocations).toEqual([]);
+    });
+
+    describe("the dry-run preview of an upgrade", () => {
+      const upgradeWeb = ["upgrade", "web", "bitnami/nginx", "--reuse-values", "--set", "replicaCount=3"];
+      const upgradeDryRun = [...upgradeWeb, "--dry-run=server", "-o", "json"].join(" ");
+      const readManifest = "get manifest web -n default";
+      const dryRunRelease = (manifest: string) =>
+        `${JSON.stringify({ name: "web", namespace: "default", version: 3, config: { replicaCount: 3 }, manifest })}\n`;
+
+      it("runs the upgrade as a server-side dry run and shows the diff of the release's manifest", async () => {
+        cli = createStandInCli({
+          answers: {
+            [upgradeDryRun]: { stdout: dryRunRelease(manifestOf(3)) },
+            [readManifest]: { stdout: manifestOf(2) },
+            [upgradeWeb.join(" ")]: { stdout: 'Release "web" has been upgraded.\n' },
+          },
+        });
+        faux.setResponses(callThenEcho("helm", { args: upgradeWeb }));
+        const host = helmHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web through helm" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(previewKeys()).toEqual([`helm ${upgradeDryRun}`, `helm ${readManifest}`]);
+        expect(uiRequests()[0]).toMatchObject({
+          program: "helm",
+          args: upgradeWeb,
+          canonicalForms: [releaseForm("upgrade")],
+          level: "ask",
+          preview: {
+            kind: "diffs",
+            diffs: [
+              {
+                target: releaseForm("upgrade"),
+                diff:
+                  "--- current\n+++ dry run\n@@ -5,4 +5,4 @@\n metadata:\n   name: web-nginx\n spec:\n" +
+                  "-  replicas: 2\n+  replicas: 3\n",
+              },
+            ],
+          },
+        });
+
+        await answer(host, true);
+        await waitFor(settled);
+
+        expect(cli.actions()).toEqual([expect.objectContaining({ program: "helm", args: upgradeWeb })]);
+        expect(toolResultTexts()).toEqual(['Exit code: 0\n\nStandard output:\nRelease "web" has been upgraded.']);
+      });
+
+      it.each([
+        'Error: UPGRADE FAILED: "web" has no deployed releases',
+        "Error: UPGRADE FAILED: release: not found",
+        'Error: UPGRADE FAILED: template: nginx/templates/deployment.yaml:8:20: executing "nginx/templates/deployment.yaml" at <.Values.replicaCount>: wrong type',
+        'Error: UPGRADE FAILED: error validating "": error validating data: ValidationError(Deployment.spec.replicas): invalid type',
+        'Error: UPGRADE FAILED: admission webhook "validate.kyverno.svc-fail" denied the request: replicas must be odd',
+      ])("blocks an upgrade whose dry run fails with %s, and asks nobody", async (message) => {
+        cli = createStandInCli({ answers: { [upgradeDryRun]: { stderr: `${message}\n`, exitCode: 1 } } });
+        faux.setResponses(callThenEcho("helm", { args: upgradeWeb }));
+        const host = helmHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "upgrade web" });
+        await waitFor(settled);
+
+        expect(uiRequests()).toEqual([]);
+        expect(toolResultTexts()).toEqual([
+          `The cluster rejected a server-side dry run of this call, so it did not run: ${message}`,
+        ]);
+        expect(previewKeys()).toEqual([`helm ${upgradeDryRun}`]);
+        expect(cli.actions()).toEqual([]);
+      });
+
+      it("shows Preview unavailable with the current manifest when the dry run cannot be made", async () => {
+        const message = 'Error: Kubernetes cluster unreachable: Get "https://127.0.0.1:6443/version": EOF';
+        cli = createStandInCli({
+          answers: {
+            [upgradeDryRun]: { stderr: `${message}\n`, exitCode: 1 },
+            [readManifest]: { stdout: manifestOf(2) },
+          },
+        });
+        faux.setResponses(callThenEcho("helm", { args: upgradeWeb }));
+        const host = helmHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "upgrade web" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(uiRequests()[0]?.preview).toEqual({
+          kind: "unavailable",
+          reason: `the dry run failed: ${message}`,
+          backup: manifestOf(2),
+        });
+        await answer(host, false);
+        await waitFor(settled);
+        expect(cli.actions()).toEqual([]);
+      });
+
+      it("shows Preview unavailable when the dry run prints no release", async () => {
+        cli = createStandInCli({
+          answers: { [upgradeDryRun]: { stdout: "NAME: web\n" }, [readManifest]: { stdout: manifestOf(2) } },
+        });
+        faux.setResponses(callThenEcho("helm", { args: upgradeWeb }));
+        const host = helmHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "upgrade web" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(uiRequests()[0]?.preview).toEqual({
+          kind: "unavailable",
+          reason: "helm printed a dry run the preview does not recognize",
+          backup: manifestOf(2),
+        });
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("ends the dry run on Stop, shows no card, and the upgrade never runs", async () => {
+        cli = createStandInCli({ hang: [upgradeDryRun] });
+        faux.setResponses(callThenEcho("helm", { args: upgradeWeb }));
+        const host = helmHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "upgrade web" });
+        await waitFor(() => cli.previews().length > 0);
+        await host.handleCommand("c1", { type: "abort" });
+        await waitFor(settled);
+
+        expect(cli.previews()[0]?.signal?.aborted).toBe(true);
+        expect(uiRequests()).toEqual([]);
+        expect(cli.actions()).toEqual([]);
+      });
+
+      it("runs no dry run for an upgrade the profile allows", async () => {
+        cli = createStandInCli({ answers: { [upgradeWeb.join(" ")]: { stdout: "upgraded\n" } } });
+        faux.setResponses(callThenEcho("helm", { args: upgradeWeb }));
+        const host = helmHost({ getPolicyProfileSettings: () => everyClusterOn(PERMISSIVE_PROFILE) });
+
+        await host.handleCommand("c1", { type: "prompt", message: "upgrade web" });
+        await waitFor(settled);
+
+        expect(cli.previews()).toEqual([]);
+        expect(cli.actions()).toEqual([expect.objectContaining({ program: "helm", args: upgradeWeb })]);
+      });
+    });
+
+    describe("the dry-run preview of a rollback", () => {
+      const readManifest = "get manifest web -n default";
+      const readHistory = "history web -n default --max 1 -o json";
+
+      it("diffs the current manifest against the previous revision's when no revision is named", async () => {
+        cli = createStandInCli({
+          answers: {
+            "rollback web --dry-run=server": { stdout: "Rollback was a success! Happy Helming!\n" },
+            [readHistory]: { stdout: '[{"revision":4,"status":"deployed","chart":"nginx-15.0.0"}]\n' },
+            [readManifest]: { stdout: manifestOf(3) },
+            [`${readManifest} --revision 3`]: { stdout: manifestOf(2) },
+          },
+        });
+        faux.setResponses(callThenEcho("helm", { args: ["rollback", "web"] }));
+        const host = helmHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "roll web back" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(previewKeys()).toEqual([
+          "helm rollback web --dry-run=server",
+          `helm ${readHistory}`,
+          `helm ${readManifest}`,
+          `helm ${readManifest} --revision 3`,
+        ]);
+        expect(uiRequests()[0]?.preview).toEqual({
+          kind: "diffs",
+          diffs: [
+            {
+              target: releaseForm("rollback"),
+              diff:
+                "--- current\n+++ dry run\n@@ -5,4 +5,4 @@\n metadata:\n   name: web-nginx\n spec:\n" +
+                "-  replicas: 3\n+  replicas: 2\n",
+            },
+          ],
+        });
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("diffs against the named revision", async () => {
+        cli = createStandInCli({
+          answers: {
+            "rollback web 2 -n prod --dry-run=server": { stdout: "Rollback was a success! Happy Helming!\n" },
+            "get manifest web -n prod": { stdout: manifestOf(3) },
+            "get manifest web -n prod --revision 2": { stdout: manifestOf(1) },
+          },
+        });
+        faux.setResponses(callThenEcho("helm", { args: ["rollback", "web", "2", "-n", "prod"] }));
+        const host = helmHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "roll web back to 2" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(previewKeys()).toEqual([
+          "helm rollback web 2 -n prod --dry-run=server",
+          "helm get manifest web -n prod",
+          "helm get manifest web -n prod --revision 2",
+        ]);
+        expect(uiRequests()[0]?.preview).toMatchObject({ kind: "diffs" });
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("blocks a rollback to a revision the release does not have, and asks nobody", async () => {
+        const message = "Error: release has no 9 version";
+        cli = createStandInCli({
+          answers: { "rollback web 9 --dry-run=server": { stderr: `${message}\n`, exitCode: 1 } },
+        });
+        faux.setResponses(callThenEcho("helm", { args: ["rollback", "web", "9"] }));
+        const host = helmHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "roll web back to 9" });
+        await waitFor(settled);
+
+        expect(uiRequests()).toEqual([]);
+        expect(toolResultTexts()).toEqual([
+          `The cluster rejected a server-side dry run of this call, so it did not run: ${message}`,
+        ]);
+        expect(cli.actions()).toEqual([]);
+      });
+
+      it("shows Preview unavailable with the current manifest when a revision cannot be read", async () => {
+        cli = createStandInCli({
+          answers: {
+            "rollback web 2 --dry-run=server": { stdout: "Rollback was a success! Happy Helming!\n" },
+            [readManifest]: { stdout: manifestOf(3) },
+            [`${readManifest} --revision 2`]: { stderr: "Error: context deadline exceeded\n", exitCode: 1 },
+          },
+        });
+        faux.setResponses(callThenEcho("helm", { args: ["rollback", "web", "2"] }));
+        const host = helmHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "roll web back to 2" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(uiRequests()[0]?.preview).toEqual({
+          kind: "unavailable",
+          reason: "reading the manifest of revision 2 failed: Error: context deadline exceeded",
+          backup: manifestOf(3),
+        });
+        await answer(host, false);
+        await waitFor(settled);
+      });
+    });
+  });
+
   it("refuses a prompt when no model is selected", async () => {
     const host = createHost({ getModelRef: () => undefined });
     const response = await host.handleCommand("c1", { type: "prompt", message: "hi" });
@@ -2104,12 +2538,12 @@ describe("AgentHost", () => {
         return fauxAssistantMessage([fauxText("ok")]);
       },
     ]);
-    const host = createHost({ systemPrompt: "You are the Freelens AI test assistant." });
+    const host = createHost({ tools: AGENT_TOOLS, systemPrompt: "You are the Freelens AI test assistant." });
 
     await host.handleCommand("c1", { type: "prompt", message: "hi" });
     await waitFor(settled);
 
-    expect(seenTools).toEqual(["kubectl"]);
+    expect(seenTools).toEqual(["kubectl", "helm"]);
     expect(seenPrompt).toContain("You are the Freelens AI test assistant.");
     expect(seenPrompt).not.toMatch(/\bbash\b/i);
   });
@@ -2232,7 +2666,7 @@ describe("AgentHost", () => {
       await ask(host);
 
       expect(sectionsSeen[0].preamble).toContain("Freelens AI");
-      expect(sectionsSeen[0].preamble).toContain("<kubectl>");
+      expect(sectionsSeen[0].preamble).toContain("<kubectl_and_helm>");
     });
   });
 

@@ -13,7 +13,7 @@ import {
   type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CHAT_RETENTION_DAYS, errorText, failureResponse, successResponse } from "../../common/agent-protocol";
-import { kubectlTool } from "../../common/agent-tools/kubectl-tool";
+import { helmTool, kubectlTool } from "../../common/agent-tools";
 import { DRY_RUN_VERBS } from "../../common/invocation-policy/dry-run-verbs";
 import {
   evaluateInvocationPolicy,
@@ -24,14 +24,15 @@ import { DEFAULT_THINKING_LEVEL, type ThinkingLevel } from "../../common/thinkin
 import useLog from "../utils/logger";
 import { toJsonEvent } from "./json-event";
 import { cliPolicySection, EXPLAIN_PROMPT, SYSTEM_PROMPT, withUserRules } from "./system-prompt";
+import { dryRunRejectionReason, floorBlockReason, profileDenyReason } from "./tools/block-reasons";
+import { type CliToolInput, prepareCliInvocation, runCliTool } from "./tools/cli-tool";
 import {
   type ClusterReadContext,
   type ClusterResources,
   readDefaultNamespace,
   readResourceCatalog,
 } from "./tools/cluster-resources";
-import { type KubectlToolInput, prepareKubectlInvocation, runKubectl } from "./tools/kubectl";
-import { dryRunRejectionReason, floorBlockReason, profileDenyReason } from "./tools/kubectl-policy";
+import { previewHelmInvocation } from "./tools/helm-preview";
 import { previewKubectlInvocation } from "./tools/kubectl-preview";
 import { planSecretRedaction, type SecretRedaction } from "./tools/secret-redaction";
 
@@ -48,6 +49,7 @@ import type {
   TranscriptEntry,
 } from "../../common/agent-protocol";
 import type { AgentToolDefinition } from "../../common/agent-tools";
+import type { CliProgram } from "../../common/invocation-policy/canonical-form";
 import type { PolicyProfile } from "../../common/invocation-policy/policy-profile";
 import type { CliRunner } from "./cli-runner";
 
@@ -81,11 +83,11 @@ export interface AgentHostOptions {
    * cluster Freelens does not know; read before every tool call.
    */
   getClusterStatus: (clusterId: string) => string | undefined;
-  /** Runs the CLI invocations of the kubectl tool against a cluster. */
+  /** Runs the CLI invocations of the kubectl and helm tools against a cluster. */
   runCli: CliRunner;
   /**
    * The policy profiles, their assignments to clusters and the default profile,
-   * which give each kubectl call the policy level of its cluster's profile;
+   * which give each kubectl and helm call the policy level of its cluster's profile;
    * read before every call and every prompt, so a change applies to the next
    * one. A change also calls for `recheckPendingApprovals()`.
    */
@@ -129,17 +131,25 @@ interface ClusterAgent {
   // calls only, never Always ask.
   autoApprove: boolean;
   // The resources and the namespace of the cluster, read before the chat's
-  // first kubectl call and kept for its session; the resources are read again
-  // when a call names one they lack.
+  // first kubectl or helm call and kept for its session; the resources are
+  // read again when a call names one they lack.
   clusterResources?: ClusterResources;
-  // The kubectl calls the gate let through, by tool call id, until they run:
-  // a call runs only after the gate, with what the policy decided about it.
-  passedKubectlCalls: Map<string, PassedKubectlCall>;
+  // The kubectl and helm calls the gate let through, by tool call id, until
+  // they run: a call runs only after the gate, with what the policy decided
+  // about it.
+  passedCliCalls: Map<string, PassedCliCall>;
 }
 
-interface PassedKubectlCall {
+interface PassedCliCall {
+  program: CliProgram;
   secretRedaction?: SecretRedaction;
 }
+
+/** The program each CLI tool runs, by the tool's name. */
+const CLI_TOOL_PROGRAMS: ReadonlyMap<string, CliProgram> = new Map([
+  [kubectlTool.name, "kubectl"],
+  [helmTool.name, "helm"],
+]);
 
 // An AI Explain run: a throwaway pi session that is never saved. Registered
 // before its session exists, so a second explanation or a prompt sent while it
@@ -162,15 +172,16 @@ interface PendingApproval {
   blockReasonNow: () => string | undefined;
 }
 
-// The policy's result for a kubectl call with the agent's own arguments, before
-// the tool adds `-f -` or a logs tail.
-const evaluateKubectlWith = (
-  input: KubectlToolInput,
+// The policy's result for a kubectl or helm call with the agent's own
+// arguments, before the tool adds `-f -` or a logs tail.
+const evaluateCliCallWith = (
+  program: CliProgram,
+  input: CliToolInput,
   profile: PolicyProfile,
   { catalog, defaultNamespace }: ClusterResources,
 ): InvocationPolicyResult =>
   evaluateInvocationPolicy({
-    program: "kubectl",
+    program,
     args: input.args,
     ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
     revealSecrets: input.revealSecrets === true,
@@ -179,8 +190,8 @@ const evaluateKubectlWith = (
     defaultNamespace,
   });
 
-// Why a kubectl call is blocked: the floor entry or the profile's Deny; undefined for any other level.
-const kubectlBlockReason = (profile: PolicyProfile, decision: InvocationPolicyResult): string | undefined => {
+// Why a call is blocked: the floor entry or the profile's Deny; undefined for any other level.
+const blockReason = (profile: PolicyProfile, decision: InvocationPolicyResult): string | undefined => {
   if (decision.kind === "floor") return floorBlockReason(decision);
   return decision.level === "deny" ? profileDenyReason(profile, decision) : undefined;
 };
@@ -250,7 +261,7 @@ export class AgentHost {
   }
 
   /**
-   * Checks every pending kubectl approval again under the profile of its
+   * Checks every pending approval again under the profile of its
    * cluster as it is now: one the profile now denies is denied with the
    * reason, and any other stays pending until the user answers. Main calls it
    * when a profile, an assignment or the default profile changes.
@@ -726,29 +737,32 @@ export class AgentHost {
     this.send(clusterId, agent.session.sessionId, { kind: "auto_approve", payload: { enabled } });
   }
 
-  // pi's `tool_call` hook: a kubectl call goes through the invocation policy.
-  // pi asks for one call at a time.
+  // pi's `tool_call` hook: a kubectl or helm call goes through the invocation
+  // policy. pi asks for one call at a time.
   private async gate(
     clusterId: string,
     event: ToolCallEvent,
     signal: AbortSignal | undefined,
   ): Promise<ToolCallEventResult | undefined> {
-    if (event.toolName === kubectlTool.name) return this.gateKubectl(clusterId, event, signal);
+    const program = CLI_TOOL_PROGRAMS.get(event.toolName);
+    if (program) return this.gateCliCall(clusterId, program, event, signal);
     return undefined;
   }
 
-  // The invocation policy decides every kubectl call with the cluster's
-  // profile: the floor and Deny block it with the reason, Allow runs it, Ask
-  // asks unless "Approve all in this chat" is on, and Always ask always asks.
-  private async gateKubectl(
+  // The invocation policy decides every kubectl and helm call with the
+  // cluster's profile: the floor and Deny block it with the reason, Allow runs
+  // it, Ask asks unless "Approve all in this chat" is on, and Always ask always
+  // asks.
+  private async gateCliCall(
     clusterId: string,
+    program: CliProgram,
     event: ToolCallEvent,
     signal: AbortSignal | undefined,
   ): Promise<ToolCallEventResult | undefined> {
     // Not even the gate's own invocations start for a cluster that is not connected.
     if (this.options.getClusterStatus(clusterId) !== CONNECTED) return { block: true, reason: CLUSTER_NOT_CONNECTED };
-    const input = event.input as unknown as KubectlToolInput;
-    const prepared = prepareKubectlInvocation(input, this.options.getPodLogsTailLines());
+    const input = event.input as unknown as CliToolInput;
+    const prepared = prepareCliInvocation(program, input, this.options.getPodLogsTailLines());
     if (!prepared.ok) return { block: true, reason: prepared.error };
     const agent = await this.clusters.get(clusterId);
     if (!agent) return { block: true, reason: "The cluster session is not available." };
@@ -773,15 +787,15 @@ export class AgentHost {
     };
     let decision: InvocationPolicyResult;
     try {
-      decision = await this.evaluateKubectl(agent, input, profile, read);
+      decision = await this.evaluateCliCall(agent, program, input, profile, read);
     } catch (error) {
       return { block: true, reason: `Could not read the resources the cluster serves: ${errorText(error)}` };
     }
     if (decision.kind === "floor") return { block: true, reason: floorBlockReason(decision) };
     if (decision.level === "deny") return { block: true, reason: profileDenyReason(profile, decision) };
-    const secretRedaction = planSecretRedaction(input.args, decision.targets);
+    const secretRedaction = program === "kubectl" ? planSecretRedaction(input.args, decision.targets) : undefined;
     const pass = () => {
-      agent.passedKubectlCalls.set(event.toolCallId, secretRedaction ? { secretRedaction } : {});
+      agent.passedCliCalls.set(event.toolCallId, { program, ...(secretRedaction ? { secretRedaction } : {}) });
       return undefined;
     };
     if (decision.level === "allow") return pass();
@@ -789,18 +803,22 @@ export class AgentHost {
 
     // Before asking, the server's dry run of a verb that has one: a change the
     // server rejects fails without a card, with the server's message.
-    const dryRunVerb = DRY_RUN_VERBS.kubectl.find((verb) =>
+    const dryRunVerb = DRY_RUN_VERBS[program].find((verb) =>
       decision.targets.some((target) => target.form.verb === verb.verb),
     );
+    const [firstTarget] = decision.targets;
     let preview: CliApprovalPreview | undefined;
-    if (dryRunVerb && agent.clusterResources) {
-      const outcome = await previewKubectlInvocation(read, {
-        args: prepared.args,
-        ...(prepared.manifest === undefined ? {} : { manifest: prepared.manifest }),
-        verb: dryRunVerb,
-        targets: decision.targets.map((target) => target.form),
-        catalog: agent.clusterResources.catalog,
-      });
+    if (dryRunVerb && agent.clusterResources && firstTarget) {
+      const outcome =
+        program === "helm"
+          ? await previewHelmInvocation(read, { args: prepared.args, verb: dryRunVerb, target: firstTarget.form })
+          : await previewKubectlInvocation(read, {
+              args: prepared.args,
+              ...(prepared.manifest === undefined ? {} : { manifest: prepared.manifest }),
+              verb: dryRunVerb,
+              targets: decision.targets.map((target) => target.form),
+              catalog: agent.clusterResources.catalog,
+            });
       if (outcome.kind === "stopped") return { block: true, reason: DENIED_REASON };
       if (outcome.kind === "rejected") return { block: true, reason: dryRunRejectionReason(outcome.message) };
       preview = outcome.preview;
@@ -810,7 +828,7 @@ export class AgentHost {
       id: randomUUID(),
       toolCallId: event.toolCallId,
       method: "confirm",
-      program: "kubectl",
+      program,
       args: [...input.args],
       ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
       canonicalForms: decision.targets.map((target) => target.form),
@@ -823,22 +841,24 @@ export class AgentHost {
     const blockReasonNow = () => {
       const current = this.policyProfile(clusterId);
       const resources = agent.clusterResources;
-      return resources && kubectlBlockReason(current, evaluateKubectlWith(input, current, resources));
+      return resources && blockReason(current, evaluateCliCallWith(program, input, current, resources));
     };
     return (await this.askUser(clusterId, agent, signal, request, blockReasonNow)) ?? pass();
   }
 
-  // The policy's result for a kubectl call, with the agent's own arguments,
-  // before the tool adds `-f -` or a logs tail. A resource the catalog lacks
-  // may have been added to the cluster since it was read, so the catalog is
-  // read again once, unless it was read for this very call.
-  private async evaluateKubectl(
+  // The policy's result for a kubectl or helm call, with the agent's own
+  // arguments, before the tool adds `-f -` or a logs tail. helm needs the
+  // namespace only. A resource the catalog lacks may have been added to the
+  // cluster since it was read, so the catalog is read again once, unless it
+  // was read for this very call.
+  private async evaluateCliCall(
     agent: ClusterAgent,
-    input: KubectlToolInput,
+    program: CliProgram,
+    input: CliToolInput,
     profile: PolicyProfile,
     read: ClusterReadContext,
   ): Promise<InvocationPolicyResult> {
-    const evaluate = (resources: ClusterResources) => evaluateKubectlWith(input, profile, resources);
+    const evaluate = (resources: ClusterResources) => evaluateCliCallWith(program, input, profile, resources);
     const known = agent.clusterResources;
     if (!known) {
       const catalog = await readResourceCatalog(read);
@@ -934,7 +954,7 @@ export class AgentHost {
             const userRules = this.options.getUserRules?.()?.trim();
             if (clusterName) sections.cluster = clusterName;
             if (userRules) sections.user_rules = userRules;
-            if (tools.some((tool) => tool.name === kubectlTool.name)) {
+            if (tools.some((tool) => CLI_TOOL_PROGRAMS.has(tool.name))) {
               sections.cli_policy = cliPolicySection(this.policyProfile(clusterId));
             }
           });
@@ -964,7 +984,7 @@ export class AgentHost {
 
     this.useInjectedFetch(session);
 
-    const agent: ClusterAgent = { session, autoApprove: false, passedKubectlCalls: new Map() };
+    const agent: ClusterAgent = { session, autoApprove: false, passedCliCalls: new Map() };
     // Called from pi's listener loop and from a microtask, where a throw would
     // break the run or go uncaught in main, so a failure is only logged.
     const sendStats = () => {
@@ -1020,11 +1040,12 @@ export class AgentHost {
 
   // Every tool runs here in main, through the CLI runner.
   private toPiTool(clusterId: string, tool: AgentToolDefinition) {
-    if (tool.name === kubectlTool.name) return this.toKubectlPiTool(clusterId, tool);
+    const program = CLI_TOOL_PROGRAMS.get(tool.name);
+    if (program) return this.toCliPiTool(clusterId, program, tool);
     throw new Error(`No runner for the tool ${tool.name}`);
   }
 
-  private toKubectlPiTool(clusterId: string, tool: AgentToolDefinition) {
+  private toCliPiTool(clusterId: string, program: CliProgram, tool: AgentToolDefinition) {
     return defineTool({
       name: tool.name,
       label: tool.label,
@@ -1037,10 +1058,10 @@ export class AgentHost {
           throw new Error(CLUSTER_NOT_CONNECTED);
         }
         const agent = await this.clusters.get(clusterId);
-        const passed = agent?.passedKubectlCalls.get(toolCallId);
-        agent?.passedKubectlCalls.delete(toolCallId);
-        if (!passed) throw new Error("The invocation policy has not checked this call.");
-        const result = await runKubectl(params as KubectlToolInput, {
+        const passed = agent?.passedCliCalls.get(toolCallId);
+        agent?.passedCliCalls.delete(toolCallId);
+        if (passed?.program !== program) throw new Error("The invocation policy has not checked this call.");
+        const result = await runCliTool(params as CliToolInput, {
           ...passed,
           clusterId,
           runCli: this.options.runCli,

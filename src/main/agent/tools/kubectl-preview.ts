@@ -5,16 +5,14 @@
 // the model: the dry run and the current objects can hold Secret values.
 
 import { parseAllDocuments, stringify as stringifyYaml } from "yaml";
-import { errorText } from "../../../common/agent-protocol";
 import { formatCanonicalForm } from "../../../common/invocation-policy/canonical-form";
-import { GATE_INVOCATION_TIMEOUT_MS, runGateInvocation } from "./cluster-resources";
 import { unifiedDiff } from "./line-diff";
+import { type PreviewOutcome, previewFailure, runPreviewInvocation } from "./preview-invocation";
 
-import type { CliApprovalPreview, CliTargetDiff } from "../../../common/agent-protocol";
+import type { CliTargetDiff } from "../../../common/agent-protocol";
 import type { CanonicalForm } from "../../../common/invocation-policy/canonical-form";
 import type { DryRunVerb } from "../../../common/invocation-policy/dry-run-verbs";
 import type { ResourceCatalog } from "../../../common/invocation-policy/resource-catalog";
-import type { CliResult } from "../cli-runner";
 import type { ClusterReadContext } from "./cluster-resources";
 
 /** A call made ready to run, as the dry run repeats it. */
@@ -27,13 +25,6 @@ export interface KubectlPreviewCall {
   targets: readonly CanonicalForm[];
   catalog: ResourceCatalog;
 }
-
-export type KubectlPreviewOutcome =
-  /** The server rejected the dry run: the call would fail the same way. */
-  | { kind: "rejected"; message: string }
-  /** pi's signal ended a preview invocation (Stop). */
-  | { kind: "stopped" }
-  | { kind: "preview"; preview: CliApprovalPreview };
 
 /** The most object names an unavailable preview lists. */
 const MAX_LISTED_OBJECTS = 50;
@@ -75,20 +66,8 @@ const readArgs = (target: CanonicalForm): string[] => [
   "yaml",
 ];
 
-// A runner that cannot start the process answers like a failed process.
-const run = async (context: ClusterReadContext, args: readonly string[], manifest?: string): Promise<CliResult> => {
-  try {
-    return await runGateInvocation(context, args, manifest);
-  } catch (error) {
-    return { stdout: "", stderr: errorText(error), exitCode: null };
-  }
-};
-
-const failure = (what: string, result: CliResult): string => {
-  if (result.killed === "timeout")
-    return `${what} did not end within its timeout of ${GATE_INVOCATION_TIMEOUT_MS / 1000} s`;
-  return `${what} failed: ${result.stderr.trim() || `exit code ${result.exitCode}`}`;
-};
+const run = (context: ClusterReadContext, args: readonly string[], manifest?: string) =>
+  runPreviewInvocation(context, "kubectl", args, manifest);
 
 const withoutManagedFields = (object: KubeObject): KubeObject => {
   if (!isObject(object.metadata) || !("managedFields" in object.metadata)) return object;
@@ -164,7 +143,7 @@ type CurrentObject = { kind: "found"; yaml: string } | { kind: "absent" } | { ki
 export async function previewKubectlInvocation(
   context: ClusterReadContext,
   call: KubectlPreviewCall,
-): Promise<KubectlPreviewOutcome> {
+): Promise<PreviewOutcome> {
   const { verb, catalog } = call;
   const dryRun = await run(context, dryRunArgs(call.args, verb), call.manifest);
   if (dryRun.killed === "stopped" || context.signal?.aborted) return { kind: "stopped" };
@@ -198,17 +177,17 @@ export async function previewKubectlInvocation(
         ? { kind: "found", yaml: toYaml(object) }
         : read.exitCode !== 0 && read.killed === undefined && NOT_FOUND.test(read.stderr)
           ? { kind: "absent" }
-          : { kind: "failed", reason: failure(`reading ${formatCanonicalForm(target)}`, read) },
+          : { kind: "failed", reason: previewFailure(`reading ${formatCanonicalForm(target)}`, read) },
     );
   }
 
   const backups = [...current.values()].flatMap((object) => (object.kind === "found" ? [object.yaml] : []));
-  const unavailable = (reason: string): KubectlPreviewOutcome => ({
+  const unavailable = (reason: string): PreviewOutcome => ({
     kind: "preview",
     preview: { kind: "unavailable", reason, ...(backups.length > 0 ? { backup: backups.join("---\n") } : {}) },
   });
 
-  if (dryRunFailed) return unavailable(failure("the dry run", dryRun));
+  if (dryRunFailed) return unavailable(previewFailure("the dry run", dryRun));
   const failedRead = [...current.values()].find((object) => object.kind === "failed");
   if (failedRead?.kind === "failed") return unavailable(failedRead.reason);
 

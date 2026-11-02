@@ -1,5 +1,5 @@
 // What the model hears when the invocation policy, or the server's dry run,
-// blocks a kubectl call. The tool card shows the same text as the reason.
+// blocks a kubectl or helm call. The tool card shows the same text as the reason.
 
 import { formatCanonicalForm } from "../../../common/invocation-policy/canonical-form";
 import { POLICY_LEVEL_LABELS, type PolicyProfile } from "../../../common/invocation-policy/policy-profile";

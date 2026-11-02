@@ -1,5 +1,7 @@
-/** The CLIs the agent runs. Helm joins kubectl with the helm tool. */
-export type CliProgram = "kubectl";
+/** The CLIs the agent runs, each through a tool of its name. */
+export const CLI_PROGRAMS = ["kubectl", "helm"] as const;
+
+export type CliProgram = (typeof CLI_PROGRAMS)[number];
 
 /**
  * One target of a CLI invocation, `<program> <verb> <resource> <name> -n
@@ -7,9 +9,12 @@ export type CliProgram = "kubectl";
  */
 export interface CanonicalForm {
   program: CliProgram;
-  /** The verb, of one or two words: `get`, `rollout restart`, `reveal`. */
+  /** The verb, of one or two words: `get`, `rollout restart`, `reveal`, `get values`. */
   verb: string;
-  /** The plural resource name; absent for a verb without a resource, such as `version`. */
+  /**
+   * The plural resource name; absent for a verb without a resource, such as
+   * `version`. helm's are `releases` and `charts`.
+   */
   resource?: string;
   /** The object's name, or `*` for whatever a selector, `--all` or a missing name targets; absent without a resource. */
   name?: string;
@@ -23,11 +28,8 @@ export const formatCanonicalForm = (form: CanonicalForm): string =>
     .filter((part) => part !== undefined)
     .join(" ");
 
-/** Each program once; the type check fails here until a program added to `CliProgram` is listed. */
-const KNOWN_CLI_PROGRAMS = { kubectl: true } satisfies Record<CliProgram, true>;
-
-/** The names of the CLIs the agent runs, for messages: `kubectl`. */
-export const CLI_PROGRAM_NAMES: readonly string[] = Object.keys(KNOWN_CLI_PROGRAMS);
+/** The names of the CLIs the agent runs, for messages: `kubectl`, `helm`. */
+export const CLI_PROGRAM_NAMES: readonly string[] = CLI_PROGRAMS;
 
 /** Whether a word, such as the first of a typed command line, names a CLI the agent runs. */
-export const isCliProgram = (word: string): word is CliProgram => Object.hasOwn(KNOWN_CLI_PROGRAMS, word);
+export const isCliProgram = (word: string): word is CliProgram => CLI_PROGRAM_NAMES.includes(word);

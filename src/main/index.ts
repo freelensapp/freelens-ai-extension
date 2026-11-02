@@ -110,14 +110,15 @@ export default class LensExtensionAiMain extends Main.LensExtension {
       broadcast: (envelope) => ipc.broadcast(AGENT_ENVELOPE_CHANNEL, envelope),
       tools: AGENT_TOOLS,
       getClusterStatus: (clusterId) => Main.Catalog.getClusterById(clusterId)?.status,
-      // kubectl runs here, with the binary and the environment Freelens uses
-      // for the cluster's terminal.
+      // kubectl and helm run here, with the binaries and the environment
+      // Freelens uses for the cluster's terminal.
       runCli: createCliRunner({
         getKubectlPath: (clusterId, options) => Main.Shell.getKubectlPath(clusterId, options),
+        getHelmPath: (clusterId) => Main.Shell.getHelmPath(clusterId),
         getEnvironment: (clusterId) => Main.Shell.getEnvironment(clusterId),
       }),
       // The store holds the user profiles, the assignments and the default
-      // profile, read at every kubectl call and every prompt.
+      // profile, read at every kubectl or helm call and every prompt.
       getPolicyProfileSettings: () => preferencesStore,
       getPodLogsTailLines: () => preferencesStore.podLogsTailLines,
       // The host's client applies the Freelens proxy and CA settings to the model

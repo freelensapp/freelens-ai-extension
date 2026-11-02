@@ -34,11 +34,10 @@ Decisions:
   `formatCommandLine` of the cards writes, `'\''` included.
 - **The program from the command line.** The first word must name a CLI the
   agent runs (`isCliProgram` of `canonical-form.ts`), else the box says
-  "Start the command line with kubectl.". The names come from an object typed
-  `satisfies Record<CliProgram, true>`, so when ticket 11 adds `"helm"` to
-  `CliProgram` the type check fails there until `helm: true` is added; that
-  one line is the only change helm needs for the test box. The floor list
-  reads `FLOOR_ENTRIES` and needs none.
+  "Start the command line with kubectl or helm.". The names come from
+  `CLI_PROGRAMS`, the list ticket 11 added, which `CliProgram` is derived
+  from, so a program added there reaches the test box with no other change.
+  The floor list reads `FLOOR_ENTRIES` and needs none.
 - **What the box evaluates with.** `evaluateInvocationPolicy` with
   `BUILT_IN_RESOURCE_CATALOG`, the namespace `default` for a namespaced
   target without `-n`, no manifest and `revealSecrets: false`. The hint under
@@ -77,7 +76,7 @@ Manual check in Freelens dev (not run; Freelens dev was not running):
    level the most restrictive of them.
 6. Type `kubectl get pods --kubeconfig /tmp/x`: "Rejected by the floor" with
    the reason. Type `kubectl get pods -l 'app=web`: "The single quote is not
-   closed.". Type `oc get pods`: "Start the command line with kubectl.".
+   closed.". Type `oc get pods`: "Start the command line with kubectl or helm.".
 7. Below the editor, "Floor" lists every entry with its reason; "What it
    rejects" opens the list of flags and cases. Check both themes, and that
    DevTools of the root frame shows no error.

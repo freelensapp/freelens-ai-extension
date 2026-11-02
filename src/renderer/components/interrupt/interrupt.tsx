@@ -15,7 +15,7 @@ const {
 export type InterruptProps = {
   header: string;
   question: string;
-  // The approval of a kubectl call: its targets, its level, its manifest and its preview.
+  // The approval of a kubectl or helm call: its targets, its level, its manifest and its preview.
   cliApproval: CliApprovalRequest;
   options: string[];
   approved: boolean | null;
@@ -56,7 +56,7 @@ const CliPreview = ({ preview }: { preview: CliApprovalPreview }) =>
     </>
   );
 
-// The body of a kubectl call's card, under its command line: one target per
+// The body of a kubectl or helm call's card, under its command line: one target per
 // resource, name or manifest object, the level and the profile that gave it,
 // whether Secret values go to the model, the manifest the call sends, and the
 // dry-run preview.

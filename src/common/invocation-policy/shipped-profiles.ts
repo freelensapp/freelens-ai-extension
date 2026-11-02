@@ -1,6 +1,5 @@
 // The policy profiles that come with Freelens AI. They live in code, have
-// fixed ids and cannot be changed; a user profile can copy them. They hold
-// kubectl rules only until the helm tool adds its own.
+// fixed ids and cannot be changed; a user profile can copy them.
 
 import type { PolicyLevel, PolicyProfile, PolicyRule } from "./policy-profile";
 
@@ -22,6 +21,14 @@ const READ_ONLY_RULES: readonly PolicyRule[] = [
     "kubectl diff *",
     "kubectl rollout status *",
     "kubectl rollout history *",
+    "helm list *",
+    "helm status *",
+    "helm history *",
+    "helm get values *",
+    "helm get manifest *",
+    "helm get notes *",
+    "helm show *",
+    "helm search repo *",
   ),
   ...rules("ask", "kubectl logs *", "kubectl reveal secrets *"),
 ];
@@ -54,10 +61,14 @@ const STANDARD_ALWAYS_ASK_RULES: readonly PolicyRule[] = rules(
   "alwaysAsk",
   "kubectl exec *",
   "kubectl drain *",
+  "helm uninstall *",
   ...CLUSTER_SCOPED_KINDS.map((resource) => `kubectl delete ${resource} *`),
 );
 
-/** The rules of Read only, everything else asks, and exec, drain and deletes of cluster-scoped kinds always ask. */
+/**
+ * The rules of Read only, everything else asks, and exec, drain, helm
+ * uninstall and deletes of cluster-scoped kinds always ask.
+ */
 export const STANDARD_PROFILE: PolicyProfile = {
   id: "standard",
   name: "Standard",
@@ -95,6 +106,8 @@ export const PERMISSIVE_PROFILE: PolicyProfile = {
       "kubectl cordon *",
       "kubectl uncordon *",
       "kubectl taint *",
+      "helm upgrade *",
+      "helm rollback *",
     ),
   ],
   fallbackLevel: "ask",

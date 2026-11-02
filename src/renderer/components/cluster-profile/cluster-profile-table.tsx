@@ -17,9 +17,9 @@ export const ClusterProfileTable = observer(() => {
     <>
       <div className={styles.title}>Cluster profiles</div>
       <div className={styles.description}>
-        The policy profile of each cluster decides which kubectl commands the agent runs, which wait for your approval
-        and which are denied. A cluster on the default profile follows it when the default changes. Each cluster's
-        settings have the same picker, on the Freelens AI tab.
+        The policy profile of each cluster decides which kubectl and helm commands the agent runs, which wait for your
+        approval and which are denied. A cluster on the default profile follows it when the default changes. Each
+        cluster's settings have the same picker, on the Freelens AI tab.
       </div>
       {clusters.length === 0 ? (
         <div className={styles.empty}>No clusters yet. A cluster added to the Freelens catalog appears here.</div>

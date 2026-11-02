@@ -1,4 +1,5 @@
 import { type FloorRejection, rejectByFloor } from "./floor";
+import { helmCanonicalForms, parseHelmInvocation } from "./helm-canonical-forms";
 import { kubectlCanonicalForms } from "./kubectl-canonical-forms";
 import { parseKubectlInvocation } from "./kubectl-invocation";
 import { checkSecretOutput } from "./kubectl-secret-output";
@@ -46,6 +47,25 @@ export type InvocationPolicyResult = FloorRejection | PolicyDecision;
  * and the level of the invocation.
  */
 export function evaluateInvocationPolicy(input: InvocationPolicyInput): InvocationPolicyResult {
+  const forms = input.program === "helm" ? helmForms(input) : kubectlForms(input);
+  if ("kind" in forms) return forms;
+  const targets = forms.map((form): PolicyTarget => ({ form, ...decideByRules(input.profile, form, input.catalog) }));
+  const level = targets.map((target) => target.level).reduce(mostRestrictiveLevel);
+  return { kind: "policy", level, targets };
+}
+
+/** The canonical forms of a helm invocation; helm takes no manifest, and `revealSecrets` names none of its targets. */
+const helmForms = (input: InvocationPolicyInput): CanonicalForm[] | FloorRejection => {
+  const invocation = parseHelmInvocation(input.args);
+  if ("kind" in invocation) return invocation;
+  if (input.manifest !== undefined) {
+    return rejectByFloor("manifest", `helm ${invocation.command.path.join(" ")} takes no manifest`);
+  }
+  return helmCanonicalForms(invocation, input.defaultNamespace);
+};
+
+/** The canonical forms of a kubectl invocation, with a `reveal` form for each Secret whose values it prints. */
+const kubectlForms = (input: InvocationPolicyInput): CanonicalForm[] | FloorRejection => {
   const invocation = parseKubectlInvocation(input.args);
   if ("kind" in invocation) return invocation;
 
@@ -70,10 +90,5 @@ export function evaluateInvocationPolicy(input: InvocationPolicyInput): Invocati
     defaultNamespace: input.defaultNamespace,
   });
   if ("kind" in forms) return forms;
-  const checked = checkSecretOutput(invocation, forms, input.revealSecrets);
-  if ("kind" in checked) return checked;
-
-  const targets = checked.map((form): PolicyTarget => ({ form, ...decideByRules(input.profile, form, input.catalog) }));
-  const level = targets.map((target) => target.level).reduce(mostRestrictiveLevel);
-  return { kind: "policy", level, targets };
-}
+  return checkSecretOutput(invocation, forms, input.revealSecrets);
+};

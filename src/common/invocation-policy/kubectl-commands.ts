@@ -6,24 +6,9 @@
 // and `--prune-allowlist`, and `set env --resolve` are left out on purpose:
 // they reach objects the canonical forms would not name.
 
-import type { FloorEntryId } from "./floor";
+import { type FlagSpec, flag, flags } from "./cli-flags";
 
-export interface FlagSpec {
-  /** `--output`. */
-  long: string;
-  /** `-o`. */
-  short?: string;
-  /**
-   * Whether the flag takes the next argument as its value. Boolean flags, and
-   * flags whose value is optional (`--dry-run`, `--cascade`, `--validate`),
-   * take a value only after `=`.
-   */
-  takesValue: boolean;
-  /** The floor entry that rejects the flag when it is set; a boolean flag set to `false` is not. */
-  floor?: FloorEntryId;
-  /** Whether the floor rejects this value; every value when absent. */
-  floorRejects?: (value: string) => boolean;
-}
+import type { CliFloorCommand } from "./cli-invocation";
 
 /** What the positional arguments of a command are, past its verb words. */
 export type KubectlOperands =
@@ -58,33 +43,6 @@ export interface KubectlCommand {
   /** The flags that select every object of the target resources, which makes the name `*`. */
   selectors?: readonly string[];
 }
-
-/** A command the floor rejects whatever its arguments are. */
-export interface KubectlFloorCommand {
-  path: readonly string[];
-  floor: FloorEntryId;
-}
-
-/**
- * `"-o|--output="`: the short and the long spelling, and a trailing `=` when
- * the flag takes the next argument as its value.
- */
-const flag = (spelling: string, floor?: FloorEntryId, floorRejects?: (value: string) => boolean): FlagSpec => {
-  const takesValue = spelling.endsWith("=");
-  const names = (takesValue ? spelling.slice(0, -1) : spelling).split("|");
-  const long = names.find((name) => name.startsWith("--")) ?? "";
-  const short = names.find((name) => !name.startsWith("--"));
-  return {
-    long,
-    ...(short ? { short } : {}),
-    takesValue,
-    ...(floor ? { floor } : {}),
-    ...(floorRejects ? { floorRejects } : {}),
-  };
-};
-
-const flags = (...specs: readonly (string | FlagSpec | readonly FlagSpec[])[]): FlagSpec[] =>
-  specs.flatMap((spec) => (typeof spec === "string" ? [flag(spec)] : Array.isArray(spec) ? spec : [spec as FlagSpec]));
 
 const IDENTITY = "cluster-or-identity";
 const CREDENTIALS = "credentials-or-configuration";
@@ -636,7 +594,7 @@ export const KUBECTL_COMMANDS: readonly KubectlCommand[] = [
 ];
 
 /** Commands the floor rejects whatever their arguments are. */
-export const KUBECTL_FLOOR_COMMANDS: readonly KubectlFloorCommand[] = [
+export const KUBECTL_FLOOR_COMMANDS: readonly CliFloorCommand[] = [
   { path: ["config"], floor: CREDENTIALS },
   { path: ["kuberc"], floor: CREDENTIALS },
   { path: ["certificate"], floor: CREDENTIALS },

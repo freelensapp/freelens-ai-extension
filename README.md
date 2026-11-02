@@ -111,11 +111,12 @@ and renders the response.
 
 The agent is built on the [pi](https://github.com/badlogic/pi-mono) agent SDK
 and runs in the Freelens main process: one agent per cluster, with its
-`kubectl` tool, the approval gate and the saved chats. Your API keys and
+`kubectl` and `helm` tools, the approval gate and the saved chats. Your API keys and
 sign-ins stay in the main process and are never sent to the Freelens windows.
 The agent reaches the cluster by running the kubectl that Freelens downloads
-for the cluster, with the connection Freelens has to it, so a cluster you left
-disconnected is never connected by the agent. kubectl runs directly, never
+for the cluster, and the helm that comes with Freelens, with the connection
+Freelens has to it, so a cluster you left disconnected is never connected by
+the agent. kubectl and helm run directly, never
 through a shell, and every invocation is checked before it runs: it must stay
 on the chat's cluster, never reveal credentials, never touch your disk or run
 local programs, and end on its own, whatever you configured. Within those
@@ -177,8 +178,8 @@ the exact model names including their tag (for example `llama3.2:3b`, as shown
 by `ollama list`).
 
 The model must support **tool calling**: the agent runs every cluster
-operation through its `kubectl` tool, so a model without tool support cannot be
-used.
+operation through its `kubectl` and `helm` tools, so a model without tool
+support cannot be used.
 
 ### Upgrading from an earlier version
 
@@ -197,13 +198,19 @@ Talk to your cluster in natural language. The agent reads, explains, and (with
 your approval) changes Kubernetes resources, while the chat keeps the full
 context of the conversation.
 
-**Cluster operations through kubectl**
+**Cluster operations through kubectl and helm**
 
 - **Everything kubectl does**: the agent runs kubectl against the chat's
   cluster, so it can read any kind the cluster serves, built-in or CRD,
   `describe` objects, read events, logs of any pod, container or workload,
   resource usage and rollout status, check permissions with `auth can-i`, and
   apply, patch, scale, restart, cordon, drain or delete with your approval.
+- **Helm releases**: the agent lists releases and reads their status,
+  history, values, manifests and notes, looks up the charts of the
+  repositories you added, and with your approval rolls a release back,
+  upgrades it with changed values (`--reuse-values` and `--set`) or
+  uninstalls it. Local charts, chart URLs, values files and `helm install`
+  are not available.
 - **Small, focused output**: label and field selectors, `-o` formats and a
   regular-expression filter keep only what matters; logs are read with the
   tail lines set in the preferences unless the agent asks for another window,
@@ -219,12 +226,13 @@ context of the conversation.
 - **Policy profiles**: Read only, Standard and Permissive give each
   invocation a level: it runs, asks you, always asks you, or is denied.
   Standard, the default, runs reads, asks before changes and before reading
-  logs, and always asks before `exec`, `drain` and deleting cluster-scoped
-  resources such as namespaces.
+  logs, and always asks before `exec`, `drain`, `helm uninstall` and deleting
+  cluster-scoped resources such as namespaces.
 - **Approval card**: shows the command line, every target, the profile and
   its level, the manifest, and what the cluster would actually become: a diff
-  from a server-side dry run, or the reason no preview could be made with the
-  current YAML of the target. A change the cluster would reject fails without
+  from a server-side dry run (for a Helm upgrade or rollback, of the release's
+  manifest), or the reason no preview could be made with the current YAML of
+  the target. A change the cluster would reject fails without
   asking you.
 - **Approve all in this chat**: skip the Ask approvals for the rest of one
   chat, until you turn it off or start a new chat; Always ask still asks.

@@ -1,10 +1,11 @@
-// What the approval gate reads of a cluster before it evaluates a kubectl call:
+// What the approval gate reads of a cluster before it evaluates a kubectl or helm call:
 // the resources the cluster serves and the namespace its kubeconfig selects.
 // Both are CLI invocations of the gate itself, through the same runner as the
 // tool's.
 
 import { DEFAULT_CLI_TIMEOUT_SECONDS } from "../../../common/agent-tools/kubectl-tool";
 
+import type { CliProgram } from "../../../common/invocation-policy/canonical-form";
 import type { CatalogResource, ResourceCatalog } from "../../../common/invocation-policy/resource-catalog";
 import type { CliRunner } from "../cli-runner";
 
@@ -84,10 +85,15 @@ export function parseApiResources(stdout: string): ResourceCatalog | undefined {
 export const GATE_INVOCATION_TIMEOUT_MS = DEFAULT_CLI_TIMEOUT_SECONDS * 1000;
 
 /** Runs one of the gate's own invocations, with pi's signal for the call and the default timeout. */
-export const runGateInvocation = (context: ClusterReadContext, args: readonly string[], manifest?: string) =>
+export const runGateInvocation = (
+  context: ClusterReadContext,
+  program: CliProgram,
+  args: readonly string[],
+  manifest?: string,
+) =>
   context.runCli({
     clusterId: context.clusterId,
-    program: "kubectl",
+    program,
     args,
     ...(manifest === undefined ? {} : { manifest }),
     timeoutMs: GATE_INVOCATION_TIMEOUT_MS,
@@ -101,7 +107,7 @@ export const runGateInvocation = (context: ClusterReadContext, args: readonly st
  * used whenever there is one. Throws when there is none.
  */
 export async function readResourceCatalog(context: ClusterReadContext): Promise<ResourceCatalog> {
-  const result = await runGateInvocation(context, API_RESOURCES_ARGS);
+  const result = await runGateInvocation(context, "kubectl", API_RESOURCES_ARGS);
   if (result.killed === "stopped") throw new Error("kubectl api-resources was stopped before it ended");
   if (result.killed === "timeout") throw new Error("kubectl api-resources did not end within its timeout");
   const catalog = parseApiResources(result.stdout);
@@ -112,7 +118,7 @@ export async function readResourceCatalog(context: ClusterReadContext): Promise<
 
 /** The namespace the cluster's kubeconfig selects, or `default` when it selects none or cannot be read. */
 export async function readDefaultNamespace(context: ClusterReadContext): Promise<string> {
-  const result = await runGateInvocation(context, KUBECONFIG_NAMESPACE_ARGS);
+  const result = await runGateInvocation(context, "kubectl", KUBECONFIG_NAMESPACE_ARGS);
   const namespace = result.exitCode === 0 ? result.stdout.trim() : "";
   return /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(namespace) ? namespace : FALLBACK_NAMESPACE;
 }

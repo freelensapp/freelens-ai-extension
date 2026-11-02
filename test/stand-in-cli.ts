@@ -94,12 +94,23 @@ const DISCOVERY_KEYS: readonly string[] = [API_RESOURCES_KEY, KUBECONFIG_NAMESPA
 
 /**
  * Whether an invocation is one of the gate's previews: a server-side dry run,
- * or a read of a target's current object (`get <resource> <name> -n <ns> -o
- * yaml`). An agent's own read in that exact form counts as one too, so the
- * tests of the agent's reads use another output.
+ * a kubectl read of a target's current object (`get <resource> <name> -n <ns>
+ * -o yaml`), or a helm read of a release's manifest (`get manifest <release>
+ * -n <ns>`, with `--revision <n>` for a rollback) or of its latest revision
+ * (`history <release> -n <ns> --max 1 -o json`). An agent's own read in one of
+ * these exact forms counts as one too, so the tests of the agent's reads use
+ * another form.
  */
-const isPreview = ({ args }: RecordedInvocation) =>
-  args.includes("--dry-run=server") || /^get \S+ \S+( -n \S+)? -o yaml$/.test(args.join(" "));
+const isPreview = ({ program, args }: RecordedInvocation) => {
+  const line = args.join(" ");
+  if (args.includes("--dry-run=server")) return true;
+  if (program === "helm") {
+    return (
+      /^get manifest \S+ -n \S+( --revision \d+)?$/.test(line) || /^history \S+ -n \S+ --max 1 -o json$/.test(line)
+    );
+  }
+  return /^get \S+ \S+( -n \S+)? -o yaml$/.test(line);
+};
 
 export function createStandInCli({ answers = {}, hang = [], progress = [] }: StandInCliOptions = {}) {
   const invocations: RecordedInvocation[] = [];

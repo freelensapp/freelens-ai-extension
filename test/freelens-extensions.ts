@@ -208,6 +208,7 @@ export const Main = {
   Shell: {
     getEnvironment: vi.fn<(clusterId?: string, options?: unknown) => Promise<Record<string, string>>>(),
     getKubectlPath: vi.fn<(clusterId?: string, options?: unknown) => Promise<string>>(),
+    getHelmPath: vi.fn<(clusterId?: string) => Promise<string>>(),
   },
   Util: {
     fetch: vi.fn<(url: string | URL, init?: unknown) => Promise<unknown>>(),

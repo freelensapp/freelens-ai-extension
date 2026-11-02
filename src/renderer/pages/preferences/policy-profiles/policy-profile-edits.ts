@@ -1,6 +1,6 @@
 // The changes the profile editor makes to the policy profile fields of the
 // preferences. Each replaces a field as a whole and never changes it in place:
-// main checks the pending kubectl approvals again when one of them is replaced.
+// main checks the pending approvals again when one of them is replaced.
 // Each runs as one MobX action, so a change of several fields is saved once.
 
 import { runInAction } from "mobx";

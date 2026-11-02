@@ -42,14 +42,24 @@ export const FLOOR_ENTRIES: Readonly<Record<FloorEntryId, FloorEntry>> = {
       "--insecure-skip-tls-verify",
       "--tls-server-name",
       "--cache-dir",
+      "helm's --kube-* flags (--kube-context, --kube-apiserver, --kube-token, --kube-as-user, ...)",
     ],
   },
   "credentials-or-configuration": {
     id: "credentials-or-configuration",
     title: "Credentials and configuration",
     reason:
-      "Credentials never reach the model, and the configuration of kubectl stays as the user set it. Verbose logging from level 6 prints the requests: from level 7 their request headers, the bearer token included, and from level 8 the response bodies, Secret values included.",
-    covers: ["config", "kuberc", "create token", "certificate", "-v, --v at 6 or higher", "--vmodule"],
+      "Credentials never reach the model, and the configuration of kubectl and helm stays as the user set it. Verbose logging from level 6 prints the requests: from level 7 their request headers, the bearer token included, and from level 8 the response bodies, Secret values included.",
+    covers: [
+      "config",
+      "kuberc",
+      "create token",
+      "certificate",
+      "-v, --v at 6 or higher",
+      "--vmodule",
+      "helm registry login",
+      "helm repo add",
+    ],
   },
   "local-disk-or-code": {
     id: "local-disk-or-code",
@@ -68,6 +78,11 @@ export const FLOOR_ENTRIES: Readonly<Record<FloorEntryId, FloorEntry>> = {
       "kustomize",
       "plugin",
       "verbs that are not kubectl verbs, which kubectl would run as plugins",
+      "helm upgrade and helm show with a local chart path or a chart URL (a chart is named <repository>/<chart>)",
+      "helm -f, --values, --set-file, --post-renderer, --post-renderer-args, --repo, --keyring, --ca-file, --cert-file, --key-file",
+      "helm --repository-config, --repository-cache, --registry-config, --content-cache",
+      "helm plugin, pull, push, package, create, lint, dependency, verify, repo index",
+      "verbs that are not helm verbs, which helm would run as plugins",
     ],
   },
   "never-ends-or-terminal": {
@@ -102,15 +117,21 @@ export const FLOOR_ENTRIES: Readonly<Record<FloorEntryId, FloorEntry>> = {
     covers: [
       "a manifest that does not parse",
       "an object without apiVersion or kind",
-      "a manifest with a verb other than apply, create, replace, delete or diff",
+      "a manifest with a verb other than apply, create, replace, delete or diff, or with helm",
     ],
   },
   unparseable: {
     id: "unparseable",
     title: "Arguments the parser cannot place",
     reason:
-      "An invocation is checked as kubectl would run it, so an argument that cannot be placed is rejected, not guessed.",
-    covers: ["unknown or unsupported flags", "a flag without its value", "arguments a verb does not take"],
+      "An invocation is checked as kubectl or helm would run it, so an argument that cannot be placed is rejected, not guessed.",
+    covers: [
+      "unknown or unsupported flags",
+      "a flag without its value",
+      "arguments a verb does not take",
+      "helm upgrade without --reuse-values, or with flags other than --reuse-values, --set and --dry-run",
+      "helm verbs other than list, status, history, get values, get manifest, get notes, show, search repo, rollback, uninstall and upgrade",
+    ],
   },
   "unknown-resource": {
     id: "unknown-resource",

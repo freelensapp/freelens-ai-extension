@@ -1,16 +1,26 @@
+import { isCliProgram } from "./canonical-form";
+import { HELM_COMMANDS } from "./helm-commands";
 import { KUBECTL_COMMANDS } from "./kubectl-commands";
 import { mostRestrictiveLevel, type PolicyLevel, type PolicyProfile, type PolicyRule } from "./policy-profile";
 import { findCatalogResource, type ResourceCatalog } from "./resource-catalog";
 
-import type { CanonicalForm } from "./canonical-form";
+import type { CanonicalForm, CliProgram } from "./canonical-form";
 
-/** The verbs of kubectl's canonical forms. */
-const KUBECTL_VERBS: ReadonlySet<string> = new Set([...KUBECTL_COMMANDS.map((command) => command.verb), "reveal"]);
+/** The verbs of the canonical forms of each program. */
+const VERBS: Readonly<Record<CliProgram, ReadonlySet<string>>> = {
+  kubectl: new Set([...KUBECTL_COMMANDS.map((command) => command.verb), "reveal"]),
+  helm: new Set(HELM_COMMANDS.map((command) => command.verb)),
+};
 
-/** The first words of the verbs of two words; `rollout` and `auth` are no verb alone. */
-const TWO_WORD_VERB_STARTS: ReadonlySet<string> = new Set(
-  [...KUBECTL_VERBS].filter((verb) => verb.includes(" ")).map((verb) => verb.split(" ")[0] ?? ""),
-);
+/** The first words of the verbs of two words; `rollout`, `auth`, `get` of helm and `search` are no verb alone. */
+const TWO_WORD_VERB_STARTS: Readonly<Record<CliProgram, ReadonlySet<string>>> = {
+  kubectl: twoWordVerbStarts(VERBS.kubectl),
+  helm: twoWordVerbStarts(VERBS.helm),
+};
+
+function twoWordVerbStarts(verbs: ReadonlySet<string>): ReadonlySet<string> {
+  return new Set([...verbs].filter((verb) => verb.includes(" ")).map((verb) => verb.split(" ")[0] ?? ""));
+}
 
 /** A rule's pattern, by the parts of the canonical form; an omitted part is undefined. */
 interface PolicyPattern {
@@ -43,21 +53,25 @@ const parsePattern = (pattern: string, catalog: ResourceCatalog): PolicyPattern 
   }
 
   const [program, first, ...rest] = positional;
-  if (program === undefined) return undefined;
+  if (program === undefined || !isCliProgram(program)) return undefined;
+  const verbs = VERBS[program];
   let verb = first;
-  if (first !== undefined && TWO_WORD_VERB_STARTS.has(first)) {
+  if (first !== undefined && TWO_WORD_VERB_STARTS[program].has(first)) {
     const second = rest[0];
-    if (second !== undefined && (KUBECTL_VERBS.has(`${first} ${second}`) || second.includes("*"))) {
+    if (second !== undefined && (verbs.has(`${first} ${second}`) || second.includes("*"))) {
       verb = `${first} ${second}`;
       rest.shift();
-    } else if (!KUBECTL_VERBS.has(first)) {
+    } else if (!verbs.has(first)) {
       verb = `${first} *`;
     }
   }
   const [resource, name, ...extra] = rest;
   if (extra.length > 0) return undefined;
+  // The resources of helm, releases and charts, are not resources of the cluster.
   const normalized =
-    resource === undefined || resource.includes("*") ? resource : findCatalogResource(catalog, resource)?.name;
+    resource === undefined || resource.includes("*") || program !== "kubectl"
+      ? resource
+      : findCatalogResource(catalog, resource)?.name;
   return {
     program,
     ...(verb === undefined ? {} : { verb }),

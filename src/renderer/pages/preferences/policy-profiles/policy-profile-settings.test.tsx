@@ -461,7 +461,7 @@ describe("Test box", () => {
     expect(result().getByText("The single quote is not closed.")).toBeDefined();
 
     typeCommandLine("oc get pods");
-    expect(result().getByText("Start the command line with kubectl.")).toBeDefined();
+    expect(result().getByText("Start the command line with kubectl or helm.")).toBeDefined();
   });
 
   it("keeps the command line when another profile is chosen, and shows how that profile treats it", () => {

@@ -1,5 +1,5 @@
 import { Loader2, Wrench, XCircle } from "lucide-react";
-import { kubectlTool } from "../../../common/agent-tools/kubectl-tool";
+import { helmTool, kubectlTool } from "../../../common/agent-tools";
 import { formatCommandLine } from "../../business/cli/command-line";
 import styles from "./tool-call.module.scss";
 
@@ -34,8 +34,11 @@ const ToolCallIcon = ({ toolCall }: ToolCallProps) => {
   );
 };
 
-// The arguments and the manifest the model called kubectl with.
-const kubectlInput = (args: unknown): { args: string[]; manifest?: string } => {
+/** The tools whose calls are CLI invocations, shown as their command lines. */
+const CLI_TOOL_NAMES: ReadonlySet<string> = new Set([kubectlTool.name, helmTool.name]);
+
+// The arguments and the manifest the model called kubectl or helm with.
+const cliInput = (args: unknown): { args: string[]; manifest?: string } => {
   const input = (typeof args === "object" && args !== null ? args : {}) as Record<string, unknown>;
   return {
     args: Array.isArray(input.args) ? input.args.filter((arg): arg is string => typeof arg === "string") : [],
@@ -43,7 +46,7 @@ const kubectlInput = (args: unknown): { args: string[]; manifest?: string } => {
   };
 };
 
-// A kubectl call that failed without running: the floor, the profile or the
+// A kubectl or helm call that failed without running: the floor, the profile or the
 // user blocked it, or it could not start. Its result is the reason.
 const isBlocked = (toolCall: ToolCallView) => isFailed(toolCall) && !toolCall.invocation;
 
@@ -53,11 +56,11 @@ const outputLabel = (toolCall: ToolCallView) => {
   return exitCode === null ? "Output, killed before it ended" : `Output, exit code ${exitCode}`;
 };
 
-// A kubectl call as its command line, the arguments it ran with once it has
-// run; the manifest and the output unfold under it. The reason of a blocked
-// call shows under the line.
-const KubectlCall = ({ toolCall }: ToolCallProps) => {
-  const input = kubectlInput(toolCall.args);
+// A kubectl or helm call as its command line, the arguments it ran with once
+// it has run; the manifest and the output unfold under it. The reason of a
+// blocked call shows under the line.
+const CliCall = ({ toolCall }: ToolCallProps) => {
+  const input = cliInput(toolCall.args);
   const commandLine = formatCommandLine(toolCall.toolName, toolCall.invocation?.args ?? input.args);
   const blocked = isBlocked(toolCall);
   const status = blocked ? "blocked" : statusOf(toolCall);
@@ -87,12 +90,12 @@ const KubectlCall = ({ toolCall }: ToolCallProps) => {
   );
 };
 
-// A kubectl call shows as its command line. A call of any other tool, such as
+// A kubectl or helm call shows as its command line. A call of any other tool, such as
 // one of the cluster tools of an earlier version in a saved chat, shows as one
 // line with the tool's name and arguments; the arguments in full and the result
 // unfold under it.
 export const ToolCall = ({ toolCall }: ToolCallProps) => {
-  if (toolCall.toolName === kubectlTool.name) return <KubectlCall toolCall={toolCall} />;
+  if (CLI_TOOL_NAMES.has(toolCall.toolName)) return <CliCall toolCall={toolCall} />;
   const args = toolCall.args ?? {};
   const failed = isFailed(toolCall);
   const status = statusOf(toolCall);

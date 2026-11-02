@@ -112,7 +112,8 @@ export const ProfileRules = ({ rules, editable, onChange }: ProfileRulesProps) =
     <div className={styles.fieldLabel}>Rules</div>
     <div className={styles.hint}>
       A command pattern has the shape of{" "}
-      <code>kubectl &lt;verb&gt; &lt;resource&gt; &lt;name&gt; -n &lt;namespace&gt;</code>. Each part is a word, a glob
+      <code>kubectl &lt;verb&gt; &lt;resource&gt; &lt;name&gt; -n &lt;namespace&gt;</code>, or of{" "}
+      <code>helm &lt;verb&gt; releases &lt;release&gt; -n &lt;namespace&gt;</code> for helm. Each part is a word, a glob
       such as <code>web-*</code> or <code>*</code>, and the parts left off at the end match anything; without{" "}
       <code>-n</code> a rule matches every namespace.
     </div>

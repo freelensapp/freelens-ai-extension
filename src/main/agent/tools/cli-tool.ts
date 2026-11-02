@@ -1,14 +1,15 @@
-// The kubectl tool in main: turns a call into a CLI invocation for the runner
-// and its result into the text the model reads.
+// The kubectl and helm tools in main: turn a call into a CLI invocation for the
+// runner and its result into the text the model reads.
 
 import { DEFAULT_CLI_TIMEOUT_SECONDS, MAX_CLI_TIMEOUT_SECONDS } from "../../../common/agent-tools/kubectl-tool";
 import { redactSecretOutput, SECRET_REDACTION_NOTE, type SecretRedaction } from "./secret-redaction";
 
 import type { CliInvocationDetails } from "../../../common/agent-protocol";
+import type { CliProgram } from "../../../common/invocation-policy/canonical-form";
 import type { CliResult, CliRunner } from "../cli-runner";
 
-/** The arguments of a kubectl call; pi has checked them against the tool's schema. */
-export interface KubectlToolInput {
+/** The arguments of a kubectl or helm call; pi has checked them against the tool's schema. */
+export interface CliToolInput {
   args: string[];
   manifest?: string;
   grep?: string;
@@ -16,8 +17,9 @@ export interface KubectlToolInput {
   revealSecrets?: boolean;
 }
 
-export interface KubectlToolContext {
+export interface CliToolContext {
   clusterId: string;
+  program: CliProgram;
   runCli: CliRunner;
   /** pi's signal for the tool call: Stop kills the process. */
   signal?: AbortSignal;
@@ -29,7 +31,7 @@ export interface KubectlToolContext {
   secretRedaction?: SecretRedaction;
 }
 
-export interface KubectlToolResult {
+export interface CliToolResult {
   text: string;
   isError: boolean;
   details: CliInvocationDetails;
@@ -41,7 +43,7 @@ const LOG_WINDOW_FLAGS = ["--tail", "--since", "--since-time"];
 const setsLogWindow = (arg: string) => LOG_WINDOW_FLAGS.some((flag) => arg === flag || arg.startsWith(`${flag}=`));
 
 /** A call made ready to run, or the reason it cannot run. */
-export type PreparedKubectlInvocation =
+export type PreparedCliInvocation =
   | {
       ok: true;
       args: string[];
@@ -53,24 +55,26 @@ export type PreparedKubectlInvocation =
   | { ok: false; error: string };
 
 /**
- * Builds the arguments kubectl runs with: `-f -` for a manifest, and for logs
- * without a tail or a time window the "pod logs tail lines" preference as
- * `--tail`; for a get of Secrets without revealSecrets, `-o json`. The
- * arguments after `--` belong to the command `exec` runs, so they are left
- * alone. The invocation policy has checked the arguments and the manifest
- * before; only `grep` is checked here.
+ * Builds the arguments the program runs with. For kubectl: `-f -` for a
+ * manifest, and for logs without a tail or a time window the "pod logs tail
+ * lines" preference as `--tail`; for a get of Secrets without revealSecrets,
+ * `-o json`. The arguments after `--` belong to the command `exec` runs, so
+ * they are left alone. helm runs with the agent's arguments as they are. The
+ * invocation policy has checked the arguments and the manifest before; only
+ * `grep` is checked here.
  */
-export function prepareKubectlInvocation(
-  input: KubectlToolInput,
+export function prepareCliInvocation(
+  program: CliProgram,
+  input: CliToolInput,
   podLogsTailLines: number,
   secretRedaction?: SecretRedaction,
-): PreparedKubectlInvocation {
+): PreparedCliInvocation {
   const args = secretRedaction?.args ?? input.args;
   const end = args.indexOf("--");
   const own = end < 0 ? [...args] : args.slice(0, end);
   const rest = end < 0 ? [] : args.slice(end);
-  if (input.manifest !== undefined) own.push("-f", "-");
-  if (own[0] === "logs" && !own.some(setsLogWindow)) {
+  if (program === "kubectl" && input.manifest !== undefined) own.push("-f", "-");
+  if (program === "kubectl" && own[0] === "logs" && !own.some(setsLogWindow)) {
     own.push(`--tail=${podLogsTailLines}`);
   }
   let grep: RegExp | undefined;
@@ -117,15 +121,16 @@ const capOutput = (text: string): string => {
 const withoutFinalNewline = (text: string) => (text.endsWith("\n") ? text.slice(0, -1) : text);
 
 // How the process ended: its exit code, or what killed it.
-const endLine = (result: CliResult, timeoutMs: number): string => {
-  if (result.killed === "stopped") return "kubectl was stopped before it ended.";
-  if (result.killed === "timeout") return `kubectl was killed after its timeout of ${timeoutMs / 1000} s.`;
+const endLine = (program: CliProgram, result: CliResult, timeoutMs: number): string => {
+  if (result.killed === "stopped") return `${program} was stopped before it ended.`;
+  if (result.killed === "timeout") return `${program} was killed after its timeout of ${timeoutMs / 1000} s.`;
   return `Exit code: ${result.exitCode}`;
 };
 
 // How it ended, the standard output, and the standard error when there is any.
 // The output of a get of Secrets is redacted before grep and the cap.
 const resultText = (
+  program: CliProgram,
   result: CliResult,
   invocation: { grep?: RegExp; timeoutMs: number; secretRedaction?: SecretRedaction },
 ): string => {
@@ -134,7 +139,7 @@ const resultText = (
   const stdout = withoutFinalNewline(capOutput(grep ? grepLines(output, grep) : output));
   const stderr = withoutFinalNewline(capOutput(result.stderr));
   return [
-    endLine(result, timeoutMs),
+    endLine(program, result, timeoutMs),
     ...(secretRedaction ? [SECRET_REDACTION_NOTE] : []),
     stdout ? `Standard output:\n${stdout}` : "Standard output: (empty)",
     ...(stderr ? [`Standard error:\n${stderr}`] : []),
@@ -142,12 +147,13 @@ const resultText = (
 };
 
 /** Runs a call through the CLI runner; throws the reason a call cannot run. */
-export async function runKubectl(input: KubectlToolInput, context: KubectlToolContext): Promise<KubectlToolResult> {
-  const invocation = prepareKubectlInvocation(input, context.podLogsTailLines, context.secretRedaction);
+export async function runCliTool(input: CliToolInput, context: CliToolContext): Promise<CliToolResult> {
+  const { program } = context;
+  const invocation = prepareCliInvocation(program, input, context.podLogsTailLines, context.secretRedaction);
   if (!invocation.ok) throw new Error(invocation.error);
   const result = await context.runCli({
     clusterId: context.clusterId,
-    program: "kubectl",
+    program,
     args: invocation.args,
     ...(invocation.manifest === undefined ? {} : { manifest: invocation.manifest }),
     timeoutMs: invocation.timeoutMs,
@@ -155,7 +161,7 @@ export async function runKubectl(input: KubectlToolInput, context: KubectlToolCo
     onProgress: context.onProgress,
   });
   return {
-    text: resultText(result, invocation),
+    text: resultText(program, result, invocation),
     isError: result.exitCode !== 0,
     details: { args: invocation.args, exitCode: result.exitCode },
   };
