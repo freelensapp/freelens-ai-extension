@@ -101,7 +101,7 @@ pnpm clean:all            # Clean everything (dist, dts, node_modules, tgz)
 src/
   main/index.ts                      # Extension entry point (main process, ESM): store, pi's ModelRuntime, agent host, provider service, IPC handlers
   main/agent/                        # Agent host, approval gate, CLI runner, system prompts, provider service, custom endpoints, old-settings import
-  main/agent/tools/                  # The kubectl tool: the gate's reads of the cluster, dry-run previews, Secret redaction, block reasons
+  main/agent/tools/                  # The kubectl and helm tools: the gate's reads of the cluster, dry-run previews, Secret redaction, block reasons
   main/utils/                        # Logger of main
   renderer/index.tsx                 # Extension entry point (renderer process, ESM): pages, menus, preferences
   renderer/business/agent-client/    # Frame side of the agent protocol and the pure chat reducer
@@ -130,7 +130,8 @@ Build output goes to `dist/`: `dist/main.js`, `dist/renderer.js` and
 `dist/renderer.css`, the entries `package.json` names.
 
 The extension presents no custom resource and has no `KubeObject` model of its
-own: the agent reaches every kind through kubectl from main (see "CLI
+own: the agent reaches every kind through kubectl, and Helm releases through
+helm, from main (see "CLI
 invocations in the main process"), and the views use the host's `KubeEvent`
 only. So `customResources` of the renderer extension is not set.
 
@@ -251,12 +252,12 @@ mechanism; this is the list to check a change against.
   The environment tests fail on a leak ("TypeScript").
 - **The cluster from the command.** The agent host takes the cluster id with
   every command (`handleCommand(clusterId, command)`) and runs a CLI invocation
-  with the kubectl and the environment of that cluster, never of one kept in
+  with the kubectl or helm and the environment of that cluster, never of one kept in
   module state: two cluster frames run at once, and a module-level cluster
   sends one chat's invocation to the other's cluster ("CLI invocations in the
   main process").
 - **Every CLI invocation goes through the invocation policy.** The tool runs
-  only a call that the gate let through (`passedKubectlCalls`), with what the
+  only a call that the gate let through (`passedCliCalls`), with what the
   policy decided about it, the Secret redaction included. A new tool, or a new
   path to the runner, that skips the gate runs the agent's arguments past the
   floor and the profile, and prints Secret values. Only the gate's own reads
@@ -629,16 +630,19 @@ Extend it when a test needs more of the host; it is runtime only, the types
 stay the real declaration's. knip does not follow the alias, so the stub is an
 entry of `knip.jsonc`.
 
-`test/stand-in-cli.ts` is a stand-in CLI runner for the `kubectl` tool of the
-agent host: `createStandInCli({ answers, hang, progress })` records every CLI
+`test/stand-in-cli.ts` is a stand-in CLI runner for the `kubectl` and `helm`
+tools of the agent host: `createStandInCli({ answers, hang, progress })` records every CLI
 invocation (`invocations`: cluster id, program, arguments, manifest, timeout
 and signal) and answers it by its arguments joined with spaces
 (`"get pods -n web"`) with standard output, standard error and exit code; an
 invocation without an answer exits with 1. `actions()` leaves out the approval
 gate's own invocations: its reads of the cluster's resources and namespace,
 which answer by default with the resources of `STAND_IN_RESOURCES` and no
-namespace, and its dry-run previews, which `previews()` returns (the dry runs
-and the `get <resource> <name> -n <ns> -o yaml` reads of the current objects).
+namespace, and its dry-run previews, which `previews()` returns (the dry runs,
+kubectl's `get <resource> <name> -n <ns> -o yaml` reads of the current objects,
+and helm's `get manifest <release> -n <ns> [--revision <n>]` and
+`history <release> -n <ns> --max 1 -o json` reads of a release). The answers
+are keyed by the arguments alone, whatever the program.
 `hang` leaves the given invocations running until their signal aborts, and
 `progress` sets the messages the first invocation reports, as a kubectl
 download does.
@@ -657,7 +661,7 @@ registered on the `ModelRuntime` the entry creates (a spy on
 `ModelRuntime.create`): a deactivation and a new activation leave one handler
 per IPC channel and one agent host, and a deactivation during a run stops it
 without an error. Its `Main.Shell` stand-in returns the path of the fake
-kubectl, the only test that starts a process. It spies on `console.error` in
+kubectl, for helm too, the only test that starts a process. It spies on `console.error` in
 `vi.hoisted`, because loglevel
 binds the console methods when its level is set, at import.
 
@@ -790,9 +794,10 @@ and its tests pass stand-ins.
   `DefaultResourceLoader` turned off for pi's extensions, skills, prompt
   templates, themes and context files, the system prompt of
   `src/main/agent/system-prompt.ts`, and `noTools: "builtin"`; an inline
-  extension registers the `kubectl` tool and the hooks below. The prompt says
-  that the agent runs kubectl through the tool, within the floor and the
-  profile, and keeps the output small with `grep`, selectors and `-o`.
+  extension registers the `kubectl` and `helm` tools and the hooks below. The
+  prompt says that the agent runs kubectl and helm through the two tools,
+  within the floor and the profile, keeps the output small with `grep`,
+  selectors and `-o`, and changes a workload that helm manages through helm.
 - **Prompt sections.** pi's `before_agent_start` hook sets the `cluster`
   section (the cluster's name in the catalog), the `user_rules` section (the
   custom agent rules) and the `cli_policy` section (the cluster's policy
@@ -856,25 +861,26 @@ frame's cluster id is read from its host name
 
 ### CLI invocations in the main process
 
-The agent reaches the cluster through one tool, `kubectl`, which runs a CLI
-invocation of the real kubectl against the chat's cluster, in main
-(`docs/adr/0003-agent-tools-are-cli-invocations.md`, which supersedes ADR 0002
-for how the tools reach the cluster).
+The agent reaches the cluster through two tools, `kubectl` and `helm`, each of
+which runs a CLI invocation of the real binary against the chat's cluster, in
+main (`docs/adr/0003-agent-tools-are-cli-invocations.md`, which supersedes ADR
+0002 for how the tools reach the cluster).
 
-The tool is defined once, in `src/common/agent-tools/kubectl-tool.ts`: name,
-label, description and typebox `parameters` (`args`, `manifest`, `grep`,
-`timeoutSeconds`, `revealSecrets`). `AGENT_TOOLS` lists it, and the renderer
-reads it for the chat's tool list. In main, `toPiTool` wraps it as a pi tool
-with `executionMode: "sequential"`, so pi runs the calls of a batch one at a
-time and asks an approval only after the previous call has finished; there is
-no read or write classification. `runKubectl` of `tools/kubectl.ts` turns a
-call into an invocation for the runner, and its result into what the model
-reads.
+The tools are defined once, in `src/common/agent-tools/kubectl-tool.ts` and
+`helm-tool.ts`: name, label, description and the same typebox `parameters`
+(`cliToolParameters`: `args`, `manifest`, `grep`, `timeoutSeconds`,
+`revealSecrets`). `AGENT_TOOLS` lists them, and the renderer reads them for
+the chat's tool list. In main, `toPiTool` wraps each as a pi tool with
+`executionMode: "sequential"`, so pi runs the calls of a batch one at a time
+and asks an approval only after the previous call has finished; there is no
+read or write classification. `runCliTool` of `tools/cli-tool.ts` turns a call
+into an invocation for the runner, and its result into what the model reads.
 
 - **The runner.** `createCliRunner` of `src/main/agent/cli-runner.ts`, which
   the entry passes as the `runCli` option, runs the kubectl of
   `Main.Shell.getKubectlPath(clusterId)`, the one Freelens downloads for the
-  cluster's version, with `execFile`, the argument array and the environment
+  cluster's version, or the helm of `Main.Shell.getHelmPath(clusterId)`,
+  with `execFile`, the argument array and the environment
   of `Main.Shell.getEnvironment(clusterId)`, which reaches the cluster through
   Freelens. No shell is involved (see "`execFile`, never a shell"), and only
   the manifest goes on standard input. The download's phases and progress come
@@ -885,14 +891,17 @@ reads.
   `"connected"`, a cluster Freelens does not know included, is the error
   result "Cluster not connected", and no process starts: a tool never
   connects a cluster.
-- **What runs.** The agent's arguments, with `-f -` added for a `manifest`,
-  and `--tail=<pod logs tail lines preference>` added to a `logs` without
-  `--tail`, `--since` or `--since-time`; the arguments after `--` belong to
-  the command of `exec` and are left alone.
+- **What runs.** The agent's arguments. For kubectl, `-f -` is added for a
+  `manifest`, and `--tail=<pod logs tail lines preference>` to a `logs`
+  without `--tail`, `--since` or `--since-time`; the arguments after `--`
+  belong to the command of `exec` and are left alone. helm takes no manifest,
+  and `revealSecrets` names none of its targets.
 - **Timeout and Stop.** 30 seconds when `timeoutSeconds` is unset, at most
   300. Stop aborts pi's signal, which kills the process, and the timeout kills
   it too; the result says which of the two did. A kubectl download in
-  progress is not cancelled: Stop takes effect once the path comes back.
+  progress is not cancelled: Stop takes effect once the path comes back. A
+  helm killed in the middle of an upgrade leaves the release pending, so the
+  helm tool's description asks for a `timeoutSeconds` on its changes.
 - **The result.** The model reads the exit code, the standard output and,
   when present, the standard error; a non-zero exit code makes it an error
   result. `grep` keeps the lines of the standard output that match it, then
@@ -923,7 +932,14 @@ reaches no Node, pi or DOM API.
   default namespace. It returns a floor rejection with its entry
   (`FLOOR_ENTRIES` of `floor.ts`), or one canonical form per target with the
   level and the rule that gave it, and the most restrictive of those levels.
-- **The cluster's resources.** Before the chat's first call, the gate runs
+  Both programs share the parser of `cli-invocation.ts`, over the command
+  table of each (`kubectl-commands.ts`, `helm-commands.ts`, taken from their
+  `--help`), which accepts only the flags it lists. helm's canonical forms
+  (`helm-canonical-forms.ts`) have the resource `releases`, with the release
+  as the name, or `charts` for `show` and `search repo`; a chart is named only
+  as `<repository>/<chart>`, and `upgrade` takes only `--reuse-values`, which
+  it needs, `--set` and `--dry-run`.
+- **The cluster's resources.** Before the chat's first call, of either tool, the gate runs
   `kubectl api-resources -o wide` and
   `kubectl config view --minify -o jsonpath={..namespace}`
   (`tools/cluster-resources.ts`) through the same runner and pi's signal, and
@@ -937,12 +953,12 @@ reaches no Node, pi or DOM API.
   Permissive) live in `shipped-profiles.ts`; `PreferencesStore` holds the
   user profiles, the assignments and the default profile id.
 - **The levels.** A floor rejection or Deny blocks the call with the reason
-  (`tools/kubectl-policy.ts`), which the model gets as the tool's result and
+  (`tools/block-reasons.ts`), which the model gets as the tool's result and
   the tool card shows. Allow lets it run. Ask asks the user unless "Approve
   all in this chat" is on; Always ask always asks, and its card does not offer
   "Approve all in this chat". The gate records every call it lets through in
-  `passedKubectlCalls`, with its Secret redaction, and the tool runs only a
-  call recorded there.
+  `passedCliCalls`, with its program and its Secret redaction, and a tool
+  runs only a call of its program recorded there.
 - **The dry run.** Before asking about a call whose verb is on
   `DRY_RUN_VERBS` (`dry-run-verbs.ts`), `previewKubectlInvocation`
   (`tools/kubectl-preview.ts`) runs it with `--dry-run=server` and `-o yaml`
@@ -953,7 +969,17 @@ reaches no Node, pi or DOM API.
   server's message, and nobody is asked. Any other failure is "Preview
   unavailable" with the reason, and the current YAML of the named targets as
   the backup. Otherwise the card shows a diff per target, current against dry
-  run, without managed fields (`line-diff.ts`). Neither Allow nor a call that
+  run, without managed fields (`line-diff.ts`). For helm `upgrade` and
+  `rollback`, `previewHelmInvocation` (`tools/helm-preview.ts`) runs the call
+  with helm's own `--dry-run=server` (and `-o json` for `upgrade`), reads the
+  release's manifest with `get manifest`, and diffs it against the manifest
+  of the release the upgrade's dry run prints, or for a rollback, which
+  prints none, against `get manifest --revision <n>` of the revision it goes
+  back to (the one it names, else the latest of `history --max 1 -o json`
+  minus one, as helm takes it). A dry run that fails the way the call would
+  (a release or revision that does not exist, a chart that does not render,
+  invalid or rejected objects) blocks the call; any other failure is "Preview
+  unavailable" with the current manifest as the backup. Neither Allow nor a call that
   "Approve all in this chat" lets through gets a dry run. The preview reaches
   the card only, never the model or the chat's file.
 - **The request.** The `CliApprovalRequest` (the program, the agent's own
