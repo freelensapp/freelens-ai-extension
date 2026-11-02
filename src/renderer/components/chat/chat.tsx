@@ -1,6 +1,7 @@
 import { Loader2, ShieldOff } from "lucide-react";
 import { getTextMessage } from "../../business/objects/message-object-provider";
 import { useApplicationStatusStore } from "../../context/application-context";
+import { ClusterProfileBadge } from "../cluster-profile/cluster-profile-badge";
 import { Message } from "../message";
 import { TextInput } from "../text-input";
 import styles from "./chat.module.scss";
@@ -14,20 +15,23 @@ export const Chat = () => {
 
   return (
     <>
-      {/* "Approve all in this chat" is on in main */}
-      {applicationStatusStore.autoApproveAll && (
-        <div className={styles.autoApproveNotice} title="Changes to the cluster run without asking for approval">
-          <ShieldOff size={16} />
-          Approving all actions in this chat
-          <button
-            type="button"
-            className={styles.autoApproveNoticeButton}
-            onClick={() => applicationStatusStore.turnOffAutoApprove()}
-          >
-            Turn off
-          </button>
-        </div>
-      )}
+      <div className={styles.chatHeader}>
+        {applicationStatusStore.clusterId && <ClusterProfileBadge clusterId={applicationStatusStore.clusterId} />}
+        {/* "Approve all in this chat" is on in main */}
+        {applicationStatusStore.autoApproveAll && (
+          <div className={styles.autoApproveNotice} title="Changes to the cluster run without asking for approval">
+            <ShieldOff size={16} />
+            Approving all actions in this chat
+            <button
+              type="button"
+              className={styles.autoApproveNoticeButton}
+              onClick={() => applicationStatusStore.turnOffAutoApprove()}
+            >
+              Turn off
+            </button>
+          </div>
+        )}
+      </div>
       <div className={styles.chatContainer}>
         <div className={styles.messagesContainer} ref={chatHook.containerRef}>
           {applicationStatusStore.chatMessages?.map((msg: MessageObject, index: number) => (

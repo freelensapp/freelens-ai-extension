@@ -1,0 +1,15 @@
+// A quiet pill, next to the louder "Approving all actions" notice of the
+// chat header.
+.cluster-profile-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--borderColor);
+  border-radius: 16px;
+  background: var(--mainBackground);
+  color: var(--textColorPrimary);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
