@@ -33,7 +33,10 @@ export const cliToolParameters = (program: CliProgram) =>
     timeoutSeconds: Type.Optional(
       Type.Number({
         exclusiveMinimum: 0,
-        description: `How long ${program} may run before it is killed, in seconds: ${DEFAULT_CLI_TIMEOUT_SECONDS} when unset, at most ${MAX_CLI_TIMEOUT_SECONDS}`,
+        description:
+          program === "kubectl"
+            ? `How long kubectl may run before it is killed, in seconds: ${DEFAULT_CLI_TIMEOUT_SECONDS} when unset, at most ${MAX_CLI_TIMEOUT_SECONDS}`
+            : `How long helm may run before it is killed, in seconds: ${DEFAULT_CLI_TIMEOUT_SECONDS} when unset (${MAX_CLI_TIMEOUT_SECONDS} for upgrade, rollback and uninstall), at most ${MAX_CLI_TIMEOUT_SECONDS}`,
       }),
     ),
     revealSecrets: Type.Optional(

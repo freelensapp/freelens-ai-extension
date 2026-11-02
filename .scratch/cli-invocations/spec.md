@@ -180,7 +180,9 @@ the user controls per cluster:
     `-f` and `--filename` in `args` are always rejected.
   - `grep` (optional): a regular expression; only the output lines that match
     it are kept.
-  - `timeoutSeconds` (optional): 30 seconds when unset, at most 300.
+  - `timeoutSeconds` (optional): 30 seconds when unset, at most 300. A
+    helm `upgrade`, `rollback` or `uninstall` gets 300 when unset, so that
+    helm is not killed in the middle of a change.
   - `revealSecrets` (optional): asks for Secret values unredacted.
 - Both tools are `executionMode: "sequential"`. pi then runs every call one at
   a time and asks each approval only after the previous call has finished, so

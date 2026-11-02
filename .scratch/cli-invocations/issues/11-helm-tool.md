@@ -149,10 +149,15 @@ the integration branch:
     decides, and the output is unredacted. `helm get values` and `get notes`
     stay as they are: Helm values are out of scope, as the spec says now.
 
-Open risk: the tool's timeout (30 s unless the call sets one) kills helm in
-the middle of a long upgrade, rollback or uninstall, which leaves the release
-pending (`another operation is in progress`). The helm tool's description
-asks the model to set `timeoutSeconds` for its changes.
+11. **The timeout of a change.** The open risk below is closed: a helm
+    `upgrade`, `rollback` or `uninstall` without `timeoutSeconds` gets the
+    longest timeout, 300 seconds, rather than 30, so that helm is not killed
+    in the middle of a write (decided by the supervisor). The helm tool's
+    description and its `timeoutSeconds` parameter say so.
+
+Open risk, closed by item 11: the tool's timeout (30 s unless the call sets
+one) killed helm in the middle of a long upgrade, rollback or uninstall,
+which leaves the release pending (`another operation is in progress`).
 
 Manual check in Freelens dev, still to run: install the checkout in place on
 `kind-kind` with Flux (or with a release installed by hand, for example

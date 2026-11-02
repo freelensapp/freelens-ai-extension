@@ -2111,6 +2111,37 @@ describe("AgentHost", () => {
       expect(answerText()).toBe("Result: Exit code: 0\n\nStandard output:\nNAME\tNAMESPACE\nweb \tdefault");
     });
 
+    it.each([
+      [["upgrade", "web", "bitnami/nginx", "--reuse-values", "--set", "replicaCount=2"], 300_000],
+      [["rollback", "web", "2"], 300_000],
+      [["uninstall", "web"], 300_000],
+      [["-n", "web", "uninstall", "api"], 300_000],
+      [["upgrade", "web", "bitnami/nginx", "--reuse-values", "--dry-run"], 300_000],
+      [["status", "web"], 30_000],
+    ])(
+      "runs helm %j without timeoutSeconds with a timeout of %i ms, so a change is not killed midway",
+      async (args, timeoutMs) => {
+        faux.setResponses(callThenEcho("helm", { args }));
+        const host = helmHost({ getPolicyProfileSettings: () => everyClusterOn(ALLOW_ALL_PROFILE) });
+
+        await host.handleCommand("c1", { type: "prompt", message: "change web" });
+        await waitFor(settled);
+
+        expect(cli.actions()).toEqual([expect.objectContaining({ program: "helm", args, timeoutMs })]);
+      },
+    );
+
+    it("keeps the timeout an upgrade sets", async () => {
+      const args = ["upgrade", "web", "bitnami/nginx", "--reuse-values"];
+      faux.setResponses(callThenEcho("helm", { args, timeoutSeconds: 60 }));
+      const host = helmHost({ getPolicyProfileSettings: () => everyClusterOn(ALLOW_ALL_PROFILE) });
+
+      await host.handleCommand("c1", { type: "prompt", message: "change web" });
+      await waitFor(settled);
+
+      expect(cli.actions()).toEqual([expect.objectContaining({ args, timeoutMs: 60_000 })]);
+    });
+
     it("keeps only the lines that match grep and says when the timeout killed helm", async () => {
       cli = createStandInCli({
         answers: {

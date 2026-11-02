@@ -15,8 +15,8 @@ export const helmTool: AgentToolDefinition = {
     "notes) and the charts of the repositories the user added (show, search repo), and changes releases with " +
     "rollback, uninstall and upgrade. upgrade takes a release, its chart as <repository>/<chart>, --reuse-values " +
     "and the values to change with --set. Local charts, chart URLs, values files and install are not available. " +
-    "A change may take longer than the default timeout: set timeoutSeconds for upgrade, rollback and uninstall, " +
-    "since helm killed in the middle leaves the release pending. " +
+    "upgrade, rollback and uninstall run with a timeout of 300 seconds unless timeoutSeconds sets another, since " +
+    "helm killed in the middle leaves the release pending. " +
     "The values of the Secrets in a release's manifest (get manifest, and upgrade with --dry-run) are redacted; " +
     "set revealSecrets only when the user asks for them. " +
     "Keep the output small with -o and grep. The result holds the exit code, the standard output and the " +

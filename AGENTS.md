@@ -910,8 +910,9 @@ into an invocation for the runner, and its result into what the model reads.
   300. Stop aborts pi's signal, which kills the process, and the timeout kills
   it too; the result says which of the two did. A kubectl download in
   progress is not cancelled: Stop takes effect once the path comes back. A
-  helm killed in the middle of an upgrade leaves the release pending, so the
-  helm tool's description asks for a `timeoutSeconds` on its changes.
+  helm killed in the middle of an upgrade leaves the release pending, so a
+  helm `upgrade`, `rollback` or `uninstall` without `timeoutSeconds` gets the
+  longest timeout, 300 seconds, as the helm tool's description says.
 - **The result.** The model reads the exit code, the standard output and,
   when present, the standard error; a non-zero exit code makes it an error
   result. `grep` keeps the lines of the standard output that match it, then

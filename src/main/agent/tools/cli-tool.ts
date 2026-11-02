@@ -3,6 +3,7 @@
 
 import { DEFAULT_CLI_TIMEOUT_SECONDS, MAX_CLI_TIMEOUT_SECONDS } from "../../../common/agent-tools/kubectl-tool";
 import { isRejection } from "../../../common/invocation-policy/cli-invocation";
+import { parseHelmInvocation } from "../../../common/invocation-policy/helm-canonical-forms";
 import { parseKubectlInvocation } from "../../../common/invocation-policy/kubectl-invocation";
 import { redactSecretOutput, SECRET_REDACTION_NOTE, type SecretRedaction } from "./secret-redaction";
 
@@ -54,6 +55,18 @@ const readsLogsWithoutWindow = (args: readonly string[]): boolean => {
   );
 };
 
+/**
+ * The helm verbs that change a release. helm killed in the middle of one
+ * leaves the release pending, so without `timeoutSeconds` they get the
+ * longest timeout rather than the default.
+ */
+const HELM_RELEASE_CHANGES: ReadonlySet<string> = new Set(["upgrade", "rollback", "uninstall"]);
+
+const changesRelease = (args: readonly string[]): boolean => {
+  const invocation = parseHelmInvocation(args);
+  return !isRejection(invocation) && HELM_RELEASE_CHANGES.has(invocation.command.verb);
+};
+
 /** A call made ready to run, or the reason it cannot run. */
 export type PreparedCliInvocation =
   | {
@@ -71,7 +84,8 @@ export type PreparedCliInvocation =
  * manifest, and for logs without a tail or a time window the "pod logs tail
  * lines" preference as `--tail`; for a get of Secrets without revealSecrets,
  * `-o json`. The arguments after `--` belong to the command `exec` runs, so
- * they are left alone. helm runs with the agent's arguments as they are. The
+ * they are left alone. helm runs with the agent's arguments as they are, and
+ * a change of a release without `timeoutSeconds` with the longest timeout. The
  * invocation policy has checked the arguments and the manifest before; only
  * `grep` is checked here.
  */
@@ -95,7 +109,9 @@ export function prepareCliInvocation(
   } catch (error) {
     return { ok: false, error: `grep is not a valid regular expression: ${(error as Error).message}` };
   }
-  const timeoutSeconds = Math.min(input.timeoutSeconds ?? DEFAULT_CLI_TIMEOUT_SECONDS, MAX_CLI_TIMEOUT_SECONDS);
+  const defaultTimeoutSeconds =
+    program === "helm" && changesRelease(input.args) ? MAX_CLI_TIMEOUT_SECONDS : DEFAULT_CLI_TIMEOUT_SECONDS;
+  const timeoutSeconds = Math.min(input.timeoutSeconds ?? defaultTimeoutSeconds, MAX_CLI_TIMEOUT_SECONDS);
   return {
     ok: true,
     args: [...own, ...rest],
