@@ -47,3 +47,13 @@ From ticket 02 (see its Comments):
   only `-o name`.
 - `rollout restart` has no `--dry-run` in kubectl 1.36, so it is not on the
   list and is asked without a preview. No other verb was removed.
+
+Ticket 03 removed `src/common/invocation-policy/dry-run-verbs.ts` (the
+`DRY_RUN_VERBS` list with its `acceptsYamlOutput` facts) and its test cases
+("the dry-run verbs" in `invocation-policy.test.ts`), since knip's production
+pass reported the file as unused until this ticket imports it. Restore both
+from commit 4a2697d, the parent of the removal:
+`git checkout 4a2697d -- src/common/invocation-policy/dry-run-verbs.ts` and
+the `describe("the dry-run verbs")` block with its `dryRunVerbOf` helper and
+the `DRY_RUN_VERBS` import from
+`git show 4a2697d:src/common/invocation-policy/invocation-policy.test.ts`.
