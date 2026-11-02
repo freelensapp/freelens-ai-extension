@@ -2,8 +2,8 @@
 // `{ "mcpServers": { "<name>": <connection> } }`. Kept free of host
 // dependencies so they are unit-tested directly.
 
-// The servers of the configuration by name, each as the user wrote it.
-// `MCPAdapter` validates every connection itself when it is created.
+// The servers of the configuration by name, each as the user wrote it, checked
+// by `toServerTransport` when its client is created.
 export type McpServers = Record<string, unknown>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -11,8 +11,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 /**
  * The servers of the configuration. An empty or invalid configuration has no
- * servers; the MCP adapter then refuses to start with "No MCP servers
- * provided", which the chat shows.
+ * servers; `McpClients` then refuses to start with "No MCP servers provided",
+ * which the chat shows.
  */
 export const parseMcpServers = (configuration: string): McpServers => {
   if (configuration.trim() === "") {
@@ -33,7 +33,7 @@ export const parseMcpServers = (configuration: string): McpServers => {
 
 /**
  * Whether a server runs as a child process: an explicit stdio transport, or
- * no transport and a command, as `MCPAdapter` infers it.
+ * no transport and a command.
  */
 export const isStdioServer = (server: unknown): server is Record<string, unknown> => {
   if (!isRecord(server)) {
@@ -46,24 +46,61 @@ export const isStdioServer = (server: unknown): server is Record<string, unknown
   return typeof server.command === "string";
 };
 
-/**
- * The servers with MCP elicitation turned off. A modern server that asks the
- * user for input makes `MCPAdapter` pause the run with a LangGraph interrupt
- * of its own, which the chat cannot show or answer: it knows only the approvals
- * of the agents. A server with elicitation off is not offered it and runs its
- * tools without asking. An SSE server and a server in `legacy` mode have no
- * elicitation, and the adapter refuses the option for them, so they are left as
- * they are.
- */
-export const withoutElicitation = (servers: McpServers): McpServers =>
-  Object.fromEntries(
-    Object.entries(servers).map(([name, server]) => {
-      if (!isRecord(server) || (server.transport ?? server.type) === "sse" || server.mode === "legacy") {
-        return [name, server];
-      }
-      return [name, { ...server, elicitation: false }];
-    }),
+// How a server of the configuration is reached.
+export type McpServerTransport =
+  | { type: "stdio"; command: string; args?: string[]; env?: Record<string, string>; cwd?: string }
+  | { type: "http" | "sse"; url: string; headers?: Record<string, string> };
+
+const stringRecord = (value: unknown): Record<string, string> | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => entry !== undefined && entry !== null)
+      .map(([key, entry]) => [key, String(entry)]),
   );
+};
+
+/**
+ * The transport of a server of the configuration, in the format the
+ * preferences have always had (that of LangChain's MCP adapters): a stdio
+ * server with `command`, `args`, `env` and `cwd`, or an HTTP or SSE server with
+ * `url` and `headers`. `transport` or `type` names the transport; without
+ * either, a `command` is a stdio server and a `url` an HTTP one. Throws a
+ * message that names the server when it is neither.
+ */
+export const toServerTransport = (name: string, server: unknown): McpServerTransport => {
+  if (!isRecord(server)) {
+    throw new Error(`The MCP server "${name}" is not an object.`);
+  }
+  // Kept apart from `server`, which the stdio guard below narrows.
+  const remote: Record<string, unknown> = server;
+  if (isStdioServer(server)) {
+    if (typeof server.command !== "string" || server.command.length === 0) {
+      throw new Error(`The MCP server "${name}" has no "command".`);
+    }
+    return {
+      type: "stdio",
+      command: server.command,
+      ...(Array.isArray(server.args) ? { args: server.args.map(String) } : {}),
+      ...(isRecord(server.env) ? { env: stringRecord(server.env) } : {}),
+      ...(typeof server.cwd === "string" ? { cwd: server.cwd } : {}),
+    };
+  }
+  const transport = remote.transport ?? remote.type ?? "http";
+  if (transport !== "http" && transport !== "sse") {
+    throw new Error(`The MCP server "${name}" has an unknown transport "${String(transport)}".`);
+  }
+  if (typeof remote.url !== "string" || remote.url.length === 0) {
+    throw new Error(`The MCP server "${name}" has no "url".`);
+  }
+  return {
+    type: transport,
+    url: remote.url,
+    ...(isRecord(remote.headers) ? { headers: stringRecord(remote.headers) } : {}),
+  };
+};
 
 /**
  * The servers with the environment of the chat's cluster under the `env` of

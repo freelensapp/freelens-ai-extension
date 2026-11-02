@@ -2,111 +2,61 @@ import { describe, expect, it } from "vitest";
 import {
   addTokenUsage,
   emptyTokenUsage,
-  extractTokenUsage,
-  extractTokenUsageFromLLMResult,
   formatTokenUsage,
   isEmptyTokenUsage,
-  subtractTokenUsage,
+  tokenUsageFromModelUsage,
 } from "./token-usage";
 
-describe("extractTokenUsage", () => {
-  it("returns null for missing or non-object metadata", () => {
-    expect(extractTokenUsage(undefined)).toBeNull();
-    expect(extractTokenUsage(null)).toBeNull();
-    expect(extractTokenUsage("nope")).toBeNull();
+describe("tokenUsageFromModelUsage", () => {
+  it("returns null for missing or non-object usage", () => {
+    expect(tokenUsageFromModelUsage(undefined)).toBeNull();
+    expect(tokenUsageFromModelUsage(null)).toBeNull();
   });
 
   it("returns null when every count is zero or absent", () => {
-    expect(extractTokenUsage({})).toBeNull();
-    expect(extractTokenUsage({ input_tokens: 0, output_tokens: 0 })).toBeNull();
+    expect(tokenUsageFromModelUsage({})).toBeNull();
+    expect(tokenUsageFromModelUsage({ inputTokens: 0, outputTokens: 0 })).toBeNull();
   });
 
-  it("reads input, output, and cached read tokens", () => {
+  it("reads input, output, and cache read tokens", () => {
     expect(
-      extractTokenUsage({
-        input_tokens: 120,
-        output_tokens: 45,
-        input_token_details: { cache_read: 80 },
+      tokenUsageFromModelUsage({
+        inputTokens: 120,
+        outputTokens: 45,
+        inputTokenDetails: { cacheReadTokens: 80, cacheWriteTokens: undefined },
       }),
     ).toEqual({ input: 120, cached: 80, output: 45 });
   });
 
-  it("defaults cached to zero when no cache_read is present", () => {
-    expect(extractTokenUsage({ input_tokens: 10, output_tokens: 5 })).toEqual({ input: 10, cached: 0, output: 5 });
+  it("reads the cache write tokens the provider maps", () => {
+    expect(
+      tokenUsageFromModelUsage({
+        inputTokens: 120,
+        outputTokens: 45,
+        inputTokenDetails: { cacheReadTokens: 0, cacheWriteTokens: 100 },
+      }),
+    ).toEqual({ input: 120, cached: 0, output: 45, cacheWrite: 100 });
+  });
+
+  it("reads the cache write tokens of LiteLLM from the raw usage", () => {
+    expect(
+      tokenUsageFromModelUsage({ inputTokens: 10, outputTokens: 5, raw: { cache_creation_input_tokens: 7 } }),
+    ).toEqual({ input: 10, cached: 0, output: 5, cacheWrite: 7 });
+    expect(
+      tokenUsageFromModelUsage({
+        inputTokens: 10,
+        outputTokens: 5,
+        raw: { prompt_tokens_details: { cache_creation_tokens: 3 } },
+      }),
+    ).toEqual({ input: 10, cached: 0, output: 5, cacheWrite: 3 });
   });
 
   it("ignores non-finite counts", () => {
-    expect(extractTokenUsage({ input_tokens: Number.NaN, output_tokens: 7 })).toEqual({
+    expect(tokenUsageFromModelUsage({ inputTokens: Number.NaN, outputTokens: 7 })).toEqual({
       input: 0,
       cached: 0,
       output: 7,
     });
-  });
-});
-
-describe("extractTokenUsageFromLLMResult", () => {
-  it("returns null for missing or non-object results", () => {
-    expect(extractTokenUsageFromLLMResult(undefined)).toBeNull();
-    expect(extractTokenUsageFromLLMResult(null)).toBeNull();
-    expect(extractTokenUsageFromLLMResult("nope")).toBeNull();
-  });
-
-  it("reads per-message usage_metadata from a single generation", () => {
-    expect(
-      extractTokenUsageFromLLMResult({
-        generations: [
-          [
-            {
-              message: {
-                usage_metadata: { input_tokens: 100, output_tokens: 40, input_token_details: { cache_read: 30 } },
-              },
-            },
-          ],
-        ],
-      }),
-    ).toEqual({ input: 100, cached: 30, output: 40 });
-  });
-
-  it("sums usage_metadata across multiple generations", () => {
-    expect(
-      extractTokenUsageFromLLMResult({
-        generations: [
-          [{ message: { usage_metadata: { input_tokens: 100, output_tokens: 40 } } }],
-          [
-            {
-              message: {
-                usage_metadata: { input_tokens: 10, output_tokens: 5, input_token_details: { cache_read: 4 } },
-              },
-            },
-          ],
-        ],
-      }),
-    ).toEqual({ input: 110, cached: 4, output: 45 });
-  });
-
-  it("falls back to flat llmOutput.tokenUsage when no message carries usage_metadata", () => {
-    expect(
-      extractTokenUsageFromLLMResult({
-        generations: [[{ message: {} }]],
-        llmOutput: { tokenUsage: { promptTokens: 70, completionTokens: 12 } },
-      }),
-    ).toEqual({ input: 70, cached: 0, output: 12 });
-  });
-
-  it("returns null when neither source carries positive counts", () => {
-    expect(extractTokenUsageFromLLMResult({ generations: [[{ message: {} }]] })).toBeNull();
-    expect(
-      extractTokenUsageFromLLMResult({ llmOutput: { tokenUsage: { promptTokens: 0, completionTokens: 0 } } }),
-    ).toBeNull();
-  });
-
-  it("prefers usage_metadata over the flat fallback", () => {
-    expect(
-      extractTokenUsageFromLLMResult({
-        generations: [[{ message: { usage_metadata: { input_tokens: 5, output_tokens: 6 } } }]],
-        llmOutput: { tokenUsage: { promptTokens: 999, completionTokens: 999 } },
-      }),
-    ).toEqual({ input: 5, cached: 0, output: 6 });
   });
 });
 
@@ -123,29 +73,11 @@ describe("addTokenUsage", () => {
       output: 2,
     });
   });
-});
 
-describe("subtractTokenUsage", () => {
-  it("returns the field-wise difference", () => {
-    expect(subtractTokenUsage({ input: 105, cached: 22, output: 38 }, { input: 100, cached: 20, output: 30 })).toEqual({
-      input: 5,
-      cached: 2,
-      output: 8,
-    });
-  });
-
-  it("can produce a negative delta to roll back a counted total", () => {
-    expect(subtractTokenUsage(emptyTokenUsage(), { input: 5, cached: 2, output: 8 })).toEqual({
-      input: -5,
-      cached: -2,
-      output: -8,
-    });
-  });
-
-  it("round-trips with addTokenUsage", () => {
-    const total = { input: 100, cached: 20, output: 30 };
-    const delta = { input: 5, cached: 2, output: 8 };
-    expect(subtractTokenUsage(addTokenUsage(total, delta), total)).toEqual(delta);
+  it("keeps the cache write count once one of them has it", () => {
+    expect(
+      addTokenUsage({ input: 1, cached: 0, output: 1 }, { input: 1, cached: 0, output: 1, cacheWrite: 4 }),
+    ).toEqual({ input: 2, cached: 0, output: 2, cacheWrite: 4 });
   });
 });
 
@@ -154,6 +86,7 @@ describe("isEmptyTokenUsage", () => {
     expect(isEmptyTokenUsage(emptyTokenUsage())).toBe(true);
     expect(isEmptyTokenUsage({ input: 0, cached: 0, output: 1 })).toBe(false);
     expect(isEmptyTokenUsage({ input: 1, cached: 0, output: 0 })).toBe(false);
+    expect(isEmptyTokenUsage({ input: 0, cached: 0, output: 0, cacheWrite: 1 })).toBe(false);
   });
 });
 

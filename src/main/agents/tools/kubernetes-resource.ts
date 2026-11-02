@@ -1,4 +1,3 @@
-import { interrupt } from "@langchain/langgraph";
 import { stringify as stringifyYaml } from "yaml";
 import { PreferencesStore } from "../../../common/store";
 import { clusterApiFor, type KubeJsonApi } from "./cluster-api";
@@ -37,7 +36,7 @@ import {
   resourcePath,
 } from "./resource-paths";
 
-import type { RunnableConfig } from "@langchain/core/runnables";
+import type { ApprovalRequest } from "../../../common/bridge/protocol";
 
 // A Kubernetes object as the API server returns it.
 interface RawObject {
@@ -162,11 +161,11 @@ const deleteObject = (api: KubeJsonApi, path: string, force: boolean) =>
  * an explicit apiVersion for a CRD).
  */
 async function resolveTarget(
-  config: RunnableConfig | undefined,
+  clusterId: string | undefined,
   kind: string,
   apiVersion?: string,
 ): Promise<ResolvedTarget | string> {
-  const api = clusterApiFor(config);
+  const api = clusterApiFor(clusterId);
   if (typeof api === "string") {
     return api;
   }
@@ -187,17 +186,17 @@ async function resolveTarget(
 }
 
 /**
- * Run the human-in-the-loop approval gate for a write operation. When
- * `resourcesYaml` is provided it carries the current full YAML of the resources
- * the action will change, presented as a folded backup so the change can be
- * reverted.
+ * The approval request of a write operation, which the chat shows before the
+ * operation runs. When `resourcesYaml` is provided it carries the current full
+ * YAML of the resources the action will change, presented as a folded backup so
+ * the change can be reverted.
  */
-function requestApproval(action: string, payload: Record<string, unknown>, resourcesYaml?: string): boolean {
+function approvalRequest(action: string, payload: Record<string, unknown>, resourcesYaml?: string): ApprovalRequest {
   const actionToApprove = { action, ...payload };
   // Render the payload as YAML, the native format of the Kubernetes world,
   // so the approval prompt is highlighted as YAML rather than JSON.
   const actionString = stringifyYaml(actionToApprove);
-  const interruptRequest = {
+  return {
     question: "Do you want to approve this action?",
     options: ["yes", "no"],
     actionToApprove,
@@ -209,9 +208,6 @@ function requestApproval(action: string, payload: Record<string, unknown>, resou
     // fields (for example the MCP tool approval prompt).
     requestString: "```yaml\n" + actionString + "```",
   };
-  const review = interrupt(interruptRequest);
-  console.log("Tool call review: ", review);
-  return review === "yes";
 }
 
 /**
@@ -267,10 +263,10 @@ function projectObject(object: RawObject, includeManagedFields = false) {
  */
 export async function listKubernetesResources(
   { kind, apiVersion, namespace, includeManagedFields, fields }: ListResourceInput,
-  config?: RunnableConfig,
+  clusterId?: string,
 ): Promise<string> {
   console.log("[Tool invocation: listKubernetesResources] - kind:", kind, "namespace:", namespace);
-  const target = await resolveTarget(config, kind, apiVersion);
+  const target = await resolveTarget(clusterId, kind, apiVersion);
   if (typeof target === "string") {
     return target;
   }
@@ -296,10 +292,10 @@ export async function listKubernetesResources(
  */
 export async function getKubernetesResource(
   { kind, apiVersion, name, namespace, includeManagedFields, fields }: GetResourceInput,
-  config?: RunnableConfig,
+  clusterId?: string,
 ): Promise<string> {
   console.log("[Tool invocation: getKubernetesResource] - kind:", kind, "name:", name, "namespace:", namespace);
-  const target = await resolveTarget(config, kind, apiVersion);
+  const target = await resolveTarget(clusterId, kind, apiVersion);
   if (typeof target === "string") {
     return target;
   }
@@ -332,9 +328,9 @@ export async function getKubernetesResource(
  * reports). This is the authoritative source for the server version and avoids
  * heuristics such as inspecting node `kubeletVersion`s.
  */
-export async function getClusterVersion(_input: unknown, config?: RunnableConfig): Promise<string> {
+export async function getClusterVersion(_input: unknown, clusterId?: string): Promise<string> {
   console.log("[Tool invocation: getClusterVersion]");
-  const api = clusterApiFor(config);
+  const api = clusterApiFor(clusterId);
   if (typeof api === "string") {
     return api;
   }
@@ -355,9 +351,9 @@ export async function getClusterVersion(_input: unknown, config?: RunnableConfig
 /**
  * The names of every namespace of the run's cluster.
  */
-export async function getNamespaces(_input: unknown, config?: RunnableConfig): Promise<string[] | string> {
+export async function getNamespaces(_input: unknown, clusterId?: string): Promise<string[] | string> {
   console.log("[Tool invocation: getNamespaces]");
-  const api = clusterApiFor(config);
+  const api = clusterApiFor(clusterId);
   if (typeof api === "string") {
     return api;
   }
@@ -386,10 +382,10 @@ interface RawEvent extends RawObject {
  */
 export async function getWarningEventsByNamespace(
   { namespace }: { namespace: string },
-  config?: RunnableConfig,
+  clusterId?: string,
 ): Promise<string> {
   console.log("[Tool invocation: getWarningEventsForNamespace] - namespace: ", namespace);
-  const api = clusterApiFor(config);
+  const api = clusterApiFor(clusterId);
   if (typeof api === "string") {
     return api;
   }
@@ -419,21 +415,24 @@ export async function getWarningEventsByNamespace(
   }
 }
 
-/**
- * Create a resource. Known kinds are validated and prepared via their handler;
- * unknown kinds (CRDs) are applied as free YAML/JSON.
- */
-export async function createKubernetesResource(
-  { kind, apiVersion, name, namespace, data }: CreateResourceInput,
-  config?: RunnableConfig,
-): Promise<string> {
-  console.log("[Tool invocation: createKubernetesResource] - kind:", kind);
-  const target = await resolveTarget(config, kind, apiVersion);
-  if (typeof target === "string") {
-    return target;
-  }
-  const { api, resource } = target;
+interface PreparedCreate {
+  manifest: Manifest;
+  metadata: { name?: string; namespace?: string };
+  resourceName: string;
+  resourceNamespace?: string;
+}
 
+/**
+ * The manifest of a create, validated and prepared, and the name and namespace
+ * it is created with, or a message for the model. Pure, so the approval is not
+ * asked for a manifest that would be refused.
+ */
+function prepareCreate({
+  kind,
+  name,
+  namespace,
+  data,
+}: Omit<CreateResourceInput, "apiVersion">): PreparedCreate | string {
   const validation = validateManifest(kind, data);
   if (!validation.success) {
     return `The ${kind} manifest is invalid: ${validation.error}`;
@@ -441,20 +440,43 @@ export async function createKubernetesResource(
   const manifest = prepareManifest(kind, validation.data);
   const metadata = (manifest.metadata ?? {}) as { name?: string; namespace?: string };
   const resourceName = name ?? metadata.name;
-  const resourceNamespace = namespace ?? metadata.namespace;
   if (!resourceName) {
     return `Could not determine the name for the ${kind} to create.`;
   }
+  return { manifest, metadata, resourceName, resourceNamespace: namespace ?? metadata.namespace };
+}
 
-  if (
-    !requestApproval(`CREATE ${kind.toUpperCase()}`, {
-      name: resourceName,
-      namespace: resourceNamespace,
-      data: manifest,
-    })
-  ) {
-    return "The user denied the action";
+/**
+ * The manifest of an update, validated and prepared, or a message for the
+ * model.
+ */
+function prepareUpdate(kind: string, data: Manifest): Manifest | string {
+  const validation = validateManifest(kind, data);
+  if (!validation.success) {
+    return `The ${kind} manifest is invalid: ${validation.error}`;
   }
+  return prepareManifest(kind, validation.data);
+}
+
+/**
+ * Create a resource. Known kinds are validated and prepared via their handler;
+ * unknown kinds (CRDs) are applied as free YAML/JSON.
+ */
+export async function createKubernetesResource(
+  { kind, apiVersion, name, namespace, data }: CreateResourceInput,
+  clusterId?: string,
+): Promise<string> {
+  console.log("[Tool invocation: createKubernetesResource] - kind:", kind);
+  const prepared = prepareCreate({ kind, name, namespace, data });
+  if (typeof prepared === "string") {
+    return prepared;
+  }
+  const { manifest, metadata, resourceName, resourceNamespace } = prepared;
+  const target = await resolveTarget(clusterId, kind, apiVersion);
+  if (typeof target === "string") {
+    return target;
+  }
+  const { api, resource } = target;
 
   try {
     // As the host's KubeApi creates: the kind, the apiVersion and the name
@@ -486,10 +508,10 @@ export async function createKubernetesResource(
  */
 export async function updateKubernetesResource(
   { kind, apiVersion, name, namespace, data }: WriteResourceInput,
-  config?: RunnableConfig,
+  clusterId?: string,
 ): Promise<string> {
   console.log("[Tool invocation: updateKubernetesResource] - kind:", kind, "name:", name);
-  const target = await resolveTarget(config, kind, apiVersion);
+  const target = await resolveTarget(clusterId, kind, apiVersion);
   if (typeof target === "string") {
     return target;
   }
@@ -498,15 +520,9 @@ export async function updateKubernetesResource(
     return `Kind "${kind}" is namespaced; please provide a namespace to update "${name}".`;
   }
 
-  const validation = validateManifest(kind, data);
-  if (!validation.success) {
-    return `The ${kind} manifest is invalid: ${validation.error}`;
-  }
-  const manifest = prepareManifest(kind, validation.data);
-
-  const backup = await captureResourceYaml(api, resource, name, namespace);
-  if (!requestApproval(`UPDATE ${kind.toUpperCase()}`, { name, namespace, data: manifest }, backup)) {
-    return "The user denied the action";
+  const manifest = prepareUpdate(kind, data);
+  if (typeof manifest === "string") {
+    return manifest;
   }
 
   try {
@@ -539,7 +555,7 @@ export async function updateKubernetesResource(
  */
 export async function patchKubernetesResource(
   { kind, apiVersion, name, namespace, data, subresource }: WriteResourceInput,
-  config?: RunnableConfig,
+  clusterId?: string,
 ): Promise<string> {
   const normalizedSubresource = normalizeSubresource(subresource);
   console.log(
@@ -550,24 +566,13 @@ export async function patchKubernetesResource(
     "subresource:",
     normalizedSubresource,
   );
-  const target = await resolveTarget(config, kind, apiVersion);
+  const target = await resolveTarget(clusterId, kind, apiVersion);
   if (typeof target === "string") {
     return target;
   }
   const { api, resource } = target;
   if (resource.namespaced && !namespace) {
     return `Kind "${kind}" is namespaced; please provide a namespace to patch "${name}".`;
-  }
-
-  const backup = await captureResourceYaml(api, resource, name, namespace);
-  if (
-    !requestApproval(
-      `PATCH ${kind.toUpperCase()}`,
-      { name, namespace, subresource: normalizedSubresource, data },
-      backup,
-    )
-  ) {
-    return "The user denied the action";
   }
 
   try {
@@ -609,21 +614,16 @@ export async function patchKubernetesResource(
  */
 export async function deleteKubernetesResource(
   { kind, apiVersion, name, namespace, mode = DEFAULT_DELETE_MODE }: DeleteResourceInput,
-  config?: RunnableConfig,
+  clusterId?: string,
 ): Promise<string> {
   console.log("[Tool invocation: deleteKubernetesResource] - kind:", kind, "name:", name, "mode:", mode);
-  const target = await resolveTarget(config, kind, apiVersion);
+  const target = await resolveTarget(clusterId, kind, apiVersion);
   if (typeof target === "string") {
     return target;
   }
   const { api, resource } = target;
   if (resource.namespaced && !namespace) {
     return `Kind "${kind}" is namespaced; please provide a namespace to delete "${name}".`;
-  }
-
-  const backup = await captureResourceYaml(api, resource, name, namespace);
-  if (!requestApproval(`DELETE ${kind.toUpperCase()}`, { name, namespace, mode }, backup)) {
-    return "The user denied the action";
   }
 
   try {
@@ -666,19 +666,14 @@ export async function deleteKubernetesResource(
  *   patch, then force delete it, so a pod stuck in `Terminating` is removed;
  *   the answer says whether the pod is gone (see `deletePodWithFinalizers`).
  */
-export async function deletePod({ name, namespace, mode }: DeletePodInput, config?: RunnableConfig): Promise<string> {
+export async function deletePod({ name, namespace, mode }: DeletePodInput, clusterId?: string): Promise<string> {
   console.log("[Tool invocation: deletePod] - name:", name, "namespace:", namespace, "mode:", mode);
   if (!namespace) {
     return `Pods are namespaced; please provide a namespace to delete "${name}".`;
   }
-  const api = clusterApiFor(config);
+  const api = clusterApiFor(clusterId);
   if (typeof api === "string") {
     return api;
-  }
-
-  const backup = await captureResourceYaml(api, POD, name, namespace);
-  if (!requestApproval(`DELETE POD (${mode})`, { name, namespace, mode }, backup)) {
-    return "The user denied the action";
   }
 
   const path = resourcePath(POD, { name, namespace });
@@ -813,7 +808,7 @@ async function deletePodWithFinalizers(api: KubeJsonApi, path: string, name: str
  */
 export async function restartKubernetesResource(
   { kind, name, namespace }: RestartResourceInput,
-  config?: RunnableConfig,
+  clusterId?: string,
 ): Promise<string> {
   console.log("[Tool invocation: restartKubernetesResource] - kind:", kind, "name:", name, "namespace:", namespace);
   if (!isRestartableKind(kind)) {
@@ -822,16 +817,11 @@ export async function restartKubernetesResource(
   if (!namespace) {
     return `Kind "${kind}" is namespaced; please provide a namespace to restart "${name}".`;
   }
-  const target = await resolveTarget(config, kind, "apps/v1");
+  const target = await resolveTarget(clusterId, kind, "apps/v1");
   if (typeof target === "string") {
     return target;
   }
   const { api, resource } = target;
-
-  const backup = await captureResourceYaml(api, resource, name, namespace);
-  if (!requestApproval(`RESTART ${kind.toUpperCase()}`, { name, namespace }, backup)) {
-    return "The user denied the action";
-  }
 
   try {
     await mergePatch(
@@ -864,11 +854,12 @@ const readLogsError = (status: number, text: string): unknown => {
 
 /**
  * Read a one-shot snapshot of container logs from a pod. Loads the pod to
- * enumerate its containers, runs the optional approval gate (controlled by the
- * `podLogsRequireApproval` preference), then fetches the logs and caps the
- * output so it cannot overflow the model context.
+ * enumerate its containers, then fetches the logs and caps the output so it
+ * cannot overflow the model context. The optional approval, controlled by the
+ * `podLogsRequireApproval` preference, is asked before this runs (see
+ * `describeToolCall`).
  */
-export async function getPodLogs(input: GetPodLogsInput, config?: RunnableConfig): Promise<string> {
+export async function getPodLogs(input: GetPodLogsInput, clusterId?: string): Promise<string> {
   const { name, namespace, container, previous, timestamps } = input;
   console.log(
     "[Tool invocation: getPodLogs] - name:",
@@ -892,7 +883,7 @@ export async function getPodLogs(input: GetPodLogsInput, config?: RunnableConfig
     return filterResolution.message;
   }
 
-  const api = clusterApiFor(config);
+  const api = clusterApiFor(clusterId);
   if (typeof api === "string") {
     return api;
   }
@@ -917,13 +908,6 @@ export async function getPodLogs(input: GetPodLogsInput, config?: RunnableConfig
 
   const preferences = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
   const tailLines = capTailLines(input.tailLines, preferences.podLogsTailLines);
-
-  if (
-    preferences.podLogsRequireApproval &&
-    !requestApproval("READ LOGS POD", { name, namespace, container: selectedContainer, previous })
-  ) {
-    return "The user denied the action";
-  }
 
   try {
     // Read as text: a log is not JSON, even when a line of it happens to be.
@@ -955,5 +939,137 @@ export async function getPodLogs(input: GetPodLogsInput, config?: RunnableConfig
     }
     console.error("[Tool invocation error: getPodLogs] - ", error);
     return JSON.stringify(error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Approvals
+// ---------------------------------------------------------------------------
+//
+// The write tools, and the pod logs when the preferences ask for it, run only
+// once the user approved them. The AI SDK asks before a tool's `execute` runs
+// (see tools.ts), so what the user sees is built here, from the tool call:
+// the action as YAML and, for a change to an existing object, its current YAML
+// as a backup.
+
+type ToolInput = Record<string, unknown>;
+
+const stringOf = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+
+/**
+ * A message for the model when a write would be refused before it reaches the
+ * cluster, so that no approval is asked for it; `undefined` otherwise. Pure: the
+ * AI SDK evaluates it again when the approval is answered.
+ */
+export function refuseBeforeApproval(toolName: string, input: ToolInput): string | undefined {
+  switch (toolName) {
+    case "createKubernetesResource": {
+      const prepared = prepareCreate(input as unknown as CreateResourceInput);
+      return typeof prepared === "string" ? prepared : undefined;
+    }
+    case "updateKubernetesResource": {
+      const prepared = prepareUpdate(String(input.kind), (input.data ?? {}) as Manifest);
+      return typeof prepared === "string" ? prepared : undefined;
+    }
+    case "deletePod":
+      return input.namespace ? undefined : `Pods are namespaced; please provide a namespace to delete "${input.name}".`;
+    case "restartKubernetesResource": {
+      const kind = String(input.kind);
+      if (!isRestartableKind(kind)) {
+        return `Restart is not supported for kind "${kind}". Supported kinds: ${RESTARTABLE_KINDS.join(", ")}.`;
+      }
+      return input.namespace
+        ? undefined
+        : `Kind "${kind}" is namespaced; please provide a namespace to restart "${input.name}".`;
+    }
+    default:
+      return undefined;
+  }
+}
+
+// The current YAML of the object a write changes, or `undefined` when it cannot
+// be loaded: a missing backup never blocks the approval.
+async function backupOf(
+  clusterId: string | undefined,
+  kind: string,
+  apiVersion: string | undefined,
+  name: string,
+  namespace: string | undefined,
+): Promise<string | undefined> {
+  const target = await resolveTarget(clusterId, kind, apiVersion);
+  return typeof target === "string" ? undefined : captureResourceYaml(target.api, target.resource, name, namespace);
+}
+
+/**
+ * The approval request of a call of a Kubernetes tool on the run's cluster: the
+ * action and its payload, and the current YAML of the object it changes, loaded
+ * when the request is built.
+ */
+export async function describeToolCall(
+  toolName: string,
+  input: ToolInput,
+  clusterId: string | undefined,
+): Promise<ApprovalRequest> {
+  const kind = String(input.kind ?? "");
+  const name = String(input.name ?? "");
+  const namespace = stringOf(input.namespace);
+  const apiVersion = stringOf(input.apiVersion);
+  const action = (verb: string) => `${verb} ${kind.toUpperCase()}`;
+
+  switch (toolName) {
+    case "createKubernetesResource": {
+      const prepared = prepareCreate(input as unknown as CreateResourceInput);
+      if (typeof prepared === "string") {
+        return approvalRequest(action("CREATE"), input);
+      }
+      return approvalRequest(action("CREATE"), {
+        name: prepared.resourceName,
+        namespace: prepared.resourceNamespace,
+        data: prepared.manifest,
+      });
+    }
+    case "updateKubernetesResource": {
+      const prepared = prepareUpdate(kind, (input.data ?? {}) as Manifest);
+      return approvalRequest(
+        action("UPDATE"),
+        { name, namespace, data: typeof prepared === "string" ? input.data : prepared },
+        await backupOf(clusterId, kind, apiVersion, name, namespace),
+      );
+    }
+    case "patchKubernetesResource":
+      return approvalRequest(
+        action("PATCH"),
+        { name, namespace, subresource: normalizeSubresource(stringOf(input.subresource)), data: input.data },
+        await backupOf(clusterId, kind, apiVersion, name, namespace),
+      );
+    case "deleteKubernetesResource":
+      return approvalRequest(
+        action("DELETE"),
+        { name, namespace, mode: input.mode ?? DEFAULT_DELETE_MODE },
+        await backupOf(clusterId, kind, apiVersion, name, namespace),
+      );
+    case "deletePod": {
+      const api = clusterApiFor(clusterId);
+      return approvalRequest(
+        `DELETE POD (${input.mode})`,
+        { name, namespace, mode: input.mode },
+        typeof api === "string" ? undefined : await captureResourceYaml(api, POD, name, namespace),
+      );
+    }
+    case "restartKubernetesResource":
+      return approvalRequest(
+        action("RESTART"),
+        { name, namespace },
+        await backupOf(clusterId, kind, "apps/v1", name, namespace),
+      );
+    case "getPodLogs":
+      return approvalRequest("READ LOGS POD", {
+        name,
+        namespace,
+        container: input.container,
+        previous: input.previous,
+      });
+    default:
+      return approvalRequest(toolName, input);
   }
 }

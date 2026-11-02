@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { finishPart, messageText, scriptedModel, textParts, toolCallPart } from "../../../test/mock-language-model";
 import { BRIDGE_TOKEN_HEADER, BridgeRoute } from "../../common/bridge/protocol";
 import { readSseEvents } from "../../common/bridge/sse";
 import { AgentStateStore, PreferencesStore } from "../../common/store";
@@ -8,42 +9,24 @@ import { type BridgeServer, startBridgeServer } from "./server";
 
 import type { AgentRunRequest } from "../../common/bridge/protocol";
 
-// The agents of a real runtime, reduced to the structure of the MCP agent: a
-// model node that asks for a tool when the prompt names one, and a node that
-// asks for its approval with `interrupt()` before anything runs. No model and
-// no tool is called.
-vi.mock("../agents/freelens-agent-system", async () => {
-  const { AIMessage } = await import("@langchain/core/messages");
-  const { interrupt, MemorySaver, MessagesAnnotation, StateGraph } = await import("@langchain/langgraph");
-  const buildAgentSystem = () =>
-    new StateGraph(MessagesAnnotation)
-      .addNode("agent", (state) => {
-        const prompt = String(state.messages[state.messages.length - 1]?.content);
-        return {
-          messages: prompt.includes("pods")
-            ? [new AIMessage({ content: "", tool_calls: [{ id: "call-1", name: "kubectl_get", args: {} }] })]
-            : [new AIMessage(`answer to: ${prompt}`)],
-        };
-      })
-      .addNode("shouldContinue", (state) => {
-        const lastMessage = state.messages[state.messages.length - 1] as InstanceType<typeof AIMessage>;
-        if (!lastMessage.tool_calls?.length) {
-          return {};
-        }
-        const review = interrupt({
-          question: "The agent has requested to use a tool",
-          options: ["yes", "no"],
-          actionToApprove: { action: ["kubectl_get"] },
-          requestString: "The agent wants to use this tool: kubectl_get",
-        });
-        return { messages: [new AIMessage(`approved: ${review}`)] };
-      })
-      .addEdge("__start__", "agent")
-      .addEdge("agent", "shouldContinue")
-      .addEdge("shouldContinue", "__end__")
-      .compile({ checkpointer: new MemorySaver() });
-  return { useFreeLensAgentSystem: () => ({ buildAgentSystem, availableTools: [] }) };
-});
+// The model of a real runtime, scripted: it asks to delete a pod when the
+// prompt names pods, which waits on the user's approval before anything runs,
+// and otherwise answers with what it saw last. The tool acts on a cluster
+// Freelens does not know, so it answers with a message and sends nothing.
+const model = () =>
+  scriptedModel((prompt) => {
+    const last = prompt.at(-1);
+    if (last?.role === "user" && messageText(last).includes("pods")) {
+      return [
+        toolCallPart("deletePod", { name: "web-1", namespace: "default", mode: "evict" }),
+        finishPart("tool-calls"),
+      ];
+    }
+    return [
+      ...textParts(`${last?.role === "tool" ? "tool saw" : "answer to"}: ${messageText(last)}`),
+      finishPart("stop"),
+    ];
+  });
 
 describe("parseAgentRunRequest", () => {
   it("reads a message run", () => {
@@ -183,7 +166,8 @@ describe("createBridgeRoutes over HTTP", () => {
     });
 
     const startRuntime = async () => {
-      runtime = new AgentRuntime();
+      const agentModel = model();
+      runtime = new AgentRuntime(undefined, () => agentModel);
       bridge = await startBridgeServer({
         token: TOKEN,
         routes: createBridgeRoutes({ runtime, fetchModelPricing: async () => ({}) }),
@@ -210,7 +194,7 @@ describe("createBridgeRoutes over HTTP", () => {
       );
       const resumed = await run(base, { kind: "resume", answer: "yes" });
 
-      expect(textOf(resumed)).toContain("approved: yes");
+      expect(textOf(resumed)).toContain('tool saw: The cluster "c1" of this chat is not known to Freelens.');
       expect(resumed.at(-1)).toEqual({ type: "done" });
     });
 

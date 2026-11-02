@@ -7,8 +7,8 @@ This file provides guidance to coding agents when working with code in this repo
 ## Project Overview
 
 Freelens AI (`@freelensapp/ai-extension`) is an extension of the Freelens v2
-extension API that adds an AI chat to every cluster: LangGraph agents that
-read and, with the user's approval, change Kubernetes resources, an MCP agent
+extension API that adds an AI chat to every cluster: an agent on the Vercel
+AI SDK that reads and, with the user's approval, changes Kubernetes resources, an MCP agent
 for the user's MCP servers, an "Explain" item on warning Events, and a
 preferences page for the model, its key and the agents. It is built on the
 patterns of freelensapp/freelens-example-extension, the template of the
@@ -95,7 +95,7 @@ pnpm clean:all            # Clean everything (dist, dts, node_modules, tgz)
 ```text
 src/
   main/index.ts                  # Extension entry point (main process, ESM): stores, bridge lifecycle
-  main/agents/                   # LangGraph agents, approval gate, compaction, Explain, AgentRuntime
+  main/agents/                   # AI SDK agents, approvals, stored conversations, compaction, Explain, AgentRuntime
   main/agents/tools/             # Kubernetes tools, by path through KubeJsonApi.forCluster
   main/bridge/                   # Local HTTP/SSE bridge server and its routes
   main/mcp/                      # MCP servers of the preferences, one client per cluster
@@ -112,7 +112,7 @@ src/
   common/bridge/                 # Bridge protocol (routes, bodies, events) and the SSE codec
   common/store/                  # ExtensionStores shared by both processes
   common/provider/, service/     # Pure model, pricing, token and compaction helpers
-  common/agent/, objects/        # Checkpoint namespaces; the chat message objects
+  common/agent/, objects/        # Namespaces of the stored conversations; the chat message objects
   common/utils/                  # Logger factory, redaction, ids
 test/                            # Test stub of @freelensapp/extensions and test support
 environment-tests/               # Probes that prove the per-environment type check (see "TypeScript")
@@ -236,13 +236,22 @@ mechanism; this is the list to check a change against.
   and `types`, and no declaration may load Node into the renderer or the DOM
   into main; otherwise a wrong API type-checks and is `undefined` at runtime.
   The environment tests fail on a leak ("TypeScript").
-- **The agents and LangChain in main only.** In the renderer `interrupt()`
-  throws, `ToolNode` hands the error to the model as the tool's result, and a
-  write is neither applied nor asked about ("Agents and the Bridge").
-- **The cluster from the run config.** A tool reads its cluster from
-  `configurable.clusterId`, never from module state: two cluster frames run
-  at once, and a module-level cluster sends one chat's request to the other's
-  cluster ("Runs and their cluster").
+- **The agents and the AI SDK in main only.** The SDK runs in a browser page
+  too, so nothing fails: an agent there would hold the API key in the
+  renderer, call the endpoint without the host's proxy, and could not start an
+  MCP server ("Agents and the Bridge").
+- **The cluster from the tool context.** A tool reads its cluster from its
+  typed `context` (`toolsContext`, set per run), never from module state: two
+  cluster frames run at once, and a module-level cluster sends one chat's
+  request to the other's cluster ("Runs and their cluster").
+- **A write asks before it runs.** A tool that changes the cluster has an
+  entry in `kubernetesToolApproval()` of `tools.ts`; without one the AI SDK
+  runs it as soon as the model calls it, and the chat shows no approval
+  ("Runs and their cluster").
+- **One file per entry.** The builds set `codeSplitting: false`: a bundled
+  library that imports a module dynamically (the AI SDK imports
+  `@vercel/oidc` that way) would otherwise add a chunk next to `dist/main.js`,
+  which a directory install loads but the host does not watch ("Build").
 - **Kubernetes requests through `clusterApiFor()`.** Its client leaves out
   an unset query value; the host's `forCluster` client sends it empty, and
   the API server reads an empty boolean parameter as `true` ("Runs and their
@@ -281,7 +290,10 @@ renderer code passes them; `pnpm type:check` and `type-check.yaml` catch it.
 `vite.config.mjs` builds one entry point per run, in library mode, as ESM:
 `vite build` builds the renderer and empties `dist/`, and `vite build --mode
 main` builds main next to it. The two runs share no chunk; each bundle carries
-its own copy of the `src/common/` code it imports. Nothing is minified.
+its own copy of the `src/common/` code it imports. Nothing is minified. Each
+run writes one file, with `output.codeSplitting: false`: the AI SDK imports
+`@vercel/oidc` dynamically, which Rolldown would otherwise put in a chunk of its
+own next to `dist/main.js`.
 
 `pnpm dev` runs the same two builds in watch mode, side by side, for a
 directory install: the host reloads the extension when either entry is
@@ -320,7 +332,7 @@ and on a subpath of a host package that the host does not publish
 `invalid hook call`; a second mobx throws nothing, and the host simply never
 reacts to its observables.
 
-Everything else is bundled, the LangChain and MCP libraries included. That
+Everything else is bundled, the AI SDK and its MCP client included. That
 includes `@freelensapp/extensions`, a shim of three lines that reads `Common`,
 `Main` and `Renderer` off the same global; it must not be mapped. The host
 installs no dependencies of an extension, so whatever the code needs at
@@ -490,7 +502,7 @@ than relax a probe. For Node in the renderer, point `typeRoots` of the renderer
 config at a directory with an empty `node` package, which a reference directive
 resolves to first. For the DOM in main, remove the directive from the
 declaration with `pnpm patch`. The bundled libraries of this extension
-(LangChain, the MCP SDK, `react-markdown`) leak neither today.
+(the AI SDK, its providers and MCP client, `react-markdown`) leak neither today.
 
 ### Tests and tooling
 
@@ -555,9 +567,14 @@ the recorded requests and on the objects (`objects`). It records a query as
 the API server reads it, serialized with `node:querystring` as the host's
 `JsonApi` does, so every value is a string and an `undefined` or `null` value
 is an empty one, which the API server reads as `true` for a boolean parameter.
-The approval gate runs inside a real LangGraph graph in `agent-service.test.ts`,
-since `interrupt()` needs one; elsewhere `@langchain/langgraph` is mocked so
-that `interrupt()` answers at once. The bridge is tested over plain HTTP on an
+`test/mock-language-model.ts` scripts a model: `scriptedModel()` is the
+`MockLanguageModelV4` of `ai/test`, whose streamed answer to every call the test
+chooses from the prompt of the call, with helpers for the text, reasoning,
+tool-call and finish parts. The agents run with it through the real loop of
+the AI SDK, approvals included: `agent-service.test.ts` runs the real tools
+against the fake clusters, `agent-runtime.test.ts` and `routes.test.ts` pass it
+to `AgentRuntime` as its model. The provider tests replace `Main.Util.fetch`
+instead and assert on the requests the providers send. The bridge is tested over plain HTTP on an
 ephemeral port. `McpClients` takes its host calls as dependencies, which the
 tests replace; one test starts `test/fixtures/environment-mcp-server.mjs`, a
 minimal stdio MCP server, with `process.execPath`, to see the environment a
@@ -867,27 +884,33 @@ endpoint. The rest is in `src/main/provider/`:
   Add new model families here rather than hardcoding ids. Reasoning models
   (`o<n>`, `gpt-5.x`, `gpt-6.x`) take a reasoning effort and reject
   `temperature`. `requiresResponsesApi` names the models that take tools only
-  through the Responses API: GPT-6, and the ones `@langchain/openai` already
-  sends there on its own (`gpt-5.6`, `gpt-5.x-pro`, `codex`), so that they all
-  get the same request options.
-- `openai-fields.ts` — pure `buildOpenAIChatFields` builder (endpoint, fetch,
-  reasoning-effort/temperature heuristic), unit-tested in isolation. A model of
-  `requiresResponsesApi` gets `useResponsesApi`, `zdrEnabled` (`store: false`,
-  no item ids: the conversation is replayed from the checkpoints, as on Chat
-  Completions), `include: ["reasoning.encrypted_content"]`, so the reasoning
-  of a tool loop is replayed, and `supportsStrictToolCalling: false`, since
-  Responses makes function tools strict by default and a strict schema must
-  require every property. Its answer streams as content blocks, not a string:
-  read its text with `flattenContentText` of `stream-merge.ts`, never with
-  `String(content)`.
+  through the Responses API: GPT-6, `gpt-5.6`, `gpt-5.x-pro` and `codex`.
+- `openai-fields.ts` — pure `buildOpenAIModelOptions` builder, unit-tested in
+  isolation: which API serves the model, and its default call settings. A
+  model of `requiresResponsesApi` goes to the Responses API of `@ai-sdk/openai`
+  at any base URL, with `store: false` (no item ids: the conversation is
+  replayed from the stored messages, as on Chat Completions) and
+  `include: ["reasoning.encrypted_content"]`, so the reasoning of a tool loop
+  is replayed; its function tools are non-strict, the SDK's default for a tool
+  without `strict`. Another model goes to Chat Completions: of `@ai-sdk/openai`
+  for the OpenAI API itself, of `@ai-sdk/openai-compatible` for any other base
+  URL. A reasoning model gets the reasoning effort, another one temperature 0.
+  The provider options of the compatible provider go into the request body as
+  they are, which is how "Disable thinking" sends `thinking`.
 - `model-provider.ts` — `getModel()` resolves the selected model's provider and
-  builds the LangChain client for the base URL of the preferences; throws when
+  returns an AI SDK `LanguageModel` for the base URL of the preferences, with
+  the host's fetch, its call settings applied by `defaultSettingsMiddleware`,
+  so the agents, Explain and compaction send the same request; throws when
   no model or no key is configured. `resolveOpenAIKey()` takes
   `OPENAI_API_KEY` of main's environment first, then the key of the
   preferences, read per model, so a changed key applies to the next request.
-- `offline-token-chat-model.ts`, `dsml-aware-chat-model.ts` — the `ChatOpenAI`
-  subclasses: local token counting instead of the tiktoken download, and the
-  recovery of DeepSeek's tool calls leaked into the text.
+  The SDK counts no tokens locally, and retries a failed request itself
+  (`maxRetries`, 2 by default) before an answer starts.
+- `dsml-middleware.ts` — a `wrapLanguageModel` middleware for DeepSeek models,
+  which recovers the tool calls they leak into the text as "DSML" markup when
+  the endpoint has no tool-call parser. It holds the text of a step back until
+  the step ends, parses it with `leaked-tool-calls.ts`, and emits the tool
+  calls with ids of their own; the reasoning still streams.
 - `model-pricing-provider.ts` — fetches `/model/info` of the endpoint, with the
   key, and the public LiteLLM price list, without it; served to the renderer
   by the `/model/pricing` route of the bridge.
@@ -896,13 +919,14 @@ endpoint. The rest is in `src/main/provider/`:
 
 ### HTTP from main
 
-Every HTTP request main makes, to the model endpoint and for the pricing, goes
-through `Main.Util.fetch`, never the global `fetch` or a bundled client's
-default one, so the user's HTTPS proxy, CA certificates and "allow untrusted
-CAs" preferences apply. `Main.Util.fetch` is typed as the standard `fetch`
-(C12), so it is the `fetch` option of the OpenAI client as it is, and
-`model-pricing-provider.ts` takes it too. `model-provider.ts` reads it when a
-request is sent, since the namespace exists only once the extension is loaded.
+Every HTTP request main makes, to the model endpoint, to an HTTP or SSE MCP
+server and for the pricing, goes through `Main.Util.fetch`, never the global
+`fetch` or a bundled client's default one, so the user's HTTPS proxy, CA
+certificates and "allow untrusted CAs" preferences apply. `Main.Util.fetch` is
+typed as the standard `fetch` (C12), so it is the `fetch` option of the AI SDK
+providers and of the MCP transports as it is, and `model-pricing-provider.ts`
+takes it too. `model-provider.ts` and `mcp-clients.ts` read it when a request
+is sent, since the namespace exists only once the extension is loaded.
 The host translates a `Request` input and encodes a `FormData` body for its
 client, and drops a `dispatcher` of the init, so that its own always applies.
 
@@ -913,15 +937,26 @@ on the request the client sends.
 
 ## Agents and the Bridge
 
-The LangGraph agents run in main (`src/main/agents/`), not in the renderer.
-LangGraph's `interrupt()`, the approval gate of every mutating tool, takes its
-run config only from LangChain's `AsyncLocalStorage`. Main bundles LangGraph's
-Node entry, which installs one; a browser page has none, and there
-`interrupt()` throws "Called interrupt() outside the context of a graph.",
-which `ToolNode` hands to the model as the tool's result, so a write is never
-applied and no approval is asked. Keep LangChain out of the renderer: the
-renderer bundle carries no `@langchain/*`, `openai` or `zod`, and a view needs
-none of their types, since every message of the bridge is plain JSON.
+The agents run in main (`src/main/agents/`), not in the renderer, on the
+Vercel AI SDK (`ai`). There are two, each a `ToolLoopAgent` built for every run
+(`agents.ts`): the Freelens agent, one agent with all the Kubernetes tools and
+the instructions of `AGENT_PROMPT_TEMPLATE`, and the MCP agent, with the tools
+of the user's MCP servers and no instructions of its own. The API key, the MCP
+processes and the host's fetch stay in main. Keep the AI SDK out of the
+renderer: the renderer bundle carries no `ai`, `@ai-sdk/*` or `zod`, and a view
+needs none of their types, since every message of the bridge is plain JSON.
+
+An approval is the AI SDK's `toolApproval`: a call that needs one is not
+executed, the step ends with a `tool-approval-request` part, and the run ends
+with an `interrupt` event. The answer is a `tool-approval-response` that the
+next run appends to the conversation (`conversation.ts`); the SDK then executes
+an approved call, or reports a denied one to the model as `execution-denied`,
+before the next model call. A `denied` status with a reason refuses a call at
+once without asking, which a write that would fail before it reaches the
+cluster gets (`refuseBeforeApproval`). The SDK evaluates the approval again
+when the answer comes, and only a `denied` result then overrides the user.
+Several calls of one step that wait together get one `interrupt`, whose one
+answer applies to all of them (`mergeApprovalRequests`).
 
 The renderer keeps the views and talks to the agents over a local HTTP bridge
 in main, not over `Main.Ipc` / `Renderer.Ipc`: the stream of a run is the
@@ -936,8 +971,8 @@ run.
   `AgentRuntime`; a body it cannot parse is refused before anything runs.
 - `src/main/agents/agent-runtime.ts` — the agents of every cluster, keyed by
   the cluster id each request carries, so two cluster frames never share a run
-  or a memory. `agent-service.ts` runs a graph and turns its stream into the
-  events below.
+  or a memory. `agent-service.ts` runs an agent and turns the parts of its
+  `fullStream` into the events below.
 - `src/renderer/business/bridge/bridge-client.ts` — requests with
   the global `fetch`, Chromium's, which the host uses in the renderer too;
   its `body` is a `ReadableStream` that `readSseEvents`
@@ -970,9 +1005,15 @@ The `input` of a run is `{ kind: "message", text, summary? }`, a prompt, where
 answer to a pending approval. A stream is `text/event-stream`, one
 `data: <json>` line per event:
 
-- `text` and `reasoning` — the answer and the model's reasoning, as generated;
-- `usage` — a token usage delta for the session counter, negative when a retry
-  rolls back a failed attempt;
+- `text` and `reasoning` — the answer and the model's reasoning, as generated,
+  from the `text-delta` and `reasoning-delta` parts; a blank line separates
+  two text blocks of a run;
+- `usage` — the token usage of every model call, from its `finish-step` part,
+  as a delta for the session counter, with the cache read tokens as `cached`
+  and the cache write tokens as `cacheWrite`, when the provider reports them
+  (LiteLLM's are read from the raw usage); the protocol allows a negative
+  delta, which main no longer sends, since the SDK retries a request before
+  anything was counted;
 - `context` — the size of the persisted conversation the next prompt re-sends,
   and the largest single call of the run;
 - `interrupt` — a pending approval (`ApprovalRequest`); the run ends after it,
@@ -982,24 +1023,28 @@ answer to a pending approval. A stream is `text/event-stream`, one
   `BridgeErrorCode`, marks an error the renderer acts on, and main sets it
   with a `BridgeRequestError` (`src/main/bridge/bridge-error.ts`).
 
-A `resume` of a conversation where no task waits on an `interrupt()` ends with
-the `error` "There is no pending approval to answer." and the code
-`no-pending-approval`, and runs nothing. A clear removes the messages of a
-conversation but not the task that was waiting, and that task would run on a
-resume with no messages. On that error the renderer clears its interrupted
-flag, so that the next message is a new prompt, and shows the error without a
-"Retry", which would be refused the same way.
+A pending approval is an approval request of the stored conversation without
+a response (`findPendingApprovals`), so it survives a restart. A `resume` of a
+conversation without one, after a clear above all, ends with the `error`
+"There is no pending approval to answer." and the code `no-pending-approval`,
+and runs nothing. On that error the renderer clears its interrupted flag, so
+that the next message is a new prompt, and shows the error without a "Retry",
+which would be refused the same way. A new prompt that comes while an approval
+waits, as after a restart, which does not restore the renderer's flag, denies
+it first and closes its tool call with an `execution-denied` result
+(`closePendingApprovals`): a provider refuses a tool call without a result.
 
 A new route or event goes into `protocol.ts` first, with the parser in
 `routes.ts` and a test over HTTP in `routes.test.ts`.
 
 ### Runs and their cluster
 
-The cluster id of a request travels in the run config as
-`configurable.clusterId`, next to `thread_id`, the conversation. LangChain
-hands the run config to a tool function as its second argument, and the
-Kubernetes tools (`src/main/agents/tools/`) read the cluster there:
-`cluster-api.ts` checks it with `Main.Catalog.getClusterById` and returns the
+The cluster id of a request travels as the typed context of every Kubernetes
+tool: each declares `contextSchema: { clusterId }`, and the agent of a run gets
+`toolsContext` with the request's cluster for every tool
+(`kubernetesToolsContext`). The AI SDK hands a tool its own `context` in the
+options of `execute`, and the tools (`src/main/agents/tools/`) read the cluster
+there: `cluster-api.ts` checks it with `Main.Catalog.getClusterById` and returns the
 host's `Main.K8sApi.KubeJsonApi.forCluster` client; without a cluster, or with
 one Freelens does not know, a tool answers the model with a message and sends
 nothing. Never read the cluster from a module-level variable: two cluster
@@ -1025,23 +1070,34 @@ of `deletePod` removes the finalizers with a JSON merge patch that sets them to
 `null`, where the host's `PodApi.deleteWithFinalizers` sends a strategic merge
 patch with an empty list, which removes nothing, since `metadata.finalizers`
 merges (freelensapp/freelens#2759). It then reads the pod back and answers
-whether it is gone, by its uid, rather than with a fixed success text. A write
-tool loads the current object as a backup, then calls `requestApproval()`,
-whose `interrupt()` must run inside the tool, that is inside the graph run.
+whether it is gone, by its uid, rather than with a fixed success text.
 
-The checkpointer of each agent is a `PersistentMemorySaver`, which mirrors the
-LangGraph state into `AgentStateStore` under a namespace of the cluster id and
-the agent (`checkpointNamespace`), so the memory of every cluster survives a
-restart on its own. Only main loads `AgentStateStore`. `clear` wipes the
-conversation of the cluster's agents and only that cluster's checkpoints.
+Every write tool, and `getPodLogs` when `podLogsRequireApproval` is set, has an
+entry in `kubernetesToolApproval()`; a tool without one runs as soon as the
+model calls it. The request the chat shows is built when the run ends with it
+(`describeToolCall` of `kubernetes-resource.ts`): the action as YAML and, for
+a change to an existing object, its current YAML as a backup, loaded then.
+
+The conversation of each agent is a list of AI SDK `ModelMessage`s, plain
+JSON, which `AgentStateStore` keeps under a namespace of the cluster id and
+the agent (`checkpointNamespace`) and the conversation id, so the memory of
+every cluster survives a restart on its own. A run stores the conversation
+with its response messages when it ends; a run that fails or is aborted stores
+nothing, so a retry sends the prompt again. A new prompt keeps the last five
+user turns (`trimHistory`), cut at a user message so that no tool call loses
+its result. The LangGraph checkpoints of an earlier version are left out when
+the store is loaded, without an error. Only main loads `AgentStateStore`.
+`clear` wipes the conversations of the cluster's agents and only that
+cluster's; a compaction replaces the conversation with nothing, and the
+summary seeds the next prompt.
 
 ### Lifecycle
 
 Main starts the bridge in `onActivate`, with a new token, and writes the port
 and the token into `PreferencesStore`. `onDeactivate` sets the port to `null`
 and closes the bridge, which aborts every open request and so every run: the
-abort reaches LangGraph as the run's `signal`, and a retry backoff resolves at
-once (`wait.ts`). A reload therefore leaves exactly one bridge bound, and the
+abort reaches the AI SDK as the run's `abortSignal`, which ends the model call,
+a retry backoff and the tool calls. A reload therefore leaves exactly one bridge bound, and the
 chat reaches the new one without reopening the page. Do not keep a server, a
 timer or a run in module state that `onDeactivate` cannot reach.
 
@@ -1063,30 +1119,32 @@ stays an error, logged with `log.error` and shown with a "Retry" button.
 
 ### MCP servers
 
-With MCP enabled in the preferences, the MCP agent (`mcp-agent.ts`) takes the
-place of the supervisor, with the tools of the user's MCP servers. The servers
+With MCP enabled in the preferences, the MCP agent (`buildMcpAgent` of
+`agents.ts`) takes the place of the Freelens agent, with the tools of the
+user's MCP servers. The servers
 run in main (`src/main/mcp/`), never in the renderer, which cannot spawn a
 process; an MCP tool call never leaves main, and the renderer sees only the
 agent's stream and its approvals, through the bridge.
 
-- **One client per cluster.** `McpClients` keeps one `MCPAdapter` of
-  `@langchain/mcp-adapters` per cluster id, built from the `mcpServers` of the
-  `mcpConfiguration` preference (`mcp-configuration.ts`), which it hands to
-  the adapter as its `servers`. The servers start on the first request for a
+- **One client per cluster.** `McpClients` keeps one client per cluster id,
+  built from the `mcpServers` of the `mcpConfiguration` preference
+  (`mcp-configuration.ts`): `createServersClient` connects one
+  `createMCPClient` of `@ai-sdk/mcp` per server, a `StdioMCPTransport` for a
+  stdio server and the HTTP or SSE transport with the host's fetch for the
+  others. The format of the preferences is the one it has always had
+  (`command`, `args`, `env`, `cwd`, or `url`, `headers`, and `transport` or
+  `type`); `toServerTransport` reads it and names a server it cannot read.
+  The servers start on the first request for a
   cluster, a run or the tool list, and keep running for the next ones. A
   failed start leaves nothing running, and the next request tries again; an
   empty or invalid configuration has no servers, and `McpClients` refuses it
-  with "No MCP servers provided", which the chat shows, before it creates an
-  adapter: the adapter's own error for it is a Zod union error that names
-  none of that. The tools keep the names their servers give them
-  (`prefixToolNameWithServerName: false`), so two servers with a tool of the
-  same name fail the start.
-- **No elicitation.** A modern MCP server can ask the user for input, and the
-  adapter then pauses the run with a LangGraph interrupt of its own, which the
-  chat cannot show or answer. `withoutElicitation()` sets `elicitation: false`
-  on every server that takes the option, that is all but SSE servers and
-  servers in `mode: "legacy"`, which the adapter refuses it for, so the
-  adapter does not offer elicitation to the servers.
+  with "No MCP servers provided", which the chat shows. The tools keep the
+  names their servers give them, so two servers with a tool of the same name
+  fail the start.
+- **No elicitation.** A modern MCP server can ask the user for input in the
+  middle of a tool call, which the chat cannot show. The client of the AI SDK
+  offers elicitation only when it is given the capability, which
+  `mcp-clients.ts` never passes.
 - **The environment.** A stdio server is a child process of main, started with
   `Main.Shell.getEnvironment(clusterId)` under the server's own `env`, where a
   variable the user set wins. That environment has the `KUBECONFIG` and
@@ -1104,13 +1162,14 @@ agent's stream and its approvals, through the bridge.
   it is no longer connected, since a disconnect removes the files of its
   environment: a `reaction` on the statuses of `Main.Catalog.getAllClusters()`,
   which the host computes with its mobx. They start again, with a fresh
-  environment, on the next request. `MCPAdapter#close()` ends the
-  process of every stdio server.
-- **The agent.** The MCP agent of a cluster is built from the tools of its
-  client and rebuilt when the servers were started again, since its tools call
-  the servers that were running when it was built; the checkpointer hydrates
-  from `AgentStateStore`, so the conversation continues. Its approval gate is
-  `interrupt()` in the synchronous `shouldContinue` node, before any tool runs.
+  environment, on the next request. Closing a client of the AI SDK ends the
+  process of its stdio server.
+- **The agent.** The MCP agent is built for every run from the tools of the
+  cluster's client, so it calls the servers that run now; its conversation is
+  stored apart from the Freelens agent's, under the `mcp` namespace of the
+  cluster. Every MCP tool call waits on the user's approval
+  (`toolApproval: () => "user-approval"`), and the request shows the tool and
+  its input as YAML.
 
 ## Checking the Extension in Freelens Dev
 

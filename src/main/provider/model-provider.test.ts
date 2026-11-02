@@ -1,49 +1,60 @@
 import { Main } from "@freelensapp/extensions";
-import { HumanMessage, ToolMessage } from "@langchain/core/messages";
-import { tool } from "@langchain/core/tools";
+import { generateText, isStepCount, tool } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { AIProviders } from "../../common/provider/ai-models";
 import { PreferencesStore } from "../../common/store";
-import { flattenContentText } from "../agents/stream-merge";
 import { resolveOpenAIKey, useModelProvider } from "./model-provider";
 
 const preferences = () => PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
+const json = (body: unknown) =>
+  new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+
 // A chat completion as an OpenAI-compatible endpoint answers it.
-const completion = () =>
-  new Response(
-    JSON.stringify({
-      id: "chatcmpl-1",
-      object: "chat.completion",
-      created: 0,
-      model: "gpt-4.1",
-      choices: [{ index: 0, message: { role: "assistant", content: "pong" }, finish_reason: "stop" }],
-      usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
-    }),
-    { status: 200, headers: { "content-type": "application/json" } },
-  );
+const completion = (content: string, model = "gpt-4.1") =>
+  json({
+    id: "chatcmpl-1",
+    object: "chat.completion",
+    created: 0,
+    model,
+    choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+  });
 
 // A response of the Responses API with the given output items.
 const responsesAnswer = (output: Record<string, unknown>[]) =>
-  new Response(
-    JSON.stringify({
-      id: "resp_1",
-      object: "response",
-      created_at: 0,
-      model: "gpt-6.1-sol",
-      status: "completed",
-      output,
-      usage: {
-        input_tokens: 3,
-        input_tokens_details: { cached_tokens: 0 },
-        output_tokens: 1,
-        output_tokens_details: { reasoning_tokens: 0 },
-        total_tokens: 4,
-      },
-    }),
-    { status: 200, headers: { "content-type": "application/json" } },
-  );
+  json({
+    id: "resp_1",
+    object: "response",
+    created_at: 0,
+    model: "gpt-6.1-sol",
+    status: "completed",
+    output,
+    usage: {
+      input_tokens: 3,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens: 1,
+      output_tokens_details: { reasoning_tokens: 0 },
+      total_tokens: 4,
+    },
+  });
+
+const requestsSent = () =>
+  vi.mocked(Main.Util.fetch).mock.calls.map(([url, init]) => ({
+    url: String(url),
+    headers: new Headers(init?.headers as HeadersInit),
+    body: JSON.parse(String(init?.body)),
+  }));
+
+const select = (name: string, baseUrl?: string) => {
+  preferences().openAIKey = "preferences-key";
+  if (baseUrl) {
+    preferences().openAIBaseUrl = baseUrl;
+  }
+  preferences().models = [{ provider: AIProviders.OPEN_AI, name }];
+  preferences().selectedModel = name;
+};
 
 beforeEach(() => {
   PreferencesStore.resetInstance();
@@ -89,23 +100,75 @@ describe("useModelProvider().getModel", () => {
     expect(() => useModelProvider().getModel()).toThrow("No API key configured.");
   });
 
-  it("sends the model's requests through the host's fetch, to the base URL, with the key", async () => {
-    vi.mocked(Main.Util.fetch).mockImplementation(async () => completion() as never);
-    preferences().openAIKey = "preferences-key";
-    preferences().openAIBaseUrl = "http://litellm.local:4000/v1";
-    preferences().models = [{ provider: AIProviders.OPEN_AI, name: "gpt-4.1" }];
-    preferences().selectedModel = "gpt-4.1";
+  it("sends the requests of another base URL through the host's fetch, to Chat Completions, with the key", async () => {
+    vi.mocked(Main.Util.fetch).mockImplementation(async () => completion("pong") as never);
+    select("gpt-4.1", "http://litellm.local:4000/v1");
 
-    const answer = await useModelProvider()
-      .getModel()
-      .invoke([new HumanMessage("ping")]);
+    const { text } = await generateText({ model: useModelProvider().getModel(), prompt: "ping" });
 
-    expect(answer.content).toBe("pong");
-    expect(Main.Util.fetch).toHaveBeenCalledOnce();
-    const [url, init] = vi.mocked(Main.Util.fetch).mock.calls[0] ?? [];
-    expect(String(url)).toBe("http://litellm.local:4000/v1/chat/completions");
-    expect(new Headers(init?.headers as HeadersInit).get("authorization")).toBe("Bearer preferences-key");
-    expect(JSON.parse(String(init?.body))).toMatchObject({ model: "gpt-4.1", temperature: 0 });
+    expect(text).toBe("pong");
+    const [request] = requestsSent();
+    expect(requestsSent()).toHaveLength(1);
+    expect(request?.url).toBe("http://litellm.local:4000/v1/chat/completions");
+    expect(request?.headers.get("authorization")).toBe("Bearer preferences-key");
+    expect(request?.body).toMatchObject({ model: "gpt-4.1", temperature: 0 });
+  });
+
+  it("sends the disable thinking flag of the preferences in the body of another base URL", async () => {
+    vi.mocked(Main.Util.fetch).mockImplementation(async () => completion("pong", "deepseek-v4") as never);
+    select("deepseek-v4", "http://litellm.local:4000/v1");
+    preferences().disableThinking = true;
+
+    await generateText({ model: useModelProvider().getModel(), prompt: "ping" });
+
+    expect(requestsSent()[0]?.body).toMatchObject({ model: "deepseek-v4", thinking: { type: "disabled" } });
+  });
+
+  it("recovers the DSML tool calls a DeepSeek model leaks into its text", async () => {
+    vi.mocked(Main.Util.fetch)
+      .mockImplementationOnce(
+        async () =>
+          completion(
+            'Listing them.<｜｜DSML｜｜invoke name="getNamespaces"></｜｜DSML｜｜invoke>',
+            "deepseek-v4",
+          ) as never,
+      )
+      .mockImplementationOnce(async () => completion("default, kube-system", "deepseek-v4") as never);
+    select("deepseek-v4", "http://litellm.local:4000/v1");
+    const execute = vi.fn(async () => ["default", "kube-system"]);
+
+    const result = await generateText({
+      model: useModelProvider().getModel(),
+      prompt: "Which namespaces are there?",
+      tools: { getNamespaces: tool({ inputSchema: z.object({}), execute }) },
+      stopWhen: isStepCount(2),
+    });
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(result.steps[0]?.text).toBe("Listing them.");
+    expect(result.steps[0]?.toolCalls).toMatchObject([{ toolName: "getNamespaces", input: {} }]);
+    expect(result.text).toBe("default, kube-system");
+    // The second request carries the recovered call as a structured one.
+    const replayed = requestsSent()[1]?.body.messages as Record<string, unknown>[];
+    expect(replayed).toContainEqual(
+      expect.objectContaining({
+        role: "assistant",
+        tool_calls: [expect.objectContaining({ function: { name: "getNamespaces", arguments: "{}" } })],
+      }),
+    );
+  });
+
+  it("sends a model of the OpenAI API to Chat Completions with its reasoning effort", async () => {
+    vi.mocked(Main.Util.fetch).mockImplementation(async () => completion("pong", "gpt-5.5") as never);
+    select("gpt-5.5");
+    preferences().openAIReasoningEffort = "high";
+
+    await generateText({ model: useModelProvider().getModel(), prompt: "ping" });
+
+    const [request] = requestsSent();
+    expect(request?.url).toBe("https://api.openai.com/v1/chat/completions");
+    expect(request?.body).toMatchObject({ model: "gpt-5.5", reasoning_effort: "high" });
+    expect(request?.body.temperature).toBeUndefined();
   });
 
   it("runs the tool loop of a GPT-6 model through the Responses API without storing it", async () => {
@@ -136,32 +199,24 @@ describe("useModelProvider().getModel", () => {
             },
           ]) as never,
       );
-    preferences().openAIKey = "preferences-key";
+    select("gpt-6.1-sol");
     preferences().openAIReasoningEffort = "medium";
-    preferences().models = [{ provider: AIProviders.OPEN_AI, name: "gpt-6.1-sol" }];
-    preferences().selectedModel = "gpt-6.1-sol";
 
-    const getNamespaces = tool(async () => "integration-tests", {
-      name: "getNamespaces",
-      description: "List the namespaces",
-      schema: z.object({ labelSelector: z.string().optional() }),
+    const result = await generateText({
+      model: useModelProvider().getModel(),
+      prompt: "Which namespaces are there?",
+      tools: {
+        getNamespaces: tool({
+          description: "List the namespaces",
+          inputSchema: z.object({ labelSelector: z.string().optional() }),
+          execute: async () => "integration-tests",
+        }),
+      },
+      stopWhen: isStepCount(2),
     });
-    const model = useModelProvider().getModel().bindTools([getNamespaces]);
+    expect(result.text).toBe("integration-tests");
 
-    const prompt = new HumanMessage("Which namespaces are there?");
-    const call = await model.invoke([prompt]);
-    expect(call.tool_calls).toMatchObject([{ id: "call_1", name: "getNamespaces", args: {} }]);
-    const answer = await model.invoke([
-      prompt,
-      call,
-      new ToolMessage({ tool_call_id: "call_1", content: "integration-tests" }),
-    ]);
-    expect(flattenContentText(answer.content)).toBe("integration-tests");
-
-    const requests = vi.mocked(Main.Util.fetch).mock.calls.map(([url, init]) => ({
-      url: String(url),
-      body: JSON.parse(String(init?.body)),
-    }));
+    const requests = requestsSent();
     expect(requests.map(({ url }) => url)).toEqual([
       "https://api.openai.com/v1/responses",
       "https://api.openai.com/v1/responses",
@@ -183,7 +238,9 @@ describe("useModelProvider().getModel", () => {
       expect.objectContaining({ type: "reasoning", encrypted_content: "encrypted-reasoning" }),
     );
     expect(replayed).toContainEqual(expect.objectContaining({ type: "function_call", call_id: "call_1" }));
-    expect(replayed).toContainEqual({ type: "function_call_output", call_id: "call_1", output: "integration-tests" });
+    expect(replayed).toContainEqual(
+      expect.objectContaining({ type: "function_call_output", call_id: "call_1", output: "integration-tests" }),
+    );
     expect(replayed.some((item) => item.type === "item_reference")).toBe(false);
   });
 });

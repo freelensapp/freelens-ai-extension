@@ -1,75 +1,91 @@
 import { Common } from "@freelensapp/extensions";
-import { makeObservable, observable, toJS } from "mobx";
+import { makeObservable, observableRef, toJS } from "mobx";
 import { belongsToCluster } from "../agent/checkpoint-namespace";
 
+// A message of an agent's conversation, as main stores it: a model message of
+// the AI SDK, plain JSON. Opaque to this store.
+export type StoredAgentMessage = Record<string, unknown>;
+
+// The conversations of one agent of one cluster, by conversation id.
+export type StoredConversations = Record<string, StoredAgentMessage[]>;
+
 export interface AgentStateModel {
-  // Serialized LangGraph checkpointer state, keyed by saver namespace. The
-  // namespace is cluster-qualified (e.g. "<clusterId>::freelens",
-  // "<clusterId>::mcp", see `checkpointNamespace`) so each cluster's agent
-  // memory is stored independently. Each value is produced by
-  // `serializeSaverState` in main and is opaque to this store.
-  checkpoints: Record<string, string>;
+  // The conversations of the agents, keyed by a namespace of the cluster and
+  // the agent (e.g. "<clusterId>::freelens", "<clusterId>::mcp", see
+  // `checkpointNamespace`), so each cluster's agent memory is stored
+  // independently.
+  conversations: Record<string, StoredConversations>;
+  // The serialized LangGraph checkpoints of earlier versions. They are not
+  // read: `fromStore` drops them, and `toJSON` no longer writes them.
+  checkpoints?: unknown;
 }
 
 /**
- * Durable, host-managed persistence for the agents' LangGraph checkpointer
- * state. This is the Freelens-native place to store extension state: the host
- * writes it to a JSON file in the extension's data directory, so it survives an
- * application restart (unlike `MemorySaver`, whose state lives only in memory).
+ * Durable, host-managed persistence for the agents' conversations. The host
+ * writes it to a JSON file in the extension's data directory, so the model-side
+ * conversation survives an application restart.
  *
- * Only main loads it: the agents' `PersistentMemorySaver` reads/writes the
- * serialized blob here, and the store itself never interprets it.
+ * Only main loads it: the agent runtime reads and writes the messages here, and
+ * the store itself never interprets them.
  */
 export class AgentStateStore extends Common.Store.ExtensionStore<AgentStateModel> {
-  checkpoints: Record<string, string> = {};
+  conversations: Record<string, StoredConversations> = {};
 
   constructor() {
     super({
       configName: "freelens-ai-agent-state-store",
       defaults: {
-        checkpoints: {},
+        conversations: {},
       },
     });
     // Explicit annotation form instead of `@observable` decorators; see the
-    // note in preferences-store.ts for why decorators do not work here.
+    // note in preferences-store.ts for why decorators do not work here. A
+    // reference only: the messages stay plain objects, which the AI SDK
+    // structure-clones, and every write replaces the map.
     makeObservable(this, {
-      checkpoints: observable,
+      conversations: observableRef,
     });
   }
 
-  getCheckpoint(namespace: string): string | undefined {
-    return this.checkpoints[namespace];
+  getConversation(namespace: string, conversationId: string): StoredAgentMessage[] {
+    return this.conversations[namespace]?.[conversationId] ?? [];
   }
 
-  setCheckpoint(namespace: string, blob: string): void {
-    // Replace the map so MobX sees a new reference and the host persists it.
-    this.checkpoints = { ...this.checkpoints, [namespace]: blob };
+  setConversation(namespace: string, conversationId: string, messages: StoredAgentMessage[]): void {
+    // Replace the maps so MobX sees a new reference and the host persists it.
+    this.conversations = {
+      ...this.conversations,
+      [namespace]: { ...this.conversations[namespace], [conversationId]: messages },
+    };
   }
 
   clear(): void {
-    this.checkpoints = {};
+    this.conversations = {};
   }
 
-  // Drop only the checkpoints that belong to the given cluster, leaving every
+  // Drop only the conversations that belong to the given cluster, leaving every
   // other cluster's agent memory untouched. Used when the user clears the chat
   // so a "Clear" in one cluster does not wipe another cluster's conversation.
   clearForCluster(clusterId: string): void {
-    const remaining: Record<string, string> = {};
-    for (const [namespace, blob] of Object.entries(this.checkpoints)) {
+    const remaining: Record<string, StoredConversations> = {};
+    for (const [namespace, conversations] of Object.entries(this.conversations)) {
       if (!belongsToCluster(namespace, clusterId)) {
-        remaining[namespace] = blob;
+        remaining[namespace] = conversations;
       }
     }
-    this.checkpoints = remaining;
+    this.conversations = remaining;
   }
 
   fromStore(model: AgentStateModel): void {
-    this.checkpoints = model.checkpoints ?? {};
+    // The LangGraph checkpoints of an earlier version cannot be read into
+    // messages; they are left out without an error, and the next save drops
+    // them from the file.
+    this.conversations = model.conversations ?? {};
   }
 
   toJSON(): AgentStateModel {
     return {
-      checkpoints: toJS(this.checkpoints),
+      conversations: toJS(this.conversations),
     };
   }
 }

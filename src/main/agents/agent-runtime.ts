@@ -1,70 +1,65 @@
 // The agents of every cluster, as the bridge serves them. One runtime lives from
 // `onActivate` to `onDeactivate`; a reload builds a new one.
+//
+// An agent is built for every run, for the run's cluster and the model of the
+// preferences, so a change of the preferences applies to the next run. What
+// lasts between runs is the conversation, stored per cluster, agent and
+// conversation in `AgentStateStore`, and the MCP servers of each cluster.
 
 import { Main } from "@freelensapp/extensions";
-import { RemoveMessage } from "@langchain/core/messages";
-import { Command } from "@langchain/langgraph";
 import { compareStructural, reaction } from "mobx";
+import { checkpointNamespace } from "../../common/agent/checkpoint-namespace";
 import { BridgeErrorCode } from "../../common/bridge/protocol";
 import { DEFAULT_OPENAI_BASE_URL } from "../../common/provider/ai-models";
 import { approximateTokenCount } from "../../common/provider/token-estimate";
 import { AgentStateStore, PreferencesStore } from "../../common/store";
 import { BridgeRequestError } from "../bridge/bridge-error";
 import { McpClients } from "../mcp/mcp-clients";
+import { useModelProvider } from "../provider/model-provider";
 import useLog from "../utils/logger";
-import { type AgentServiceEvent, useAgentService } from "./agent-service";
+import { runAgent } from "./agent-service";
+import { type AgentKind, buildFreelensAgent, buildMcpAgent, type ChatAgent } from "./agents";
 import { useAiAnalysisService } from "./ai-analysis-service";
+import {
+  answerApprovals,
+  closePendingApprovals,
+  findPendingApprovals,
+  promptMessages,
+  toHistoryMessages,
+  trimHistory,
+} from "./conversation";
 import { describeAgentError } from "./describe-error";
-import { type FreeLensAgent, useFreeLensAgentSystem } from "./freelens-agent-system";
-import { type MPCAgent, useMcpAgent } from "./mcp-agent";
 import { useSessionCompactionService } from "./session-compaction-service";
+import { toolFunctionDescriptions } from "./tools/tools";
 
-import type { StructuredToolInterface } from "@langchain/core/tools";
+import type { LanguageModel, ModelMessage } from "ai";
 
 import type {
-  AgentRunInput,
   AgentRunRequest,
   CompactResponse,
   ConversationRequest,
   ExplainRequest,
   ToolDescription,
 } from "../../common/bridge/protocol";
-
-type Agent = FreeLensAgent | MPCAgent;
-
-const buildAgentInput = (input: AgentRunInput) => {
-  if (input.kind === "resume") {
-    return new Command({ resume: input.answer });
-  }
-  // When the session was just compacted, prepend the summary so the agent keeps
-  // the earlier context even though the model-side history was wiped.
-  return {
-    messages: input.summary
-      ? [
-          { role: "user", content: `Summary of the earlier (compacted) conversation:\n${input.summary}` },
-          { role: "user", content: input.text },
-        ]
-      : [{ role: "user", content: input.text }],
-  };
-};
+import type { StoredAgentMessage } from "../../common/store/agent-state-store";
 
 export class AgentRuntime {
   private readonly log = useLog("AgentRuntime").log;
   private readonly preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
-  private readonly freeLensAgentSystem = useFreeLensAgentSystem();
-  private readonly freeLensAgents = new Map<string, FreeLensAgent>();
-  // Rebuilt when the cluster's MCP servers are started again, since the tools
-  // of the agent call the servers that were running when it was built.
-  private readonly mcpAgents = new Map<string, { tools: StructuredToolInterface[]; agent: MPCAgent }>();
   private readonly disposers: (() => void)[];
 
-  constructor(private readonly mcpClients: McpClients = new McpClients()) {
+  constructor(
+    private readonly mcpClients: McpClients = new McpClients(),
+    // The model of the preferences, read for every request; a test passes a
+    // mock model.
+    private readonly getModel: () => LanguageModel = () => useModelProvider().getModel(),
+  ) {
     this.disposers = [
       // Turning MCP off or changing its configuration stops every server; the
       // next request starts the new configuration's servers once.
       reaction(
         () => [this.preferencesStore.mcpEnabled, this.preferencesStore.mcpConfiguration],
-        () => void this.closeMcp(),
+        () => void this.mcpClients.closeAll(),
         { equals: compareStructural },
       ),
       // A disconnect removes the files of the cluster's environment, so the
@@ -77,78 +72,74 @@ export class AgentRuntime {
     ];
   }
 
-  private async closeMcp() {
-    this.mcpAgents.clear();
-    await this.mcpClients.closeAll();
-  }
-
   /** Stops the MCP servers and the reactions; called from `onDeactivate`. */
   async dispose(): Promise<void> {
     for (const dispose of this.disposers) {
       dispose();
     }
-    await this.closeMcp();
+    await this.mcpClients.closeAll();
   }
 
-  private getFreeLensAgent(clusterId: string): FreeLensAgent {
-    let agent = this.freeLensAgents.get(clusterId);
-    if (!agent) {
-      agent = this.freeLensAgentSystem.buildAgentSystem(clusterId);
-      this.freeLensAgents.set(clusterId, agent);
+  private get store() {
+    return AgentStateStore.getInstanceOrCreate<AgentStateStore>();
+  }
+
+  private get activeKind(): AgentKind {
+    return this.preferencesStore.mcpEnabled ? "mcp" : "freelens";
+  }
+
+  private loadConversation(clusterId: string, kind: AgentKind, conversationId: string): ModelMessage[] {
+    return this.store.getConversation(
+      checkpointNamespace(clusterId, kind),
+      conversationId,
+    ) as unknown as ModelMessage[];
+  }
+
+  private saveConversation(clusterId: string, kind: AgentKind, conversationId: string, messages: ModelMessage[]) {
+    this.store.setConversation(
+      checkpointNamespace(clusterId, kind),
+      conversationId,
+      messages as unknown as StoredAgentMessage[],
+    );
+  }
+
+  private async buildAgent(clusterId: string, kind: AgentKind): Promise<ChatAgent> {
+    if (kind === "mcp") {
+      // The tools call the servers that are running now; the servers keep
+      // running for the next run of the cluster.
+      const tools = await this.mcpClients.getTools(clusterId, this.preferencesStore.mcpConfiguration);
+      return buildMcpAgent(this.getModel(), tools);
     }
-    return agent;
-  }
-
-  private async getMcpAgent(clusterId: string): Promise<MPCAgent> {
-    const tools = await this.mcpClients.getTools(clusterId, this.preferencesStore.mcpConfiguration);
-    const cached = this.mcpAgents.get(clusterId);
-    if (cached && cached.tools === tools) {
-      return cached.agent;
-    }
-    const agent = useMcpAgent().buildAgentSystem(clusterId, tools);
-    this.mcpAgents.set(clusterId, { tools, agent });
-    return agent;
-  }
-
-  private getActiveAgent(clusterId: string): Promise<Agent> | Agent {
-    return this.preferencesStore.mcpEnabled ? this.getMcpAgent(clusterId) : this.getFreeLensAgent(clusterId);
+    return buildFreelensAgent(this.getModel(), clusterId);
   }
 
   private describeError(error: unknown) {
     return new Error(describeAgentError(error, this.preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL));
   }
 
-  private async cleanMessageHistory(agent: Agent, conversationId: string) {
-    const config = { configurable: { thread_id: conversationId } };
-    const messages = (await agent.getState(config)).values.messages;
-    if (!messages || messages.length === 0) {
-      return;
-    }
-    for (const message of messages) {
-      await agent.updateState(config, { messages: new RemoveMessage({ id: message.id }) });
-    }
-  }
-
-  // Whether a task of the conversation waits on an `interrupt()`, the approval
-  // that a `resume` answers. A clear removes the messages, not the next task:
-  // that task still runs on a resume, with no messages and no interrupt.
-  private async hasPendingApproval(agent: Agent, conversationId: string) {
-    const { tasks } = await agent.getState({ configurable: { thread_id: conversationId } });
-    return tasks.some((task) => task.interrupts.length > 0);
-  }
-
   async *run({ clusterId, conversationId, input }: AgentRunRequest, signal: AbortSignal) {
     try {
-      const agent = await this.getActiveAgent(clusterId);
-      if (input.kind === "resume" && !(await this.hasPendingApproval(agent, conversationId))) {
-        throw new BridgeRequestError("There is no pending approval to answer.", BridgeErrorCode.noPendingApproval);
+      const kind = this.activeKind;
+      const stored = this.loadConversation(clusterId, kind, conversationId);
+      let messages: ModelMessage[];
+      if (input.kind === "resume") {
+        // A pending approval is read from the stored messages, so it survives
+        // a restart. A clear removes them, and with them the approval.
+        const pending = findPendingApprovals(stored);
+        if (pending.length === 0) {
+          throw new BridgeRequestError("There is no pending approval to answer.", BridgeErrorCode.noPendingApproval);
+        }
+        messages = answerApprovals(stored, pending, input.answer === "yes");
+      } else {
+        messages = trimHistory([...closePendingApprovals(stored), ...promptMessages(input)]);
       }
-      const events: AsyncGenerator<AgentServiceEvent> = useAgentService(agent).run(buildAgentInput(input), {
-        clusterId,
-        conversationId,
+      const agent = await this.buildAgent(clusterId, kind);
+      yield* runAgent({
+        agent,
+        messages,
         signal,
+        save: (conversation) => this.saveConversation(clusterId, kind, conversationId, conversation),
       });
-      yield* events;
     } catch (error) {
       if (error instanceof BridgeRequestError) {
         this.log.warn(error.message, { clusterId, conversationId });
@@ -161,7 +152,7 @@ export class AgentRuntime {
 
   async *explain({ text }: ExplainRequest, signal: AbortSignal) {
     try {
-      for await (const chunk of useAiAnalysisService().analyze(text, signal)) {
+      for await (const chunk of useAiAnalysisService(this.getModel).analyze(text, signal)) {
         yield { type: "text" as const, text: chunk };
       }
     } catch (error) {
@@ -170,59 +161,40 @@ export class AgentRuntime {
     }
   }
 
-  // Summarizes the model-side history, wipes it, and returns the summary to seed
-  // into the next prompt. On any failure the history is still wiped (best
-  // effort) so the next prompt cannot exceed the limit; only the summary
-  // context is lost.
+  // Summarizes the stored conversation, replaces it with nothing, and returns
+  // the summary to seed into the next prompt. On any failure the conversation
+  // is still replaced (best effort) so the next prompt cannot exceed the limit;
+  // only the summary context is lost.
   async compact({ clusterId, conversationId }: ConversationRequest): Promise<CompactResponse> {
-    const agent = await this.getActiveAgent(clusterId);
-    const config = { configurable: { thread_id: conversationId } };
-
+    const kind = this.activeKind;
     try {
-      const messages = (await agent.getState(config)).values.messages ?? [];
-      const summary = await useSessionCompactionService().summarize(messages);
-      await this.cleanMessageHistory(agent, conversationId);
+      const messages = this.loadConversation(clusterId, kind, conversationId);
+      const summary = await useSessionCompactionService(this.getModel).summarize(toHistoryMessages(messages));
+      this.saveConversation(clusterId, kind, conversationId, []);
       return { summary: summary.length > 0 ? summary : null, contextTokens: approximateTokenCount(summary) };
     } catch (error) {
       this.log.error("Failed to compact session: ", error);
-      try {
-        await this.cleanMessageHistory(agent, conversationId);
-      } catch (cleanError) {
-        this.log.error("Failed to clean history during compaction fallback: ", cleanError);
-      }
+      this.saveConversation(clusterId, kind, conversationId, []);
       return { summary: null, contextTokens: 0 };
     }
   }
 
-  // Wipes the conversation of both agents of the cluster, and the cluster's
-  // durable checkpointer state, so a restart right after a clear does not
-  // restore the model-side context. Other clusters' memory is left untouched.
-  async clear({ clusterId, conversationId }: ConversationRequest): Promise<Record<string, never>> {
-    const agents: Agent[] = [];
-    const freeLensAgent = this.freeLensAgents.get(clusterId);
-    if (freeLensAgent) {
-      agents.push(freeLensAgent);
-    }
-    const mcpAgent = this.mcpAgents.get(clusterId)?.agent;
-    if (mcpAgent) {
-      agents.push(mcpAgent);
-    }
-    for (const agent of agents) {
-      try {
-        await this.cleanMessageHistory(agent, conversationId);
-      } catch (error) {
-        this.log.error("Failed to clean the agent message history: ", error);
-      }
-    }
-    AgentStateStore.getInstanceOrCreate<AgentStateStore>().clearForCluster(clusterId);
+  // Wipes the conversations of both agents of the cluster, so a restart right
+  // after a clear does not restore the model-side context. Other clusters'
+  // memory is left untouched.
+  async clear({ clusterId }: ConversationRequest): Promise<Record<string, never>> {
+    this.store.clearForCluster(clusterId);
     return {};
   }
 
   async tools(clusterId: string): Promise<ToolDescription[]> {
     if (this.preferencesStore.mcpEnabled) {
       const tools = await this.mcpClients.getTools(clusterId, this.preferencesStore.mcpConfiguration);
-      return tools.map(({ name, description }) => ({ name, description }));
+      return Object.entries(tools).map(([name, { description }]) => ({
+        name,
+        description: typeof description === "string" ? description : "",
+      }));
     }
-    return this.freeLensAgentSystem.availableTools.map(({ name, description }) => ({ name, description }));
+    return toolFunctionDescriptions.map(({ name, description }) => ({ name, description }));
   }
 }

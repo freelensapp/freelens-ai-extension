@@ -17,9 +17,9 @@ export default class LensExtensionAiMain extends Main.LensExtension {
 
     preferencesStore.loadExtension(this);
 
-    // Owns the on-disk file for the persisted LangGraph checkpointer state,
-    // which the agents read and write here in main, so the agent can restore
-    // its conversation after a restart.
+    // Owns the on-disk file for the stored conversations of the agents, which
+    // the agents read and write here in main, so the agent can restore its
+    // conversation after a restart.
     AgentStateStore.getInstanceOrCreate<AgentStateStore>().loadExtension(this);
 
     // Owns the on-disk file for the persisted chat transcript and conversation

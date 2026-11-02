@@ -1,85 +1,99 @@
-// Pure builder for the `ChatOpenAIFields` passed to `ChatOpenAI`. Separated from
-// `model-provider.ts` so the option-building logic (endpoint, fetch,
-// reasoning-effort vs temperature heuristic) can be unit-tested without the
-// MobX store or instantiating a real client.
+// Pure builder for how the selected model is called: which API of which AI SDK
+// provider, and the call settings. Separated from `model-provider.ts` so the
+// option-building logic (API choice, reasoning-effort vs temperature
+// heuristic, Responses options) can be unit-tested without the MobX store or a
+// real client.
 
+import { DEFAULT_OPENAI_BASE_URL } from "../../common/provider/ai-models";
 import { isReasoningModel, requiresResponsesApi } from "./model-capabilities";
 
-import type { ChatOpenAIFields } from "@langchain/openai";
+import type { JSONObject } from "@ai-sdk/provider";
 
-type ClientFetch = NonNullable<NonNullable<ChatOpenAIFields["configuration"]>["fetch"]>;
+// The name the OpenAI-compatible provider is created with. Its provider options
+// are read under this name, and every key of them that is not one of its own
+// options goes into the request body as it is.
+export const COMPATIBLE_PROVIDER_NAME = "openaiCompatible";
 
-export interface OpenAIChatFieldsOptions {
-  // Model id sent to the OpenAI API (e.g. "gpt-6.1-sol").
+// - `responses`: `@ai-sdk/openai`, Responses API.
+// - `chat`: `@ai-sdk/openai`, Chat Completions, for the OpenAI API itself.
+// - `compatible`: `@ai-sdk/openai-compatible`, Chat Completions, for any other
+//   base URL (LiteLLM, vLLM, Ollama, DeepSeek).
+export type OpenAIModelApi = "responses" | "chat" | "compatible";
+
+export interface OpenAIModelOptionsInput {
+  // Model id sent to the endpoint (e.g. "gpt-6.1-sol").
   modelName: string;
-  // API key used for the request.
-  apiKey: string;
   // Base URL of the OpenAI-compatible endpoint (e.g. https://api.openai.com/v1).
   baseUrl: string;
-  // The fetch the client sends its requests with: the host's, so the user's
-  // HTTPS proxy and certificate preferences apply (`Main.Util.fetch`).
-  fetch: ClientFetch;
   // Optional reasoning effort; applied only to reasoning-capable models.
   reasoningEffort?: string;
   // When true, request the upstream to disable its "thinking" mode. Some
-  // providers (e.g. DeepSeek via LiteLLM) expose a thinking mode that is
-  // mutually exclusive with the forced `tool_choice` the supervisor agent uses
-  // for structured output, failing with "Thinking mode does not support this
-  // tool_choice". User-controlled because it is provider-specific.
+  // providers (e.g. DeepSeek via LiteLLM) expose a thinking mode that rejects
+  // a forced `tool_choice`. User-controlled because it is provider-specific.
   disableThinking?: boolean;
 }
 
-export const buildOpenAIChatFields = ({
+export interface OpenAIModelOptions {
+  api: OpenAIModelApi;
+  // The default call settings of the model, applied by a middleware.
+  temperature?: number;
+  providerOptions: Record<string, JSONObject>;
+}
+
+const normalizeBaseUrl = (baseUrl: string) => baseUrl.trim().replace(/\/+$/, "");
+
+export const isOpenAIBaseUrl = (baseUrl: string): boolean =>
+  normalizeBaseUrl(baseUrl) === normalizeBaseUrl(DEFAULT_OPENAI_BASE_URL);
+
+export const buildOpenAIModelOptions = ({
   modelName,
-  apiKey,
   baseUrl,
-  fetch,
   reasoningEffort,
   disableThinking,
-}: OpenAIChatFieldsOptions): ChatOpenAIFields => {
-  const fields: ChatOpenAIFields = {
-    model: modelName,
-    apiKey,
-    configuration: {
-      baseURL: baseUrl,
-      fetch,
-    },
-  };
+}: OpenAIModelOptionsInput): OpenAIModelOptions => {
+  // Models that take their tools only through the Responses API, at any base
+  // URL: a gateway such as LiteLLM serves Responses too. The conversation is
+  // kept in the extension's store and re-sent with every request, as on Chat
+  // Completions, so nothing is stored by OpenAI (`store: false`, which also
+  // keeps item ids out of the request), and the reasoning of a tool loop is
+  // replayed from its encrypted content. Function tools are sent non-strict,
+  // the AI SDK's default for a tool without `strict`, and keep their optional
+  // arguments.
+  const api: OpenAIModelApi = requiresResponsesApi(modelName)
+    ? "responses"
+    : isOpenAIBaseUrl(baseUrl)
+      ? "chat"
+      : "compatible";
+  const providerName = api === "compatible" ? COMPATIBLE_PROVIDER_NAME : "openai";
+
+  const options: JSONObject = {};
+  if (api === "responses") {
+    options.store = false;
+    options.include = ["reasoning.encrypted_content"];
+  }
 
   // Reasoning models reject `temperature` and accept a reasoning effort;
   // non-reasoning models are the inverse. Decided by name heuristic.
+  let temperature: number | undefined;
   if (isReasoningModel(modelName)) {
     if (reasoningEffort) {
-      // `@langchain/openai` v1 dropped the top-level `reasoningEffort`
-      // constructor field in favor of `reasoning.effort`. The chat-completions
-      // path maps `reasoning.effort` back to the `reasoning_effort` request
-      // parameter.
-      fields.reasoning = { effort: reasoningEffort as NonNullable<ChatOpenAIFields["reasoning"]>["effort"] };
+      options.reasoningEffort = reasoningEffort;
     }
   } else {
-    fields.temperature = 0;
+    temperature = 0;
   }
 
-  // Models that take their tools only through the Responses API. The
-  // conversation is kept in the extension's checkpoints and re-sent with every
-  // request, as on Chat Completions, so nothing is stored by OpenAI
-  // (`zdrEnabled` sends `store: false` and replays no item ids), and the
-  // reasoning of a tool loop is replayed from its encrypted content. Function
-  // tools are strict by default on Responses, and a strict schema must require
-  // every property, so the tools are sent non-strict, as on Chat Completions,
-  // and keep their optional arguments.
-  if (requiresResponsesApi(modelName)) {
-    fields.useResponsesApi = true;
-    fields.zdrEnabled = true;
-    fields.supportsStrictToolCalling = false;
-    fields.modelKwargs = { ...fields.modelKwargs, include: ["reasoning.encrypted_content"] };
+  // An option the OpenAI-compatible provider does not know goes into the
+  // request body verbatim. The OpenAI provider validates its options, so the
+  // flag applies to other base URLs only, which is where the providers that
+  // know it are reached.
+  if (disableThinking && api === "compatible") {
+    options.thinking = { type: "disabled" };
   }
 
-  // Sent via `modelKwargs` so it reaches the upstream request body verbatim
-  // without being passed as a typed field that providers like OpenAI reject.
-  if (disableThinking) {
-    fields.modelKwargs = { ...fields.modelKwargs, thinking: { type: "disabled" } };
-  }
-
-  return fields;
+  return {
+    api,
+    ...(temperature === undefined ? {} : { temperature }),
+    providerOptions: { [providerName]: options },
+  };
 };

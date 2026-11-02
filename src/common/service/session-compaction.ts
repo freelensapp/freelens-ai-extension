@@ -1,17 +1,17 @@
 // Pure helpers for deciding when a chat session must be compacted and for
 // building the summarization prompt used to compact it.
 //
-// Kept free of host/MobX/network/LangChain-runtime dependencies so the decision
+// Kept free of host/MobX/network/model-library dependencies so the decision
 // math and prompt assembly can be unit-tested in isolation (see
 // session-compaction.test.ts). The impure parts - reading the model-side
-// history, invoking the model to summarize, and wiping the LangGraph thread -
-// live in session-compaction-service.ts and application-context.tsx.
+// history, invoking the model to summarize, and replacing the stored
+// conversation - live in session-compaction-service.ts, agent-runtime.ts and
+// application-context.tsx.
 
 import { messageContentToText } from "../provider/token-estimate";
 
-import type { MessageContent } from "@langchain/core/messages";
-
 import type { ModelPricing } from "../provider/model-pricing";
+import type { MessageContent } from "../provider/token-estimate";
 
 // Fallback context window used when the selected model's max input tokens are
 // unknown (an undetected model, or pricing data that did not load). A
@@ -66,20 +66,20 @@ export interface SummarizableMessage {
   content: string;
 }
 
-// Minimal shape of the LangChain messages held in the agent's LangGraph state.
-// Only the fields read to render the conversation are described.
+// Minimal shape of the messages of the agent's stored conversation. Only the
+// fields read to render the conversation are described.
 export interface HistoryMessageLike {
-  getType?: () => string;
+  role?: string;
   content: MessageContent;
 }
 
 /**
- * Flatten the agent's stored history into role-tagged plain-text turns. Unknown
- * or missing types degrade to "message" so nothing is dropped.
+ * Flatten the agent's stored history into role-tagged plain-text turns. A
+ * missing role degrades to "message" so nothing is dropped.
  */
 export const toSummarizableMessages = (messages: HistoryMessageLike[]): SummarizableMessage[] =>
   messages.map((message) => ({
-    role: typeof message.getType === "function" ? message.getType() : "message",
+    role: message.role ?? "message",
     content: messageContentToText(message.content),
   }));
 
