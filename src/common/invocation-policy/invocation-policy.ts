@@ -3,9 +3,10 @@ import { kubectlCanonicalForms } from "./kubectl-canonical-forms";
 import { parseKubectlInvocation } from "./kubectl-invocation";
 import { checkSecretOutput } from "./kubectl-secret-output";
 import { type ManifestObject, readManifestObjects } from "./manifest";
+import { mostRestrictiveLevel, type PolicyLevel, type PolicyProfile, type PolicyRule } from "./policy-profile";
+import { decideByRules } from "./policy-rules";
 
 import type { CanonicalForm, CliProgram } from "./canonical-form";
-import type { PolicyLevel, PolicyProfile, PolicyRule } from "./policy-profile";
 import type { ResourceCatalog } from "./resource-catalog";
 
 export interface InvocationPolicyInput {
@@ -72,6 +73,7 @@ export function evaluateInvocationPolicy(input: InvocationPolicyInput): Invocati
   const checked = checkSecretOutput(invocation, forms, input.revealSecrets);
   if ("kind" in checked) return checked;
 
-  const targets = checked.map((form): PolicyTarget => ({ form, level: input.profile.fallbackLevel }));
-  return { kind: "policy", level: input.profile.fallbackLevel, targets };
+  const targets = checked.map((form): PolicyTarget => ({ form, ...decideByRules(input.profile, form, input.catalog) }));
+  const level = targets.map((target) => target.level).reduce(mostRestrictiveLevel);
+  return { kind: "policy", level, targets };
 }

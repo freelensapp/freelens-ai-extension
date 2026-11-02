@@ -4,7 +4,7 @@ import { evaluateInvocationPolicy, type InvocationPolicyResult } from "./invocat
 import { BUILT_IN_RESOURCE_CATALOG } from "./resource-catalog";
 
 import type { FloorEntryId } from "./floor";
-import type { PolicyProfile } from "./policy-profile";
+import type { PolicyLevel, PolicyProfile, PolicyRule } from "./policy-profile";
 
 const ASK_EVERYTHING: PolicyProfile = { id: "test", name: "Test", rules: [], fallbackLevel: "ask" };
 
@@ -428,5 +428,152 @@ describe("the floor", () => {
   it("gives the floor entry's reason for verbose logging", () => {
     const result = evaluate("get pods -v=7");
     expect(result.kind === "floor" && result.entry.reason).toMatch(/request headers.*bearer token.*response bodies/);
+  });
+});
+
+const profileOf = (rules: Record<string, PolicyLevel>, fallbackLevel: PolicyLevel = "ask"): PolicyProfile => ({
+  id: "rules",
+  name: "Rules",
+  rules: Object.entries(rules).map(([pattern, level]): PolicyRule => ({ pattern, level })),
+  fallbackLevel,
+});
+
+/** The level of an invocation and, per canonical form, its level and the pattern of the rule that decided it. */
+const decide = (args: string, profile: PolicyProfile, options: EvaluateOptions = {}) => {
+  const result = evaluate(args, { ...options, profile });
+  if (result.kind !== "policy") throw new Error(`rejected by the floor: ${result.reason}`);
+  return {
+    level: result.level,
+    targets: result.targets.map((target) => [formatCanonicalForm(target.form), target.level, target.rule?.pattern]),
+  };
+};
+
+describe("policy rules", () => {
+  const deletes = profileOf(
+    {
+      "kubectl delete *": "allow",
+      "kubectl delete pods": "ask",
+      "kubectl delete pods web-*": "alwaysAsk",
+      "kubectl delete pods web-1 -n dev": "deny",
+    },
+    "allow",
+  );
+
+  it.each([
+    ["delete pods web-1 -n dev", "deny", "kubectl delete pods web-1 -n dev"],
+    ["delete pods web-1 -n prod", "alwaysAsk", "kubectl delete pods web-*"],
+    ["delete pods api", "ask", "kubectl delete pods"],
+    ["delete pods -l app=web", "ask", "kubectl delete pods"],
+    ["delete pods --all -n dev", "ask", "kubectl delete pods"],
+    ["delete svc api", "allow", "kubectl delete *"],
+    ["get pods", "allow", undefined],
+  ])("the most specific rule decides kubectl %s", (args, level, pattern) => {
+    const decision = decide(args, deletes);
+    expect(decision.level).toBe(level);
+    expect(decision.targets[0]?.[2]).toBe(pattern);
+  });
+
+  it("gives the most restrictive level on a tie of specificity", () => {
+    const profile = profileOf({ "kubectl get pods * -n dev": "allow", "kubectl get * api -n dev": "deny" }, "ask");
+    expect(decide("get pods api -n dev", profile).targets).toEqual([
+      ["kubectl get pods api -n dev", "deny", "kubectl get * api -n dev"],
+    ]);
+    expect(decide("get pods other -n dev", profile).level).toBe("allow");
+  });
+
+  it("counts a glob less than a literal and more than *", () => {
+    const profile = profileOf(
+      { "kubectl get pods *": "allow", "kubectl get pods web-*": "deny", "kubectl get pods web-1": "ask" },
+      "alwaysAsk",
+    );
+    expect(decide("get pods web-1", profile).level).toBe("ask");
+    expect(decide("get pods web-2", profile).level).toBe("deny");
+    expect(decide("get pods api", profile).level).toBe("allow");
+    const globVerb = profileOf({ "kubectl rollout *": "deny", "kubectl * deployments": "allow" }, "ask");
+    expect(decide("rollout restart deploy/api", globVerb).level).toBe("allow");
+    expect(decide("rollout restart sts/db", globVerb).level).toBe("deny");
+  });
+
+  it("gives the fallback level to a canonical form no rule matches", () => {
+    expect(decide("get pods", profileOf({ "kubectl delete *": "allow" }, "deny"))).toEqual({
+      level: "deny",
+      targets: [["kubectl get pods * -n default", "deny", undefined]],
+    });
+  });
+
+  it("gives the invocation the most restrictive level of its canonical forms", () => {
+    const profile = profileOf({ "kubectl delete pods": "allow", "kubectl delete services": "alwaysAsk" }, "ask");
+    expect(decide("delete pods,svc api", profile)).toEqual({
+      level: "alwaysAsk",
+      targets: [
+        ["kubectl delete pods api -n default", "allow", "kubectl delete pods"],
+        ["kubectl delete services api -n default", "alwaysAsk", "kubectl delete services"],
+      ],
+    });
+  });
+
+  it.each([
+    ["get pods", "allow"],
+    ["get nodes", "allow"],
+    ["version", "allow"],
+    ["rollout status deploy/api", "deny"],
+    ["rollout restart deploy/api", "deny"],
+  ])("lets omitted trailing parts mean *: kubectl %s", (args, level) => {
+    expect(
+      decide(args, profileOf({ "kubectl get": "allow", "kubectl version": "allow", "kubectl rollout": "deny" }, "ask"))
+        .level,
+    ).toBe(level);
+  });
+
+  it.each([
+    ["delete pods -l app=web -n dev", "ask"],
+    ["delete pods api -n dev", "deny"],
+    ["get pods -A", "ask"],
+    ["get pods -n dev", "allow"],
+    ["get nodes", "ask"],
+  ])("matches a canonical * name or namespace only by * or an omitted part: kubectl %s", (args, level) => {
+    const profile = profileOf(
+      {
+        "kubectl delete pods web-* -n dev": "deny",
+        "kubectl delete pods api -n dev": "deny",
+        "kubectl get * * -n dev": "allow",
+      },
+      "ask",
+    );
+    expect(decide(args, profile).level).toBe(level);
+  });
+
+  it.each([
+    ["get nodes", "deny"],
+    ["get pods -A", "deny"],
+    ["get pods -n prod", "allow"],
+  ])("matches every namespace and cluster-scoped resources by a rule without -n: kubectl %s", (args, level) => {
+    const profile = profileOf({ "kubectl get": "deny", "kubectl get pods * -n prod": "allow" }, "ask");
+    expect(decide(args, profile).level).toBe(level);
+  });
+
+  it("does not match a cluster-scoped resource by a rule with a namespace", () => {
+    expect(decide("get nodes", profileOf({ "kubectl get * * -n dev": "deny" }, "allow")).level).toBe("allow");
+  });
+
+  it.each([
+    ["kubectl delete ns *", "delete namespace web"],
+    ["kubectl delete namespace", "delete ns web"],
+    ["kubectl get deploy api -n web", "get deployments.apps api -n web"],
+    ["kubectl get Pod", "get po"],
+  ])("normalizes the resource of the rule %s through the catalog", (pattern, args) => {
+    expect(decide(args, profileOf({ [pattern]: "deny" }, "allow")).level).toBe("deny");
+  });
+
+  it("matches every invocation by the rule kubectl", () => {
+    expect(decide("get pods a", profileOf({ kubectl: "deny" }, "allow")).level).toBe("deny");
+  });
+
+  it("never matches a rule of another program or one that is not a pattern", () => {
+    const profile = profileOf(
+      { "helm list": "deny", "kubectl get pods a b c": "deny", "kubectl get -n": "deny", "": "deny" },
+      "allow",
+    );
+    expect(decide("get pods a", profile).level).toBe("allow");
   });
 });
