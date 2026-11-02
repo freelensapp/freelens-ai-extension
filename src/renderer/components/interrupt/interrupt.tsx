@@ -33,7 +33,7 @@ const levelLine = ({ level, profileName }: CliApprovalRequest) =>
 
 // The body of a kubectl call's card, under its command line: one target per
 // resource, name or manifest object, the level and the profile that gave it,
-// and the manifest the call sends.
+// whether Secret values go to the model, and the manifest the call sends.
 const CliApprovalBody = ({ request }: { request: CliApprovalRequest }) => (
   <>
     <div className={styles.interruptLabel}>Targets</div>
@@ -45,6 +45,11 @@ const CliApprovalBody = ({ request }: { request: CliApprovalRequest }) => (
       ))}
     </ul>
     <div className={styles.interruptLevel}>{levelLine(request)}</div>
+    {request.canonicalForms.some((form) => form.verb === "reveal") && (
+      <div className={styles.interruptLevel}>
+        Reveal: the values of these Secrets will be sent to the model unredacted.
+      </div>
+    )}
     {request.manifest !== undefined && (
       <CodeBlock language="yaml" title="Manifest" collapsible props={{}}>
         {request.manifest}
