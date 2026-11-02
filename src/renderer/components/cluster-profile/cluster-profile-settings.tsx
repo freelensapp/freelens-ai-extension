@@ -15,8 +15,8 @@ export const ClusterProfileSettings = ({ entity }: EntitySettingViewProps) => (
     <SubTitle title="Policy profile" id="freelens-ai-policy-profile" />
     <ClusterProfilePicker clusterId={entity.getId()} clusterName={entity.getName()} />
     <small className="hint">
-      Decides which kubectl commands the agent runs on this cluster, which wait for your approval and which are denied.
-      A change applies from the agent's next command. Edit the profiles in the Freelens AI preferences.
+      Decides which kubectl and helm commands the agent runs on this cluster, which wait for your approval and which are
+      denied. A change applies from the agent's next command. Edit the profiles in the Freelens AI preferences.
     </small>
   </section>
 );

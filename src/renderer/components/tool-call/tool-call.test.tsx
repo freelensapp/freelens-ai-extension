@@ -179,3 +179,42 @@ describe("ToolCall of a kubectl call", () => {
     expect(folds()).toEqual([{ summary: "Output, killed before it ended", open: false }]);
   });
 });
+
+describe("ToolCall of a helm call", () => {
+  const helmCall = (overrides: Partial<ToolCallView> = {}): ToolCallView =>
+    call({
+      toolName: "helm",
+      args: { args: ["history", "web", "-n", "apps"] },
+      result: "Exit code: 0\n\nStandard output:\nREVISION\tSTATUS\n1\tdeployed",
+      invocation: { args: ["history", "web", "-n", "apps"], exitCode: 0 },
+      ...overrides,
+    });
+  const commandLine = () => document.querySelector("code")?.textContent;
+
+  it("shows the command line, with the output folded under its exit code", () => {
+    render(<ToolCall toolCall={helmCall()} />);
+
+    expect(commandLine()).toBe("helm history web -n apps");
+    expect(document.querySelector("details summary")?.textContent).toBe("Output, exit code 0");
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("shows the reason of a call the floor blocked under its command line", () => {
+    const reason =
+      "Blocked by the floor, which no policy profile lifts. The user's disk and local code: ./chart is a local chart path or a chart URL.";
+    render(
+      <ToolCall
+        toolCall={helmCall({
+          args: { args: ["upgrade", "web", "./chart", "--reuse-values"] },
+          result: reason,
+          isError: true,
+          invocation: undefined,
+        })}
+      />,
+    );
+
+    expect(commandLine()).toBe("helm upgrade web ./chart --reuse-values");
+    expect(screen.getByText("blocked")).toBeTruthy();
+    expect(screen.getByText(reason)).toBeTruthy();
+  });
+});

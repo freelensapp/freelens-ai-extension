@@ -205,3 +205,68 @@ describe("Interrupt of a kubectl call", () => {
     expect(screen.queryByText(/^Preview unavailable/)).toBeNull();
   });
 });
+
+describe("Interrupt of a helm call", () => {
+  const upgradeWeb = {
+    program: "helm",
+    verb: "upgrade",
+    resource: "releases",
+    name: "web",
+    namespace: "default",
+  } as const;
+  const manifestDiff = "--- current\n+++ dry run\n@@ -1,2 +1,2 @@\n spec:\n-  replicas: 2\n+  replicas: 3\n";
+  const helmApproval: CliApprovalRequest = {
+    id: "h1",
+    toolCallId: "t2",
+    method: "confirm",
+    program: "helm",
+    args: ["upgrade", "web", "bitnami/nginx", "--reuse-values", "--set", "replicaCount=3"],
+    canonicalForms: [upgradeWeb],
+    level: "ask",
+    profileName: "Standard",
+    preview: { kind: "diffs", diffs: [{ target: upgradeWeb, diff: manifestDiff }] },
+  };
+
+  it("shows the release as its target and the diff of its manifest", () => {
+    render(
+      <Interrupt
+        {...props({
+          header: "helm upgrade web bitnami/nginx --reuse-values --set replicaCount=3",
+          cliApproval: helmApproval,
+        })}
+      />,
+    );
+
+    expect(screen.getByText("helm upgrade web bitnami/nginx --reuse-values --set replicaCount=3")).toBeDefined();
+    expect(screen.getAllByText("helm upgrade releases web -n default")).toHaveLength(2);
+    expect(screen.getByText("Ask: the policy profile Standard asks before this invocation.")).toBeDefined();
+    expect(screen.getByTestId("monaco-editor").textContent).toBe(manifestDiff.replace(/\n$/, ""));
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("says that an uninstall asks every time, without a preview", () => {
+    const uninstallWeb = { ...upgradeWeb, verb: "uninstall" } as const;
+    render(
+      <Interrupt
+        {...props({
+          header: "helm uninstall web",
+          cliApproval: {
+            ...helmApproval,
+            args: ["uninstall", "web"],
+            canonicalForms: [uninstallWeb],
+            level: "alwaysAsk",
+            preview: undefined,
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "helm uninstall releases web -n default",
+    ]);
+    expect(
+      screen.getByText(/^Always ask: the policy profile Standard asks before this invocation every time/),
+    ).toBeDefined();
+    expect(screen.queryByText("What the dry run changes")).toBeNull();
+  });
+});

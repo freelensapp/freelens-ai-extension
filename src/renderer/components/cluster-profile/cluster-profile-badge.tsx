@@ -21,7 +21,7 @@ export const ClusterProfileBadge = observer(({ clusterId }: ClusterProfileBadgeP
     <span
       className={styles.clusterProfileBadge}
       title={
-        `Policy profile of this cluster: ${profile.name}. It decides which kubectl commands the agent runs, which ` +
+        `Policy profile of this cluster: ${profile.name}. It decides which kubectl and helm commands the agent runs, which ` +
         "wait for your approval and which are denied. Change it in the cluster's settings, on the Freelens AI tab."
       }
     >
