@@ -579,6 +579,25 @@ describe("approvals", () => {
     expect(card(state)?.options).toEqual(["yes", "no"]);
   });
 
+  it("updates a pending card when main sends its request again with another level and profile", () => {
+    const pending = reduceEnvelope(initial(), envelope(1, "ui_request", request));
+    const updated = { ...request, level: "alwaysAsk" as const, profileName: "Careful" };
+    const state = reduceEnvelope(pending, envelope(2, "ui_request", updated));
+
+    expect(state.messages.filter((m) => m.approvalId === "k1")).toHaveLength(1);
+    expect(card(state)).toMatchObject({ cliApproval: updated, options: ["yes", "no"], approved: null });
+  });
+
+  it("leaves an answered card as it is when its request comes again", () => {
+    const answered = reduceEnvelope(
+      reduceEnvelope(initial(), envelope(1, "ui_request", request)),
+      envelope(2, "ui_resolved", { id: "k1", confirmed: false }),
+    );
+    const state = reduceEnvelope(answered, envelope(3, "ui_request", { ...request, level: "alwaysAsk" }));
+
+    expect(card(state)).toMatchObject({ cliApproval: request, approved: false });
+  });
+
   it("marks the card approved or denied when main settles it", () => {
     const pending = reduceEnvelope(initial(), envelope(1, "ui_request", request));
     const settle = (confirmed: boolean) =>

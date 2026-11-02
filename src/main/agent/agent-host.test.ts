@@ -1372,27 +1372,123 @@ describe("AgentHost", () => {
           expect(cli.actions()).toEqual([]);
         });
 
-        it("stays pending when the new level is not Deny, and runs once approved", async () => {
+        it("stays pending when the new level is Allow, with the new profile as Ask on the card, and runs once approved", async () => {
           const host = await pendingScale();
 
           settings = everyClusterOn(ALLOW_ALL_PROFILE);
           host.recheckPendingApprovals();
 
           expect(uiResolved()).toEqual([]);
-          expect((await snapshotOf(host)).pendingUiRequest).toEqual(uiRequests()[0]);
+          expect(uiRequests()).toEqual([
+            uiRequests()[0],
+            { ...uiRequests()[0], level: "ask", profileName: "Allow all" },
+          ]);
+          expect((await snapshotOf(host)).pendingUiRequest).toEqual(uiRequests()[1]);
           await answer(host, true);
           await waitFor(settled);
           expect(cli.actions()).toEqual([expect.objectContaining({ args: scaleWeb })]);
         });
 
-        it("stays pending when only another cluster's profile changes", async () => {
+        it("sends the card again with Always ask once the level is Always ask, and approving it does not approve all", async () => {
+          const CAREFUL_PROFILE: PolicyProfile = {
+            id: "careful",
+            name: "Careful",
+            rules: [{ pattern: "kubectl scale *", level: "alwaysAsk" }],
+            fallbackLevel: "ask",
+          };
+          const host = await pendingScale({ userProfiles: [DEV_PROFILE, CAREFUL_PROFILE] });
+          expect(uiRequests()[0]).toMatchObject({ level: "ask", profileName: "Standard" });
+
+          settings = { ...settings, profileAssignments: { c1: "careful" } };
+          host.recheckPendingApprovals();
+
+          expect(uiResolved()).toEqual([]);
+          expect(uiRequests()).toEqual([
+            uiRequests()[0],
+            { ...uiRequests()[0], level: "alwaysAsk", profileName: "Careful" },
+          ]);
+          expect((await snapshotOf(host)).pendingUiRequest).toEqual(uiRequests()[1]);
+          await answer(host, true, true);
+          await waitFor(settled);
+
+          expect(autoApproveChanges()).toEqual([]);
+          expect((await snapshotOf(host)).autoApprove).toBe(false);
+          expect(cli.actions()).toEqual([expect.objectContaining({ args: scaleWeb })]);
+        });
+
+        it("stays pending, and is not sent again, when only another cluster's profile changes", async () => {
           const host = await pendingScale();
 
           settings = { ...settings, profileAssignments: { c2: "read-only" } };
           host.recheckPendingApprovals();
 
           expect(uiResolved()).toEqual([]);
+          expect(uiRequests()).toHaveLength(1);
           expect((await snapshotOf(host)).pendingUiRequest).toEqual(uiRequests()[0]);
+        });
+      });
+
+      describe("a profile change while the dry run runs", () => {
+        let settings: PolicyProfileSettings;
+        // A scale of web under Standard whose dry run waits until the test lets it answer.
+        const scaleDuringDryRun = async () => {
+          settings = everyClusterOn(STANDARD_PROFILE);
+          const dryRunKey = [...scaleWeb, "--dry-run=server", "-o", "yaml"].join(" ");
+          let dryRunStarted = false;
+          let finishDryRun!: () => void;
+          const dryRunFinished = new Promise<void>((resolve) => {
+            finishDryRun = resolve;
+          });
+          const heldCli = createStandInCli({ answers: { [dryRunKey]: { stderr: "no preview\n", exitCode: 1 } } });
+          cli = heldCli;
+          faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+          const host = kubectlHost({
+            getPolicyProfileSettings: () => settings,
+            runCli: async (invocation) => {
+              if (invocation.args.join(" ") === dryRunKey) {
+                dryRunStarted = true;
+                await dryRunFinished;
+              }
+              return heldCli.run(invocation);
+            },
+          });
+          await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+          await waitFor(() => dryRunStarted);
+          return { host, finishDryRun };
+        };
+
+        it("blocks a call the new profile denies, without a card", async () => {
+          const { host, finishDryRun } = await scaleDuringDryRun();
+
+          settings = everyClusterOn(READ_ONLY_PROFILE);
+          host.recheckPendingApprovals();
+          finishDryRun();
+          await waitFor(settled);
+
+          expect(uiRequests()).toEqual([]);
+          expect(toolResultTexts()).toEqual([
+            'Denied by the policy profile "Read only": kubectl scale deployments web -n default gets Deny from the ' +
+              "profile's fallback level.",
+          ]);
+          expect(cli.actions()).toEqual([]);
+        });
+
+        it("asks with the level and the name of the new profile", async () => {
+          const { host, finishDryRun } = await scaleDuringDryRun();
+
+          settings = everyClusterOn({
+            id: "careful",
+            name: "Careful",
+            rules: [{ pattern: "kubectl scale *", level: "alwaysAsk" }],
+            fallbackLevel: "ask",
+          });
+          host.recheckPendingApprovals();
+          finishDryRun();
+          await waitFor(() => uiRequests().length > 0);
+
+          expect(uiRequests()).toEqual([expect.objectContaining({ level: "alwaysAsk", profileName: "Careful" })]);
+          await answer(host, false);
+          await waitFor(settled);
         });
       });
     });

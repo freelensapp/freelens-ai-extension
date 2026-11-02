@@ -211,6 +211,10 @@ const APPROVAL_QUESTION = "Do you want to approve this action?";
 
 // A kubectl or helm call shows as its command line; its body comes from the request.
 // "Approve all in this chat" never covers Always ask, so it is not offered there.
+// "Approve all in this chat" is never offered for Always ask.
+const approvalOptions = (request: CliApprovalRequest): string[] =>
+  request.level === "alwaysAsk" ? ["yes", "no"] : ["yes", "no", APPROVE_ALL_OPTION];
+
 const approvalCard = (request: CliApprovalRequest): MessageObject => ({
   messageId: generateUuid(),
   type: MessageType.INTERRUPT,
@@ -218,7 +222,7 @@ const approvalCard = (request: CliApprovalRequest): MessageObject => ({
   question: APPROVAL_QUESTION,
   text: "",
   cliApproval: request,
-  options: request.level === "alwaysAsk" ? ["yes", "no"] : ["yes", "no", APPROVE_ALL_OPTION],
+  options: approvalOptions(request),
   approved: null,
   approvalId: request.id,
   sent: false,
@@ -234,10 +238,14 @@ function reduceMessages(messages: MessageObject[], envelope: AgentEnvelope): Mes
   switch (envelope.kind) {
     case "event":
       return reduceEvent(messages, envelope.payload);
-    case "ui_request":
-      return messages.some((message) => message.approvalId === envelope.payload.id)
-        ? messages
-        : [...messages, approvalCard(envelope.payload)];
+    case "ui_request": {
+      // Main sends a pending request again when a profile change gave it another level or profile.
+      const request = envelope.payload;
+      const existing = messages.find((message) => message.approvalId === request.id);
+      if (!existing) return [...messages, approvalCard(request)];
+      if (existing.approved !== null) return messages;
+      return updateApproval(messages, request.id, { cliApproval: request, options: approvalOptions(request) });
+    }
     case "ui_resolved":
       return updateApproval(messages, envelope.payload.id, { approved: envelope.payload.confirmed });
     default:

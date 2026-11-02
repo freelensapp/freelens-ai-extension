@@ -163,13 +163,21 @@ interface ExplainRun {
   started: Promise<void>;
 }
 
+/**
+ * A call that waits for approval, checked under the cluster's profile as it is
+ * now: the reason to block it, or the level and the profile's name its card
+ * shows. A level of Allow shows as Ask: the user still answers it.
+ */
+type ApprovalCheck = { block: string } | Pick<CliApprovalRequest, "level" | "profileName">;
+
 interface PendingApproval {
   clusterId: string;
+  sessionId: string;
+  /** Replaced when a check gives it another level or profile, so the answer is gated on the current level. */
   request: CliApprovalRequest;
   /** Settles the approval; a denial blocks the call with `reason`, the user's denial by default. */
   settle: (confirmed: boolean, reason?: string) => void;
-  /** The reason to block the call under the cluster's profile as it is now, or undefined. */
-  blockReasonNow: () => string | undefined;
+  checkNow: () => ApprovalCheck;
 }
 
 // The policy's result for a kubectl or helm call with the agent's own
@@ -190,10 +198,11 @@ const evaluateCliCallWith = (
     defaultNamespace,
   });
 
-// Why a call is blocked: the floor entry or the profile's Deny; undefined for any other level.
-const blockReason = (profile: PolicyProfile, decision: InvocationPolicyResult): string | undefined => {
-  if (decision.kind === "floor") return floorBlockReason(decision);
-  return decision.level === "deny" ? profileDenyReason(profile, decision) : undefined;
+// A call that waits for approval, checked under `profile`: the floor entry or the profile's Deny blocks it.
+const approvalCheck = (profile: PolicyProfile, decision: InvocationPolicyResult): ApprovalCheck => {
+  if (decision.kind === "floor") return { block: floorBlockReason(decision) };
+  if (decision.level === "deny") return { block: profileDenyReason(profile, decision) };
+  return { level: decision.level === "alwaysAsk" ? "alwaysAsk" : "ask", profileName: profile.name };
 };
 
 // The chat shows only these, the tool results under their calls; pi's system
@@ -263,13 +272,20 @@ export class AgentHost {
   /**
    * Checks every pending approval again under the profile of its
    * cluster as it is now: one the profile now denies is denied with the
-   * reason, and any other stays pending until the user answers. Main calls it
-   * when a profile, an assignment or the default profile changes.
+   * reason, and any other stays pending until the user answers. One whose
+   * level or profile changed is sent to the frames again, so the card shows
+   * them. Main calls it when a profile, an assignment or the default profile
+   * changes.
    */
   recheckPendingApprovals(): void {
     for (const pending of [...this.pendingApprovals.values()]) {
-      const reason = pending.blockReasonNow();
-      if (reason !== undefined) pending.settle(false, reason);
+      const check = pending.checkNow();
+      if ("block" in check) {
+        pending.settle(false, check.block);
+      } else if (check.level !== pending.request.level || check.profileName !== pending.request.profileName) {
+        pending.request = { ...pending.request, ...check };
+        this.send(pending.clusterId, pending.sessionId, { kind: "ui_request", payload: pending.request });
+      }
     }
   }
 
@@ -824,6 +840,18 @@ export class AgentHost {
       preview = outcome.preview;
     }
 
+    // The resources read for this call stay on the agent, so the call is
+    // evaluated again with them when the profiles change: after the dry run,
+    // which may take a while, and while the approval waits.
+    const resources = agent.clusterResources;
+    const checkNow = (): ApprovalCheck => {
+      const current = this.policyProfile(clusterId);
+      return resources
+        ? approvalCheck(current, evaluateCliCallWith(program, input, current, resources))
+        : approvalCheck(profile, decision);
+    };
+    const check = checkNow();
+    if ("block" in check) return { block: true, reason: check.block };
     const request: CliApprovalRequest = {
       id: randomUUID(),
       toolCallId: event.toolCallId,
@@ -832,18 +860,10 @@ export class AgentHost {
       args: [...input.args],
       ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
       canonicalForms: decision.targets.map((target) => target.form),
-      level: decision.level,
-      profileName: profile.name,
+      ...check,
       ...(preview ? { preview } : {}),
     };
-    // The resources read for this call stay on the agent, so the call is
-    // evaluated again with them when the profiles change.
-    const blockReasonNow = () => {
-      const current = this.policyProfile(clusterId);
-      const resources = agent.clusterResources;
-      return resources && blockReason(current, evaluateCliCallWith(program, input, current, resources));
-    };
-    return (await this.askUser(clusterId, agent, signal, request, blockReasonNow)) ?? pass();
+    return (await this.askUser(clusterId, agent, signal, request, checkNow)) ?? pass();
   }
 
   // The policy's result for a kubectl or helm call, with the agent's own
@@ -882,7 +902,7 @@ export class AgentHost {
     agent: ClusterAgent,
     signal: AbortSignal | undefined,
     request: CliApprovalRequest,
-    blockReasonNow: () => string | undefined,
+    checkNow: () => ApprovalCheck,
   ): Promise<ToolCallEventResult | undefined> {
     if (signal?.aborted) return { block: true, reason: DENIED_REASON };
     const answer = await new Promise<{ confirmed: boolean; reason: string }>((resolve) => {
@@ -896,7 +916,8 @@ export class AgentHost {
         });
         resolve({ confirmed, reason });
       };
-      this.pendingApprovals.set(request.id, { clusterId, request, settle, blockReasonNow });
+      const sessionId = agent.session.sessionId;
+      this.pendingApprovals.set(request.id, { clusterId, sessionId, request, settle, checkNow });
       signal?.addEventListener("abort", onAbort, { once: true });
       this.send(clusterId, agent.session.sessionId, { kind: "ui_request", payload: request });
     });

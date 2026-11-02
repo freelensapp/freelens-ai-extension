@@ -1010,7 +1010,11 @@ reaches no Node, pi or DOM API.
 - **A profile change.** Main checks every pending approval again
   (`recheckPendingApprovals()`) when the user profiles, the assignments or
   the default profile are replaced: one the new profile denies, or the floor
-  rejects, is denied with the reason; any other stays pending.
+  rejects, is denied with the reason; any other stays pending, and one whose
+  level or profile changed is sent again as a `ui_request` with the same id,
+  which updates the card (Allow shows as Ask), so the answer is gated on the
+  current level. The gate also evaluates the call again right before it sends
+  the request, so a profile changed during the dry run applies.
 - Stop, New chat, Delete all chats and a deactivation deny a pending
   approval; Stop during the dry run blocks the call without a card.
 - "Approve all in this chat" (`approveAll` on the answer to an Ask approval)

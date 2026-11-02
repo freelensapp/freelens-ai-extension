@@ -88,6 +88,23 @@ supervisor:
    `onDeactivate`; the fields are replaced as a whole, so an edit of a
    profile's rules or fallback level fires it too.
 
+Decisions of the final fix pass, taken by the supervisor after the review of
+the integration branch:
+
+7. **A re-check that leaves an approval pending** (the open risk of item 6).
+   When the level or the profile's name changed, the pending request is
+   replaced with the new level and name and sent to the frames again as a
+   `ui_request` with the same id; the frame's reducer updates the card while
+   it is unanswered, so a card moved from Ask to Always ask shows Always ask
+   and stops offering "Approve all in this chat", and the answer is gated on
+   the request's current level. A level of Allow shows as Ask: the user still
+   answers it. Nothing is sent when neither changed.
+8. **A profile change during the dry run.** The gate evaluates the call again
+   with the cluster's profile right before it registers and sends the
+   request, so a profile switched while the dry run ran applies: Deny or the
+   floor blocks the call without a card, and the card shows the level and the
+   name of the profile as they are then.
+
 Manual check in Freelens dev, still to run: install the checkout in place on
 `kind-kind`, connect a provider and choose a model.
 
