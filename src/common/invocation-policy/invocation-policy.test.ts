@@ -750,3 +750,281 @@ describe("the dry-run verbs", () => {
     expect(floorEntryOf("rollout restart deploy/api --dry-run=server")).toBe("unparseable");
   });
 });
+
+const evaluateHelm = (args: string | readonly string[], options: EvaluateOptions = {}): InvocationPolicyResult =>
+  evaluateInvocationPolicy({
+    program: "helm",
+    args: typeof args === "string" ? args.split(" ").filter(Boolean) : args,
+    manifest: options.manifest,
+    revealSecrets: options.revealSecrets ?? false,
+    profile: options.profile ?? ASK_EVERYTHING,
+    catalog: BUILT_IN_RESOURCE_CATALOG,
+    defaultNamespace: "default",
+  });
+
+const helmFormsOf = (args: string | readonly string[]): string[] => {
+  const result = evaluateHelm(args);
+  if (result.kind !== "policy") throw new Error(`rejected by the floor: ${result.reason}`);
+  return result.targets.map((target) => formatCanonicalForm(target.form));
+};
+
+const helmFloorEntryOf = (args: string | readonly string[], options: EvaluateOptions = {}): FloorEntryId | "passes" => {
+  const result = evaluateHelm(args, options);
+  return result.kind === "floor" ? result.entry.id : "passes";
+};
+
+describe("canonical forms of helm invocations", () => {
+  it.each([
+    ["list", ["helm list releases * -n default"]],
+    ["ls -n web", ["helm list releases * -n web"]],
+    ["-n web list", ["helm list releases * -n web"]],
+    ["list -A", ["helm list releases * -n *"]],
+    ["list --all-namespaces -o json --filter ^web", ["helm list releases * -n *"]],
+    ["list -nweb -f web -l owner=helm -q", ["helm list releases * -n web"]],
+    ["status web", ["helm status releases web -n default"]],
+    ["status web --namespace=prod -o yaml --revision 2", ["helm status releases web -n prod"]],
+    ["history web -n prod --max 5", ["helm history releases web -n prod"]],
+    ["hist web", ["helm history releases web -n default"]],
+    ["get values web -a -o json", ["helm get values releases web -n default"]],
+    ["get manifest web -n prod --revision=3", ["helm get manifest releases web -n prod"]],
+    ["get notes web", ["helm get notes releases web -n default"]],
+    ["show values bitnami/nginx --version 15.0.0", ["helm show charts bitnami/nginx"]],
+    ["show chart bitnami/nginx -n web", ["helm show charts bitnami/nginx"]],
+    ["inspect readme bitnami/nginx", ["helm show charts bitnami/nginx"]],
+    ["show all bitnami/nginx --devel", ["helm show charts bitnami/nginx"]],
+    ["show crds bitnami/nginx", ["helm show charts bitnami/nginx"]],
+    ["search repo nginx", ["helm search repo charts *"]],
+    ["search repo -l --version ^1.0 bitnami/", ["helm search repo charts *"]],
+    ["search repo", ["helm search repo charts *"]],
+    ["rollback web", ["helm rollback releases web -n default"]],
+    ["rollback web 2 -n prod --wait --timeout 2m", ["helm rollback releases web -n prod"]],
+    ["uninstall web api -n prod", ["helm uninstall releases web -n prod", "helm uninstall releases api -n prod"]],
+    ["del web --keep-history", ["helm uninstall releases web -n default"]],
+    ["un web web", ["helm uninstall releases web -n default"]],
+    ["upgrade web bitnami/nginx --reuse-values --set replicaCount=2", ["helm upgrade releases web -n default"]],
+    [
+      "upgrade web bitnami/nginx -n prod --reuse-values --set a=1 --set b=2 --dry-run=server",
+      ["helm upgrade releases web -n prod"],
+    ],
+  ])("helm %s", (args, expected) => {
+    expect(helmFormsOf(args)).toEqual(expected);
+  });
+
+  it("ignores revealSecrets, which names no target of helm", () => {
+    const result = evaluateHelm("get values web", { revealSecrets: true });
+    expect(result.kind === "policy" && result.targets.map((target) => formatCanonicalForm(target.form))).toEqual([
+      "helm get values releases web -n default",
+    ]);
+  });
+});
+
+describe("the floor of helm", () => {
+  it.each<[string, FloorEntryId]>([
+    ["list --kube-context prod", "cluster-or-identity"],
+    ["--kube-apiserver https://example.com list", "cluster-or-identity"],
+    ["list --kube-as-user admin", "cluster-or-identity"],
+    ["list --kube-as-group system:masters", "cluster-or-identity"],
+    ["list --kube-ca-file ca.crt", "cluster-or-identity"],
+    ["list --kube-insecure-skip-tls-verify", "cluster-or-identity"],
+    ["list --kube-tls-server-name example.com", "cluster-or-identity"],
+    ["list --kube-token abc", "cluster-or-identity"],
+    ["list --kubeconfig /tmp/other", "cluster-or-identity"],
+    ["registry login ghcr.io -u me -p secret", "credentials-or-configuration"],
+    ["repo add bitnami https://charts.bitnami.com/bitnami", "credentials-or-configuration"],
+    ["upgrade web ./chart --reuse-values", "local-disk-or-code"],
+    ["upgrade web /charts/nginx --reuse-values", "local-disk-or-code"],
+    ["upgrade web nginx --reuse-values", "local-disk-or-code"],
+    ["upgrade web nginx-15.0.0.tgz --reuse-values", "local-disk-or-code"],
+    ["upgrade web bitnami/nginx-15.0.0.tgz --reuse-values", "local-disk-or-code"],
+    ["upgrade web oci://registry/charts/nginx --reuse-values", "local-disk-or-code"],
+    ["upgrade web https://example.com/nginx.tgz --reuse-values", "local-disk-or-code"],
+    ["upgrade web ~/charts/nginx --reuse-values", "local-disk-or-code"],
+    ["upgrade web a/b/c --reuse-values", "local-disk-or-code"],
+    ["upgrade web bitnami/nginx --reuse-values -f values.yaml", "local-disk-or-code"],
+    ["upgrade web bitnami/nginx --reuse-values --values=values.yaml", "local-disk-or-code"],
+    ["upgrade web bitnami/nginx --reuse-values --set-file key=file.txt", "local-disk-or-code"],
+    ["upgrade web bitnami/nginx --reuse-values --post-renderer ./render.sh", "local-disk-or-code"],
+    ["upgrade web bitnami/nginx --reuse-values --post-renderer-args x", "local-disk-or-code"],
+    ["upgrade web nginx --reuse-values --repo https://charts.example.com", "local-disk-or-code"],
+    ["upgrade web bitnami/nginx --reuse-values --keyring /tmp/keys", "local-disk-or-code"],
+    ["show values ./chart", "local-disk-or-code"],
+    ["show values oci://registry/charts/nginx", "local-disk-or-code"],
+    ["show values nginx --repo https://charts.example.com", "local-disk-or-code"],
+    ["show chart bitnami/nginx --ca-file ca.crt", "local-disk-or-code"],
+    ["rollback web --post-renderer ./render.sh", "local-disk-or-code"],
+    ["list --repository-config /tmp/repos.yaml", "local-disk-or-code"],
+    ["list --registry-config /tmp/config.json", "local-disk-or-code"],
+    ["list --repository-cache /tmp/cache", "local-disk-or-code"],
+    ["list --content-cache /tmp/cache", "local-disk-or-code"],
+    ["plugin install https://github.com/databus23/helm-diff", "local-disk-or-code"],
+    ["pull bitnami/nginx", "local-disk-or-code"],
+    ["push nginx.tgz oci://registry", "local-disk-or-code"],
+    ["package ./chart", "local-disk-or-code"],
+    ["create chart", "local-disk-or-code"],
+    ["lint ./chart", "local-disk-or-code"],
+    ["dependency update ./chart", "local-disk-or-code"],
+    ["verify nginx.tgz", "local-disk-or-code"],
+    ["repo index ./charts", "local-disk-or-code"],
+    ["diff upgrade web bitnami/nginx", "local-disk-or-code"],
+    ["install web bitnami/nginx", "unparseable"],
+    ["template web bitnami/nginx", "unparseable"],
+    ["test web", "unparseable"],
+    ["version", "unparseable"],
+    ["env", "unparseable"],
+    ["get all web", "unparseable"],
+    ["get hooks web", "unparseable"],
+    ["get web", "unparseable"],
+    ["search hub nginx", "unparseable"],
+    ["repo list", "unparseable"],
+    ["repo update", "unparseable"],
+    ["registry logout ghcr.io", "unparseable"],
+    ["upgrade web bitnami/nginx --set a=1", "unparseable"],
+    ["upgrade web bitnami/nginx --reuse-values=false --set a=1", "unparseable"],
+    ["upgrade web bitnami/nginx --reuse-values --install", "unparseable"],
+    ["upgrade web bitnami/nginx --reuse-values --version 15.0.0", "unparseable"],
+    ["upgrade web bitnami/nginx --reuse-values --set-string a=1", "unparseable"],
+    ["upgrade web --reuse-values", "unparseable"],
+    ["upgrade web bitnami/nginx extra --reuse-values", "unparseable"],
+    ["status", "unparseable"],
+    ["status web api", "unparseable"],
+    ["list web", "unparseable"],
+    ["get values", "unparseable"],
+    ["show values", "unparseable"],
+    ["search repo a b", "unparseable"],
+    ["rollback web two", "unparseable"],
+    ["rollback web 2 3", "unparseable"],
+    ["uninstall", "unparseable"],
+    ["list --no-such-flag", "unparseable"],
+    ["list -n", "unparseable"],
+    ["", "unparseable"],
+  ])("helm %s is rejected by %s", (args, entry) => {
+    expect(helmFloorEntryOf(args)).toBe(entry);
+  });
+
+  it.each<[string, FloorEntryId]>([
+    ["list", "manifest"],
+    ["upgrade web bitnami/nginx --reuse-values", "manifest"],
+  ])("helm %s with a manifest is rejected by %s", (args, entry) => {
+    expect(helmFloorEntryOf(args, { manifest: NAMESPACE })).toBe(entry);
+  });
+
+  it.each([
+    "list --kube-insecure-skip-tls-verify=false",
+    "list --debug --color never --qps 10 --burst-limit 50",
+    "list -h",
+    "upgrade web bitnami/nginx --reuse-values --dry-run",
+    "upgrade web bitnami/nginx --reuse-values --dry-run=server",
+    "upgrade web my-repo.example/nginx_chart --reuse-values",
+    "uninstall web --dry-run --wait --cascade foreground",
+    "rollback web --dry-run=server --cleanup-on-fail --force-replace --no-hooks --history-max 5",
+  ])("helm %s passes the floor", (args) => {
+    expect(helmFloorEntryOf(args)).toBe("passes");
+  });
+
+  it.each([
+    ["install web bitnami/nginx", "Arguments the parser cannot place: helm install is not supported."],
+    [
+      "frobnicate web",
+      "The user's disk and local code: frobnicate is not a helm verb, and helm would look for a plugin of that name.",
+    ],
+    ["list --kube-context prod", "Flags that change the cluster or the identity: --kube-context is never allowed."],
+    ["repo add bitnami https://charts.bitnami.com", "Credentials and configuration: helm repo add is never allowed."],
+    [
+      "upgrade web ./chart --reuse-values",
+      "The user's disk and local code: ./chart is a local chart path or a chart URL; name a chart of a repository as <repository>/<chart>.",
+    ],
+    [
+      "upgrade web bitnami/nginx --set a=1",
+      "Arguments the parser cannot place: helm upgrade needs --reuse-values, so that it keeps the values of the release and changes only those that --set gives.",
+    ],
+    [
+      "upgrade web bitnami/nginx --reuse-values --version 15.0.0",
+      "Arguments the parser cannot place: --version is not a supported flag of helm upgrade; run it without --version.",
+    ],
+    ["list", "Manifests that do not parse or do not belong: helm list takes no manifest."],
+  ])("explains why helm %s is rejected", (args, reason) => {
+    const options = args === "list" ? { manifest: NAMESPACE } : {};
+    expect(evaluateHelm(args, options)).toMatchObject({ kind: "floor", reason });
+  });
+});
+
+describe("policy rules of helm", () => {
+  it.each([
+    ["status web -n prod", "deny", "helm status releases web -n prod"],
+    ["status api -n prod", "ask", "helm status"],
+    ["get values web", "alwaysAsk", "helm get *"],
+    ["get notes web", "alwaysAsk", "helm get *"],
+    ["show values bitnami/nginx", "allow", "helm show charts bitnami/*"],
+    ["show values other/nginx", "ask", "helm show"],
+    ["list -A", "allow", "helm list"],
+  ])("the most specific rule decides helm %s", (args, level, pattern) => {
+    const profile = profileOf(
+      {
+        helm: "allow",
+        "helm status": "ask",
+        "helm status releases web -n prod": "deny",
+        "helm get *": "alwaysAsk",
+        "helm list": "allow",
+        "helm show charts bitnami/*": "allow",
+        "helm show": "ask",
+        "kubectl get": "deny",
+      },
+      "ask",
+    );
+    const result = evaluateHelm(args, { profile });
+    if (result.kind !== "policy") throw new Error(`rejected by the floor: ${result.reason}`);
+    expect([result.level, result.targets[0]?.rule?.pattern]).toEqual([level, pattern]);
+  });
+
+  it("does not match a helm invocation by a kubectl rule, nor the reverse", () => {
+    const profile = profileOf({ "kubectl list": "deny", "helm get pods": "deny", "kubectl get *": "allow" }, "ask");
+    expect(evaluateHelm("list", { profile })).toMatchObject({ level: "ask" });
+    expect(decide("get pods", profile).level).toBe("allow");
+  });
+});
+
+describe("the shipped profiles for helm", () => {
+  it.each<[PolicyProfile, string, PolicyLevel]>([
+    [READ_ONLY_PROFILE, "list -A", "allow"],
+    [READ_ONLY_PROFILE, "status web", "allow"],
+    [READ_ONLY_PROFILE, "history web", "allow"],
+    [READ_ONLY_PROFILE, "get values web", "allow"],
+    [READ_ONLY_PROFILE, "get manifest web", "allow"],
+    [READ_ONLY_PROFILE, "get notes web", "allow"],
+    [READ_ONLY_PROFILE, "show values bitnami/nginx", "allow"],
+    [READ_ONLY_PROFILE, "search repo nginx", "allow"],
+    [READ_ONLY_PROFILE, "rollback web", "deny"],
+    [READ_ONLY_PROFILE, "upgrade web bitnami/nginx --reuse-values --set a=1", "deny"],
+    [READ_ONLY_PROFILE, "uninstall web", "deny"],
+    [STANDARD_PROFILE, "list", "allow"],
+    [STANDARD_PROFILE, "get values web", "allow"],
+    [STANDARD_PROFILE, "rollback web", "ask"],
+    [STANDARD_PROFILE, "upgrade web bitnami/nginx --reuse-values --set a=1", "ask"],
+    [STANDARD_PROFILE, "uninstall web", "alwaysAsk"],
+    [PERMISSIVE_PROFILE, "history web", "allow"],
+    [PERMISSIVE_PROFILE, "rollback web 2", "allow"],
+    [PERMISSIVE_PROFILE, "upgrade web bitnami/nginx --reuse-values --set a=1", "allow"],
+    [PERMISSIVE_PROFILE, "uninstall web api", "alwaysAsk"],
+  ])("%s gives helm %s the level %s", (profile, args, level) => {
+    expect(evaluateHelm(args, { profile })).toMatchObject({ kind: "policy", level });
+  });
+});
+
+describe("the dry-run verbs of helm", () => {
+  const helmDryRunVerbOf = (verb: string) => DRY_RUN_VERBS.helm.find((candidate) => candidate.verb === verb);
+
+  it.each([
+    ["upgrade web bitnami/nginx --reuse-values --set a=1", true],
+    ["rollback web 2", false],
+  ])("name the verb of helm %s, which accepts --dry-run=server", (args, acceptsYamlOutput) => {
+    const result = evaluateHelm(`${args} --dry-run=server`);
+    if (result.kind !== "policy") throw new Error(`rejected by the floor: ${result.reason}`);
+    expect(helmDryRunVerbOf(result.targets[0]?.form.verb ?? "")?.acceptsYamlOutput).toBe(acceptsYamlOutput);
+  });
+
+  it.each(["list", "status web", "get values web", "uninstall web"])("leave out the verb of helm %s", (args) => {
+    const result = evaluateHelm(args);
+    if (result.kind !== "policy") throw new Error(`rejected by the floor: ${result.reason}`);
+    expect(result.targets.some((target) => helmDryRunVerbOf(target.form.verb))).toBe(false);
+  });
+});

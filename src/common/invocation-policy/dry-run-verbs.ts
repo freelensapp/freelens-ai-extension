@@ -14,8 +14,10 @@ export interface DryRunVerb {
 
 /**
  * The verbs whose invocations accept `--dry-run=server`, by program, as
- * `kubectl <verb> --help` of kubectl 1.36 documents them. A fact about the
- * CLIs, not a setting. `rollout restart` has no `--dry-run`.
+ * `kubectl <verb> --help` of kubectl 1.36 and `helm <verb> --help` of helm 4.3
+ * document them. A fact about the CLIs, not a setting. `rollout restart` has
+ * no `--dry-run`. helm `upgrade` prints the release it would make with
+ * `-o yaml`; `rollback` prints no release.
  */
 export const DRY_RUN_VERBS: Readonly<Record<CliProgram, readonly DryRunVerb[]>> = {
   kubectl: [
@@ -33,5 +35,9 @@ export const DRY_RUN_VERBS: Readonly<Record<CliProgram, readonly DryRunVerb[]>> 
     { verb: "uncordon", acceptsYamlOutput: false },
     { verb: "drain", acceptsYamlOutput: false },
     { verb: "taint", acceptsYamlOutput: true },
+  ],
+  helm: [
+    { verb: "upgrade", acceptsYamlOutput: true },
+    { verb: "rollback", acceptsYamlOutput: false },
   ],
 };

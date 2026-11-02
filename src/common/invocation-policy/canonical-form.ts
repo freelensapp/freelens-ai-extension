@@ -1,5 +1,7 @@
-/** The CLIs the agent runs. Helm joins kubectl with the helm tool. */
-export type CliProgram = "kubectl";
+/** The CLIs the agent runs, each through a tool of its name. */
+export const CLI_PROGRAMS = ["kubectl", "helm"] as const;
+
+export type CliProgram = (typeof CLI_PROGRAMS)[number];
 
 /**
  * One target of a CLI invocation, `<program> <verb> <resource> <name> -n
@@ -7,9 +9,12 @@ export type CliProgram = "kubectl";
  */
 export interface CanonicalForm {
   program: CliProgram;
-  /** The verb, of one or two words: `get`, `rollout restart`, `reveal`. */
+  /** The verb, of one or two words: `get`, `rollout restart`, `reveal`, `get values`. */
   verb: string;
-  /** The plural resource name; absent for a verb without a resource, such as `version`. */
+  /**
+   * The plural resource name; absent for a verb without a resource, such as
+   * `version`. helm's are `releases` and `charts`.
+   */
   resource?: string;
   /** The object's name, or `*` for whatever a selector, `--all` or a missing name targets; absent without a resource. */
   name?: string;
