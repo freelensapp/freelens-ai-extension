@@ -12,17 +12,34 @@ import {
   type ToolCallEvent,
   type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_CHAT_RETENTION_DAYS, errorText, failureResponse, successResponse } from "../../common/agent-protocol";
+import {
+  DEFAULT_CHAT_RETENTION_DAYS,
+  errorText,
+  failureResponse,
+  isCliApprovalRequest,
+  successResponse,
+} from "../../common/agent-protocol";
 import { prepareApproval } from "../../common/agent-tools/approval";
 import { requiresApproval, type ToolApprovalOverrides } from "../../common/agent-tools/approval-settings";
 import { kubectlTool } from "../../common/agent-tools/kubectl-tool";
+import {
+  evaluateInvocationPolicy,
+  type InvocationPolicyResult,
+} from "../../common/invocation-policy/invocation-policy";
 import { DEFAULT_THINKING_LEVEL, type ThinkingLevel } from "../../common/thinking-level";
 import useLog from "../utils/logger";
 import { toJsonEvent } from "./json-event";
-import { EXPLAIN_PROMPT, SYSTEM_PROMPT, withUserRules } from "./system-prompt";
+import { cliPolicySection, EXPLAIN_PROMPT, SYSTEM_PROMPT, withUserRules } from "./system-prompt";
 import { hasApprovalBackup, loadApprovalBackup } from "./tools/approval-backup";
+import {
+  type ClusterReadContext,
+  type ClusterResources,
+  readDefaultNamespace,
+  readResourceCatalog,
+} from "./tools/cluster-resources";
 import { describeRequestError } from "./tools/describe-request-error";
 import { type KubectlToolInput, prepareKubectlInvocation, runKubectl } from "./tools/kubectl";
+import { floorBlockReason, profileDenyReason } from "./tools/kubectl-policy";
 import { READ_TOOL_RUNNERS } from "./tools/read-tools";
 import { WRITE_TOOL_RUNNERS } from "./tools/write-tools";
 
@@ -36,9 +53,11 @@ import type {
   ApprovalRequest,
   ApprovalTarget,
   ChatMessage,
+  CliApprovalRequest,
   TranscriptEntry,
 } from "../../common/agent-protocol";
 import type { AgentToolDefinition } from "../../common/agent-tools";
+import type { PolicyProfile } from "../../common/invocation-policy/policy-profile";
 import type { CliRunner } from "./cli-runner";
 import type { ClusterToolRunner, KubeJsonApi } from "./tools/cluster-api";
 
@@ -81,13 +100,19 @@ export interface AgentHostOptions {
   getClusterApi: (clusterId: string) => KubeJsonApi;
   /** Runs the CLI invocations of the kubectl tool against a cluster. */
   runCli: CliRunner;
+  /**
+   * The policy profile of a cluster, which gives each kubectl call its policy
+   * level; read before every call and every prompt, so a change applies to the
+   * next one.
+   */
+  getPolicyProfile: (clusterId: string) => PolicyProfile;
   /** The "pod logs tail lines" preference; read before every pod logs call. */
   getPodLogsTailLines: () => number;
   /** The model the next prompt runs on, or undefined when none is selected. */
   getModelRef: () => ModelRef | undefined;
   /** The global thinking level; read before every prompt, and pi clamps it to what the model supports. */
   getThinkingLevel?: () => ThinkingLevel;
-  /** The user's "Requires approval" choices by tool name; read before every call. */
+  /** The user's "Requires approval" choices by tool name, for every tool but kubectl; read before every call. */
   getApprovalOverrides?: () => ToolApprovalOverrides;
   /** The user's custom agent rules; read before every prompt and explanation. Empty sets no section. */
   getUserRules?: () => string;
@@ -118,8 +143,13 @@ export interface AgentHostOptions {
 interface ClusterAgent {
   session: AgentSession;
   // "Approve all in this chat": in memory only, so New chat, Delete all chats
-  // and a restart, which all drop this object, turn it off.
+  // and a restart, which all drop this object, turn it off. It covers Ask
+  // calls only, never Always ask.
   autoApprove: boolean;
+  // The resources and the namespace of the cluster, read before the chat's
+  // first kubectl call and kept for its session; the resources are read again
+  // when a call names one they lack.
+  clusterResources?: ClusterResources;
 }
 
 // An AI Explain run: a throwaway pi session that is never saved. Registered
@@ -643,7 +673,9 @@ export class AgentHost {
     if (!pending || pending.clusterId !== clusterId) {
       return failureResponse("ui_response", `No pending approval ${id}`);
     }
-    if (confirmed === true && approveAll) {
+    // An Always ask approval never turns it on, so it cannot cover a later Always ask.
+    const coversLaterCalls = !isCliApprovalRequest(pending.request) || pending.request.level === "ask";
+    if (confirmed === true && approveAll && coversLaterCalls) {
       const agent = await this.clusters.get(clusterId)?.catch(() => undefined);
       // Turned on before the call is released, so the next gated call already
       // skips the card. Stop may have denied the approval meanwhile.
@@ -666,12 +698,12 @@ export class AgentHost {
     this.send(clusterId, agent.session.sessionId, { kind: "auto_approve", payload: { enabled } });
   }
 
-  // pi's `tool_call` hook: a call that needs approval, and every write call,
-  // is validated and prepared, and the prepared input replaces the model's in
+  // pi's `tool_call` hook. A kubectl call goes through the invocation policy.
+  // For the other tools, a call that needs approval, and every write call, is
+  // validated and prepared, and the prepared input replaces the model's in
   // place: the write tools apply their input as it comes. A call that needs
   // approval then waits for the user, with the backup of the object it would
-  // change on the card. pi asks for one call at a time. A run aborted some
-  // other way than our Stop denies the approval too, so the hook never hangs.
+  // change on the card. pi asks for one call at a time.
   private async gate(
     clusterId: string,
     event: ToolCallEvent,
@@ -679,11 +711,7 @@ export class AgentHost {
   ): Promise<ToolCallEventResult | undefined> {
     const tool = this.options.tools.find((candidate) => candidate.name === event.toolName);
     if (!tool) return undefined;
-    // A kubectl call that cannot run is rejected before anyone is asked.
-    if (tool.name === kubectlTool.name) {
-      const invocation = prepareKubectlInvocation(event.input as KubectlToolInput, this.options.getPodLogsTailLines());
-      if (!invocation.ok) return { block: true, reason: invocation.error };
-    }
+    if (tool.name === kubectlTool.name) return this.gateKubectl(clusterId, event, signal);
     const ask = requiresApproval(tool, this.options.getApprovalOverrides?.() ?? {});
     if (!ask && !tool.mutating) return undefined;
 
@@ -703,7 +731,7 @@ export class AgentHost {
     // "Approve all in this chat": validated and prepared as above, but not asked.
     if (agent.autoApprove) return undefined;
     const backup = await this.approvalBackup(clusterId, prepared.approval, signal);
-    const request: ApprovalRequest = {
+    return this.askUser(clusterId, agent, signal, {
       id: randomUUID(),
       toolCallId: event.toolCallId,
       method: "confirm",
@@ -711,7 +739,108 @@ export class AgentHost {
       message: prepared.message,
       approval: prepared.approval,
       ...(backup ? { backup } : {}),
+    });
+  }
+
+  // The invocation policy decides every kubectl call with the cluster's
+  // profile: the floor and Deny block it with the reason, Allow runs it, Ask
+  // asks unless "Approve all in this chat" is on, and Always ask always asks.
+  private async gateKubectl(
+    clusterId: string,
+    event: ToolCallEvent,
+    signal: AbortSignal | undefined,
+  ): Promise<ToolCallEventResult | undefined> {
+    // Not even the gate's own invocations start for a cluster that is not connected.
+    if (this.options.getClusterStatus(clusterId) !== CONNECTED) return { block: true, reason: CLUSTER_NOT_CONNECTED };
+    const input = event.input as unknown as KubectlToolInput;
+    const prepared = prepareKubectlInvocation(input, this.options.getPodLogsTailLines());
+    if (!prepared.ok) return { block: true, reason: prepared.error };
+    const agent = await this.clusters.get(clusterId);
+    if (!agent) return { block: true, reason: "The cluster session is not available." };
+
+    const profile = this.options.getPolicyProfile(clusterId);
+    const read: ClusterReadContext = {
+      clusterId,
+      runCli: this.options.runCli,
+      signal,
+      // The kubectl download, if any, happens in the gate's first invocation:
+      // it shows on the call's card as the tool's own progress does.
+      onProgress: (text) =>
+        this.send(clusterId, agent.session.sessionId, {
+          kind: "event",
+          payload: {
+            type: "tool_execution_update",
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            partialResult: { content: [{ type: "text", text }] },
+          },
+        }),
     };
+    let decision: InvocationPolicyResult;
+    try {
+      decision = await this.evaluateKubectl(agent, input, profile, read);
+    } catch (error) {
+      return { block: true, reason: `Could not read the resources the cluster serves: ${errorText(error)}` };
+    }
+    if (decision.kind === "floor") return { block: true, reason: floorBlockReason(decision) };
+    if (decision.level === "deny") return { block: true, reason: profileDenyReason(profile, decision) };
+    if (decision.level === "allow") return undefined;
+    if (decision.level === "ask" && agent.autoApprove) return undefined;
+
+    const request: CliApprovalRequest = {
+      id: randomUUID(),
+      toolCallId: event.toolCallId,
+      method: "confirm",
+      program: "kubectl",
+      args: [...input.args],
+      ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
+      canonicalForms: decision.targets.map((target) => target.form),
+      level: decision.level,
+      profileName: profile.name,
+    };
+    return this.askUser(clusterId, agent, signal, request);
+  }
+
+  // The policy's result for a kubectl call, with the agent's own arguments,
+  // before the tool adds `-f -` or a logs tail. A resource the catalog lacks
+  // may have been added to the cluster since it was read, so the catalog is
+  // read again once, unless it was read for this very call.
+  private async evaluateKubectl(
+    agent: ClusterAgent,
+    input: KubectlToolInput,
+    profile: PolicyProfile,
+    read: ClusterReadContext,
+  ): Promise<InvocationPolicyResult> {
+    const evaluate = ({ catalog, defaultNamespace }: ClusterResources) =>
+      evaluateInvocationPolicy({
+        program: "kubectl",
+        args: input.args,
+        ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
+        revealSecrets: input.revealSecrets === true,
+        profile,
+        catalog,
+        defaultNamespace,
+      });
+    const known = agent.clusterResources;
+    if (!known) {
+      const catalog = await readResourceCatalog(read);
+      agent.clusterResources = { catalog, defaultNamespace: await readDefaultNamespace(read) };
+      return evaluate(agent.clusterResources);
+    }
+    const decision = evaluate(known);
+    if (decision.kind !== "floor" || decision.entry.id !== "unknown-resource") return decision;
+    agent.clusterResources = { ...known, catalog: await readResourceCatalog(read) };
+    return evaluate(agent.clusterResources);
+  }
+
+  // Waits for the user's answer to an approval request. A run aborted some
+  // other way than our Stop denies the approval too, so the hook never hangs.
+  private async askUser(
+    clusterId: string,
+    agent: ClusterAgent,
+    signal: AbortSignal | undefined,
+    request: ApprovalRequest,
+  ): Promise<ToolCallEventResult | undefined> {
     if (signal?.aborted) return { block: true, reason: DENIED_REASON };
     const confirmed = await new Promise<boolean>((resolve) => {
       const onAbort = () => settle(false);
@@ -800,6 +929,9 @@ export class AgentHost {
             const userRules = this.options.getUserRules?.()?.trim();
             if (clusterName) sections.cluster = clusterName;
             if (userRules) sections.user_rules = userRules;
+            if (tools.some((tool) => tool.name === kubectlTool.name)) {
+              sections.cli_policy = cliPolicySection(this.options.getPolicyProfile(clusterId));
+            }
           });
         },
       ],

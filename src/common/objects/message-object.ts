@@ -1,6 +1,6 @@
 import { MessageType } from "./message-type";
 
-import type { CliInvocationDetails } from "../agent-protocol";
+import type { CliApprovalRequest, CliInvocationDetails } from "../agent-protocol";
 
 // Describes how to re-run a query that failed, so an error message can offer a
 // "Retry" button.
@@ -49,6 +49,8 @@ export interface MessageObject {
   approved?: boolean | null;
   // Set on a pi agent approval card: the id main answers with `ui_response`.
   approvalId?: string;
+  // Set on the approval card of a kubectl call: what its body shows.
+  cliApproval?: CliApprovalRequest;
   // Marks an agent error message that should render a "Retry" button. The
   // `retryContext` carries everything needed to re-run the failed query.
   error?: boolean;

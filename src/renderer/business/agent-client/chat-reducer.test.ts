@@ -13,7 +13,9 @@ import type {
   AgentSnapshot,
   ApprovalRequest,
   ChatMessage,
+  CliApprovalRequest,
   SessionStats,
+  ToolApprovalRequest,
 } from "../../../common/agent-protocol";
 import type { MessageObject } from "../../../common/objects/message-object";
 
@@ -540,7 +542,7 @@ describe("chatFromSnapshot", () => {
 });
 
 describe("approvals", () => {
-  const request: ApprovalRequest = {
+  const request: ToolApprovalRequest = {
     id: "a1",
     toolCallId: "t1",
     method: "confirm",
@@ -611,6 +613,58 @@ describe("approvals", () => {
   it("offers approving all in this chat as a third answer", () => {
     const state = reduceEnvelope(initial(), envelope(1, "ui_request", request));
     expect(card(state)?.options).toEqual(["yes", "no", APPROVE_ALL_OPTION]);
+  });
+});
+
+describe("approvals of kubectl calls", () => {
+  const request: CliApprovalRequest = {
+    id: "k1",
+    toolCallId: "t1",
+    method: "confirm",
+    program: "kubectl",
+    args: ["scale", "deployment", "web", "--replicas=3", "-l", "app in (web)"],
+    canonicalForms: [{ program: "kubectl", verb: "scale", resource: "deployments", name: "web", namespace: "default" }],
+    level: "ask",
+    profileName: "Standard",
+  };
+  const envelope = (seq: number, payload: ApprovalRequest) =>
+    ({ clusterId: "c1", sessionId: "s1", seq, kind: "ui_request", payload }) as AgentEnvelope;
+  const card = (state: ChatViewState) => state.messages.find((m) => m.approvalId === "k1");
+
+  it("shows the command line as the card's header and keeps the request for its body", () => {
+    const state = reduceEnvelope(initial(), envelope(1, request));
+
+    expect(card(state)).toMatchObject({
+      type: MessageType.INTERRUPT,
+      action: "kubectl scale deployment web --replicas=3 -l 'app in (web)'",
+      cliApproval: request,
+      approved: null,
+      sent: false,
+    });
+  });
+
+  it("offers approving all in this chat for an Ask call", () => {
+    const state = reduceEnvelope(initial(), envelope(1, request));
+
+    expect(card(state)?.options).toEqual(["yes", "no", APPROVE_ALL_OPTION]);
+  });
+
+  it("does not offer approving all in this chat for an Always ask call", () => {
+    const state = reduceEnvelope(initial(), envelope(1, { ...request, level: "alwaysAsk" }));
+
+    expect(card(state)?.options).toEqual(["yes", "no"]);
+  });
+
+  it("brings a pending kubectl approval back from the snapshot", () => {
+    const state = chatFromSnapshot("c1", {
+      messages: [{ role: "user", content: "scale web", timestamp: 1 } as ChatMessage],
+      isStreaming: true,
+      pendingUiRequest: request,
+      autoApprove: false,
+      seq: 7,
+    });
+
+    expect(card(state)).toMatchObject({ approved: null, cliApproval: request });
   });
 });
 

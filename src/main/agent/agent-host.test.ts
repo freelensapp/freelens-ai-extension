@@ -11,7 +11,14 @@ import {
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createFakeKubeJsonApi } from "../../../test/kube-json-api";
-import { createStandInCli } from "../../../test/stand-in-cli";
+import {
+  API_RESOURCES_KEY,
+  apiResourcesTable,
+  createStandInCli,
+  KUBECONFIG_NAMESPACE_KEY,
+  STAND_IN_RESOURCES,
+} from "../../../test/stand-in-cli";
+import { isCliApprovalRequest } from "../../common/agent-protocol";
 import {
   createKubernetesResourceTool,
   deleteKubernetesResourceTool,
@@ -24,10 +31,14 @@ import {
   updateKubernetesResourceTool,
 } from "../../common/agent-tools";
 import { loadApprovalOverrides } from "../../common/agent-tools/approval-settings";
+import { READ_ONLY_PROFILE, STANDARD_PROFILE } from "../../common/invocation-policy/shipped-profiles";
 import { AgentHost, type AgentHostOptions } from "./agent-host";
+import { API_RESOURCES_ARGS, KUBECONFIG_NAMESPACE_ARGS } from "./tools/cluster-resources";
 
 import type { AgentEnvelope, AgentSnapshot } from "../../common/agent-protocol";
 import type { AgentToolDefinition } from "../../common/agent-tools";
+import type { PolicyProfile } from "../../common/invocation-policy/policy-profile";
+import type { CliResult } from "./cli-runner";
 
 type Faux = ReturnType<typeof fauxProvider>;
 
@@ -45,6 +56,9 @@ const WEB = {
   spec: { replicas: 2 },
   status: { readyReplicas: 2 },
 };
+
+// A profile under which every kubectl call runs without a card.
+const ALLOW_ALL_PROFILE: PolicyProfile = { id: "allow-all", name: "Allow all", rules: [], fallbackLevel: "allow" };
 
 // What main may broadcast: nothing asks the frame to run a tool.
 const ENVELOPE_KINDS = ["event", "stats", "ui_request", "ui_resolved", "auto_approve"];
@@ -105,6 +119,7 @@ describe("AgentHost", () => {
       getClusterStatus: (clusterId) => clusterStatus[clusterId],
       getClusterApi: () => cluster.api,
       runCli: cli.run,
+      getPolicyProfile: () => STANDARD_PROFILE,
       getPodLogsTailLines: () => 500,
       retry: false,
       ...overrides,
@@ -250,10 +265,10 @@ describe("AgentHost", () => {
   });
 
   describe("kubectl tool", () => {
-    // The tool asks for approval by default; most tests turn that off.
+    // Most tests run under a profile that allows everything, so no card comes up.
     const withoutApproval: Partial<AgentHostOptions> = {
       tools: [kubectlTool],
-      getApprovalOverrides: () => ({ kubectl: false }),
+      getPolicyProfile: () => ALLOW_ALL_PROFILE,
     };
     // The text of the first tool result, as the model got it.
     const toolResultText = () =>
@@ -269,7 +284,7 @@ describe("AgentHost", () => {
       await host.handleCommand("c1", { type: "prompt", message: "list the pods in flux-system" });
       await waitFor(settled);
 
-      expect(cli.invocations).toEqual([
+      expect(cli.actions()).toEqual([
         {
           clusterId: "c1",
           program: "kubectl",
@@ -282,25 +297,6 @@ describe("AgentHost", () => {
       expect(answerText()).toBe(
         "Result: Exit code: 0\n\nStandard output:\nNAME                READY\nsource-controller   1/1",
       );
-    });
-
-    it("asks for approval by default, with its arguments on the card, and runs only once approved", async () => {
-      cli = createStandInCli({ answers: { "get pods -n flux-system": { stdout: "source-controller\n" } } });
-      faux.setResponses(callThenEcho("kubectl", { args: ["get", "pods", "-n", "flux-system"] }));
-      const host = createHost({ tools: [kubectlTool] });
-
-      await host.handleCommand("c1", { type: "prompt", message: "list the pods in flux-system" });
-      await waitFor(() => envelopes.some((e) => e.kind === "ui_request"));
-      const request = envelopes.flatMap((e) => (e.kind === "ui_request" ? [e.payload] : []))[0]!;
-
-      expect(request).toMatchObject({ method: "confirm", title: "KUBECTL", approval: { tool: "kubectl" } });
-      expect(request.message).toContain("args:\n  - get\n  - pods\n  - -n\n  - flux-system\n");
-      expect(cli.invocations).toEqual([]);
-
-      await host.handleCommand("c1", { type: "ui_response", id: request.id, confirmed: true });
-      await waitFor(settled);
-      expect(cli.invocations).toEqual([expect.objectContaining({ args: ["get", "pods", "-n", "flux-system"] })]);
-      expect(answerText()).toBe("Result: Exit code: 0\n\nStandard output:\nsource-controller");
     });
 
     it("makes a non-zero exit code an error result with the standard error", async () => {
@@ -349,7 +345,7 @@ describe("AgentHost", () => {
       await host.handleCommand("c1", { type: "prompt", message: "any warnings?" });
       await waitFor(settled);
 
-      expect(cli.invocations).toEqual([expect.objectContaining({ args: ["get", "events", "-A"] })]);
+      expect(cli.actions()).toEqual([expect.objectContaining({ args: ["get", "events", "-A"] })]);
       expect(answerText()).toBe(
         "Result: Exit code: 0\n\nStandard output:\nweb Warning BackOff\nflux-system Warning Failed",
       );
@@ -389,7 +385,7 @@ describe("AgentHost", () => {
       await host.handleCommand("c1", { type: "prompt", message: "create the config map" });
       await waitFor(settled);
 
-      expect(cli.invocations).toEqual([expect.objectContaining({ args: ["apply", "-f", "-"], manifest })]);
+      expect(cli.actions()).toEqual([expect.objectContaining({ args: ["apply", "-f", "-"], manifest })]);
       expect(answerText()).toBe("Result: Exit code: 0\n\nStandard output:\nconfigmap/settings created");
     });
 
@@ -402,24 +398,23 @@ describe("AgentHost", () => {
       await host.handleCommand("c1", { type: "prompt", message: "tail the log" });
       await waitFor(settled);
 
-      expect(cli.invocations).toEqual([expect.objectContaining({ args })]);
+      expect(cli.actions()).toEqual([expect.objectContaining({ args })]);
     });
 
-    it.each<[string, Parameters<typeof fauxToolCall>[1], RegExp]>([
-      ["-f", { args: ["apply", "-f", "deploy.yaml"] }, /^kubectl reads no files/],
-      ["-f with its value attached", { args: ["apply", "-fdeploy.yaml"] }, /^kubectl reads no files/],
-      ["--filename", { args: ["delete", "--filename", "deploy.yaml"] }, /^kubectl reads no files/],
-      ["--filename=", { args: ["create", "--filename=deploy.yaml"] }, /^kubectl reads no files/],
-      ["-f - next to a manifest", { args: ["apply", "-f", "-"], manifest: "kind: List" }, /^kubectl reads no files/],
-      ["a manifest with get", { args: ["get", "pods"], manifest: "kind: Pod" }, /^A manifest is accepted only/],
-      [
-        "a manifest after a flag",
-        { args: ["-n", "web", "apply"], manifest: "kind: Pod" },
-        /^A manifest is accepted only/,
-      ],
-      ["an invalid grep", { args: ["get", "pods"], grep: "web-(" }, /^grep is not a valid regular expression/],
-    ])("rejects %s before asking, and starts no process", async (_case, input, reason) => {
-      faux.setResponses(callThenEcho("kubectl", input));
+    it("sends the manifest of a call with flags before the verb, with -f - added at the end", async () => {
+      const manifest = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n";
+      cli = createStandInCli({ answers: { "-n web apply -f -": { stdout: "configmap/settings created\n" } } });
+      faux.setResponses(callThenEcho("kubectl", { args: ["-n", "web", "apply"], manifest }));
+      const host = createHost(withoutApproval);
+
+      await host.handleCommand("c1", { type: "prompt", message: "create the config map" });
+      await waitFor(settled);
+
+      expect(cli.actions()).toEqual([expect.objectContaining({ args: ["-n", "web", "apply", "-f", "-"], manifest })]);
+    });
+
+    it("rejects an invalid grep before asking, and starts no process", async () => {
+      faux.setResponses(callThenEcho("kubectl", { args: ["scale", "deployment/web", "--replicas=3"], grep: "web-(" }));
       const host = createHost({ tools: [kubectlTool] });
 
       await host.handleCommand("c1", { type: "prompt", message: "go" });
@@ -427,7 +422,7 @@ describe("AgentHost", () => {
 
       expect(envelopes.some((e) => e.kind === "ui_request")).toBe(false);
       expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "kubectl", isError: true })]);
-      expect(toolResultText()).toMatch(reason);
+      expect(toolResultText()).toMatch(/^grep is not a valid regular expression/);
       expect(cli.invocations).toEqual([]);
     });
 
@@ -443,7 +438,7 @@ describe("AgentHost", () => {
       await host.handleCommand("c1", { type: "prompt", message: "which version?" });
       await waitFor(settled);
 
-      expect(cli.invocations).toEqual([expect.objectContaining({ timeoutMs })]);
+      expect(cli.actions()).toEqual([expect.objectContaining({ timeoutMs })]);
     });
 
     it("says that the timeout killed kubectl, with the output it wrote until then", async () => {
@@ -470,13 +465,13 @@ describe("AgentHost", () => {
       const host = createHost(withoutApproval);
 
       await host.handleCommand("c1", { type: "prompt", message: "wait for web" });
-      await waitFor(() => cli.invocations.length > 0);
-      expect(cli.invocations[0]?.signal?.aborted).toBe(false);
+      await waitFor(() => cli.actions().length > 0);
+      expect(cli.actions()[0]?.signal?.aborted).toBe(false);
 
       expect(await host.handleCommand("c1", { type: "abort" })).toMatchObject({ success: true });
       await waitFor(settled);
 
-      expect(cli.invocations[0]?.signal?.aborted).toBe(true);
+      expect(cli.actions()[0]?.signal?.aborted).toBe(true);
       expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "kubectl", isError: true })]);
       expect(toolResultText()).toBe("kubectl was stopped before it ended.\n\nStandard output: (empty)");
       expect((await snapshotOf(host)).isStreaming).toBe(false);
@@ -518,7 +513,7 @@ describe("AgentHost", () => {
       await host.handleCommand("c1", { type: "prompt", message: "show the logs" });
       await waitFor(settled);
 
-      expect(cli.invocations).toEqual([expect.objectContaining({ args: ran })]);
+      expect(cli.actions()).toEqual([expect.objectContaining({ args: ran })]);
     });
 
     it("forwards the progress of a kubectl download as partial tool updates", async () => {
@@ -543,7 +538,8 @@ describe("AgentHost", () => {
 
     it("gives the chat the arguments that ran and the exit code with the result, also in the snapshot", async () => {
       cli = createStandInCli({ answers: { "apply -f -": { stderr: "error: invalid object\n", exitCode: 1 } } });
-      faux.setResponses(callThenEcho("kubectl", { args: ["apply"], manifest: "kind: Nonsense" }));
+      const manifest = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n";
+      faux.setResponses(callThenEcho("kubectl", { args: ["apply"], manifest }));
       const host = createHost(withoutApproval);
 
       await host.handleCommand("c1", { type: "prompt", message: "apply it" });
@@ -568,9 +564,9 @@ describe("AgentHost", () => {
       const host = createHost(withoutApproval);
 
       await host.handleCommand("c1", { type: "prompt", message: "nodes and pods" });
-      await waitFor(() => cli.invocations.length > 0);
+      await waitFor(() => cli.actions().length > 0);
       await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(cli.invocations.map((invocation) => invocation.args)).toEqual([["get", "nodes"]]);
+      expect(cli.actions().map((invocation) => invocation.args)).toEqual([["get", "nodes"]]);
 
       await host.handleCommand("c1", { type: "abort" });
       await waitFor(settled);
@@ -589,6 +585,502 @@ describe("AgentHost", () => {
       expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "kubectl", isError: true })]);
       expect(answerText()).toBe("Result: Cluster not connected");
       expect(cli.invocations).toEqual([]);
+    });
+  });
+
+  describe("the invocation policy of kubectl calls", () => {
+    const uiRequests = () => envelopes.flatMap((e) => (e.kind === "ui_request" ? [e.payload] : []));
+    const uiResolved = () => envelopes.flatMap((e) => (e.kind === "ui_resolved" ? [e.payload] : []));
+    const autoApproveChanges = () => envelopes.flatMap((e) => (e.kind === "auto_approve" ? [e.payload] : []));
+    const toolResultTexts = () =>
+      toolEnd().map((end) =>
+        (end.result.content ?? []).map((part) => (part.type === "text" ? part.text : "")).join(""),
+      );
+    const kubectlHost = (overrides: Partial<AgentHostOptions> = {}) =>
+      createHost({ tools: [kubectlTool], ...overrides });
+    const scaleWeb = ["scale", "deployment", "web", "--replicas=3"];
+    const scaleApi = ["scale", "deployment", "api", "--replicas=3"];
+    const execWeb = ["exec", "web-1", "--", "cat", "/etc/app.conf"];
+    // A model answer that waits until the test lets it go, so the test can act between two tool calls.
+    const heldUntil = (gate: Promise<void>, message: ReturnType<typeof fauxAssistantMessage>) => async () => {
+      await gate;
+      return message;
+    };
+    const kubectlCalls = (...calls: string[][]) => [
+      ...calls.map((args) => fauxAssistantMessage([fauxToolCall("kubectl", { args })], { stopReason: "toolUse" })),
+      fauxAssistantMessage([fauxText("done")]),
+    ];
+    const answer = (host: AgentHost, confirmed: boolean, approveAll = false) =>
+      host.handleCommand("c1", {
+        type: "ui_response",
+        id: uiRequests()[uiRequests().length - 1]!.id,
+        confirmed,
+        ...(approveAll ? { approveAll } : {}),
+      });
+
+    it.each<[string, string[], string | RegExp]>([
+      [
+        "a flag that changes the cluster",
+        ["get", "pods", "--context", "prod"],
+        "Blocked by the floor, which no policy profile lifts. Flags that change the cluster or the identity: " +
+          "--context is never allowed. An invocation stays on the chat's cluster, with the connection and the user " +
+          "Freelens has for it.",
+      ],
+      [
+        "a file of the user's disk",
+        ["apply", "-f", "deploy.yaml"],
+        /^Blocked by the floor.* The user's disk and local code: /,
+      ],
+      [
+        "logs that follow",
+        ["logs", "-f", "web-1"],
+        /^Blocked by the floor.* Invocations that never end or need a terminal: /,
+      ],
+      [
+        "a verb that is not kubectl's",
+        ["frobnicate", "pods"],
+        /^Blocked by the floor.* The user's disk and local code: /,
+      ],
+    ])("blocks %s by the floor with its reason, and the call never runs", async (_case, args, reason) => {
+      faux.setResponses(callThenEcho("kubectl", { args }));
+      const host = kubectlHost({ getPolicyProfile: () => ALLOW_ALL_PROFILE });
+
+      await host.handleCommand("c1", { type: "prompt", message: "go" });
+      await waitFor(settled);
+
+      expect(uiRequests()).toEqual([]);
+      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "kubectl", isError: true })]);
+      expect(toolResultTexts()[0]).toMatch(reason);
+      expect(cli.actions()).toEqual([]);
+    });
+
+    it("blocks a manifest with a verb that takes none by the floor", async () => {
+      const manifest = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\n";
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "pods"], manifest }));
+      const host = kubectlHost({ getPolicyProfile: () => ALLOW_ALL_PROFILE });
+
+      await host.handleCommand("c1", { type: "prompt", message: "go" });
+      await waitFor(settled);
+
+      expect(toolResultTexts()[0]).toMatch(/^Blocked by the floor.* Manifests that do not parse or do not belong: /);
+      expect(cli.actions()).toEqual([]);
+    });
+
+    it("blocks a call the profile denies with the profile and the level, and the call never runs", async () => {
+      faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+      const host = kubectlHost({ getPolicyProfile: () => READ_ONLY_PROFILE });
+
+      await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+      await waitFor(settled);
+
+      expect(uiRequests()).toEqual([]);
+      expect(toolEnd()).toEqual([expect.objectContaining({ toolName: "kubectl", isError: true })]);
+      expect(toolResultTexts()).toEqual([
+        'Denied by the policy profile "Read only": kubectl scale deployments web -n default gets Deny from the ' +
+          "profile's fallback level.",
+      ]);
+      expect(cli.actions()).toEqual([]);
+    });
+
+    it("names the rule that denied a call", async () => {
+      const profile: PolicyProfile = {
+        id: "no-deletes",
+        name: "No deletes",
+        rules: [{ pattern: "kubectl delete pods *", level: "deny" }],
+        fallbackLevel: "allow",
+      };
+      faux.setResponses(callThenEcho("kubectl", { args: ["delete", "pod", "web-1", "web-2", "-n", "web"] }));
+      const host = kubectlHost({ getPolicyProfile: () => profile });
+
+      await host.handleCommand("c1", { type: "prompt", message: "delete them" });
+      await waitFor(settled);
+
+      expect(toolResultTexts()).toEqual([
+        'Denied by the policy profile "No deletes": kubectl delete pods web-1 -n web gets Deny from the rule ' +
+          '"kubectl delete pods *"; kubectl delete pods web-2 -n web gets Deny from the rule "kubectl delete pods *".',
+      ]);
+      expect(cli.actions()).toEqual([]);
+    });
+
+    it("runs a call the profile allows without a card", async () => {
+      cli = createStandInCli({ answers: { "get pods -n flux-system": { stdout: "source-controller\n" } } });
+      faux.setResponses(callThenEcho("kubectl", { args: ["get", "pods", "-n", "flux-system"] }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "list the pods in flux-system" });
+      await waitFor(settled);
+
+      expect(uiRequests()).toEqual([]);
+      expect(cli.actions()).toEqual([expect.objectContaining({ args: ["get", "pods", "-n", "flux-system"] })]);
+      expect(answerText()).toBe("Result: Exit code: 0\n\nStandard output:\nsource-controller");
+    });
+
+    it("asks before an Ask call with its command line, targets, level and profile, and runs it once approved", async () => {
+      cli = createStandInCli({ answers: { [scaleWeb.join(" ")]: { stdout: "deployment.apps/web scaled\n" } } });
+      faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+      await waitFor(() => uiRequests().length > 0);
+
+      const request = uiRequests()[0]!;
+      expect(request).toEqual({
+        id: expect.any(String),
+        toolCallId: expect.any(String),
+        method: "confirm",
+        program: "kubectl",
+        args: scaleWeb,
+        canonicalForms: [
+          { program: "kubectl", verb: "scale", resource: "deployments", name: "web", namespace: "default" },
+        ],
+        level: "ask",
+        profileName: "Standard",
+      });
+      expect(cli.actions()).toEqual([]);
+      expect((await snapshotOf(host)).pendingUiRequest).toEqual(request);
+
+      await answer(host, true);
+      await waitFor(settled);
+
+      expect(uiResolved()).toEqual([{ id: request.id, confirmed: true }]);
+      expect(cli.actions()).toEqual([expect.objectContaining({ args: scaleWeb })]);
+      expect(answerText()).toBe("Result: Exit code: 0\n\nStandard output:\ndeployment.apps/web scaled");
+      expect((await snapshotOf(host)).pendingUiRequest).toBeUndefined();
+    });
+
+    it("puts the manifest and a target per object on the card", async () => {
+      const manifest =
+        "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n  namespace: web\n---\n" +
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: web\n";
+      faux.setResponses(callThenEcho("kubectl", { args: ["apply"], manifest }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "apply it" });
+      await waitFor(() => uiRequests().length > 0);
+
+      expect(uiRequests()[0]).toMatchObject({
+        args: ["apply"],
+        manifest,
+        canonicalForms: [
+          { program: "kubectl", verb: "apply", resource: "configmaps", name: "settings", namespace: "web" },
+          { program: "kubectl", verb: "apply", resource: "deployments", name: "web", namespace: "web" },
+        ],
+      });
+    });
+
+    it("blocks a call the user denies, and it never runs", async () => {
+      faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+      await waitFor(() => uiRequests().length > 0);
+      await answer(host, false);
+      await waitFor(settled);
+
+      expect(answerText()).toBe("Result: The user denied the action");
+      expect(cli.actions()).toEqual([]);
+    });
+
+    it("runs a later Ask call without a card once the user approved all in this chat", async () => {
+      faux.setResponses(kubectlCalls(scaleWeb, scaleApi));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "scale web and api" });
+      await waitFor(() => uiRequests().length > 0);
+      await answer(host, true, true);
+      await waitFor(settled);
+
+      expect(autoApproveChanges()).toEqual([{ enabled: true }]);
+      expect(uiRequests()).toHaveLength(1);
+      expect(cli.actions().map((invocation) => invocation.args)).toEqual([scaleWeb, scaleApi]);
+    });
+
+    it("asks before an Always ask call even after the user approved all in this chat", async () => {
+      let nextCall!: () => void;
+      faux.setResponses([
+        fauxAssistantMessage([fauxToolCall("kubectl", { args: scaleWeb })], { stopReason: "toolUse" }),
+        heldUntil(
+          new Promise<void>((resolve) => {
+            nextCall = resolve;
+          }),
+          fauxAssistantMessage([fauxToolCall("kubectl", { args: execWeb })], { stopReason: "toolUse" }),
+        ),
+        fauxAssistantMessage([fauxText("done")]),
+      ]);
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "scale web, then read its config" });
+      await waitFor(() => uiRequests().length > 0);
+      await answer(host, true, true);
+      nextCall();
+      await waitFor(() => uiRequests().length > 1);
+
+      expect(uiRequests()[1]).toMatchObject({
+        args: execWeb,
+        canonicalForms: [{ program: "kubectl", verb: "exec", resource: "pods", name: "web-1", namespace: "default" }],
+        level: "alwaysAsk",
+        profileName: "Standard",
+      });
+      expect(cli.actions().map((invocation) => invocation.args)).toEqual([scaleWeb]);
+
+      await answer(host, true);
+      await waitFor(settled);
+      expect(cli.actions().map((invocation) => invocation.args)).toEqual([scaleWeb, execWeb]);
+    });
+
+    it("does not let an Always ask approval turn on approving all in this chat", async () => {
+      faux.setResponses(kubectlCalls(execWeb, execWeb));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "read the config twice" });
+      await waitFor(() => uiRequests().length > 0);
+      expect(await answer(host, true, true)).toMatchObject({ success: true });
+      await waitFor(() => uiRequests().length > 1);
+
+      expect(autoApproveChanges()).toEqual([]);
+      expect((await snapshotOf(host)).autoApprove).toBe(false);
+      expect(cli.actions().map((invocation) => invocation.args)).toEqual([execWeb]);
+      await answer(host, false);
+      await waitFor(settled);
+    });
+
+    it("denies a pending approval on Stop, ends the run, and the call never runs", async () => {
+      faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+      const host = kubectlHost();
+
+      await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+      await waitFor(() => uiRequests().length > 0);
+
+      expect(await host.handleCommand("c1", { type: "abort" })).toMatchObject({ success: true });
+      await waitFor(settled);
+
+      expect(uiResolved()).toEqual([{ id: uiRequests()[0]!.id, confirmed: false }]);
+      expect(cli.actions()).toEqual([]);
+      const snapshot = await snapshotOf(host);
+      expect(snapshot.isStreaming).toBe(false);
+      expect(snapshot.pendingUiRequest).toBeUndefined();
+    });
+
+    it("reads the profile at each call, so a change applies to the next call", async () => {
+      let profile = ALLOW_ALL_PROFILE;
+      let nextCall!: () => void;
+      faux.setResponses([
+        fauxAssistantMessage([fauxToolCall("kubectl", { args: scaleWeb })], { stopReason: "toolUse" }),
+        heldUntil(
+          new Promise<void>((resolve) => {
+            nextCall = resolve;
+          }),
+          fauxAssistantMessage([fauxToolCall("kubectl", { args: scaleApi })], { stopReason: "toolUse" }),
+        ),
+        fauxAssistantMessage([fauxText("done")]),
+      ]);
+      const host = kubectlHost({ getPolicyProfile: () => profile });
+
+      await host.handleCommand("c1", { type: "prompt", message: "scale web and api" });
+      await waitFor(() => cli.actions().length > 0);
+      profile = STANDARD_PROFILE;
+      nextCall();
+      await waitFor(() => uiRequests().length > 0);
+
+      expect(uiRequests()[0]).toMatchObject({ args: scaleApi, profileName: "Standard" });
+      expect(cli.actions().map((invocation) => invocation.args)).toEqual([scaleWeb]);
+      await answer(host, false);
+      await waitFor(settled);
+    });
+
+    describe("the resources of the cluster", () => {
+      it("reads the cluster's resources and namespace once for the chat, before its first call", async () => {
+        cli = createStandInCli({
+          answers: { "get pods": { stdout: "web-1\n" }, "get ks -n flux-system": { stdout: "flux-system\n" } },
+        });
+        faux.setResponses(kubectlCalls(["get", "pods"], ["get", "ks", "-n", "flux-system"]));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "pods and kustomizations" });
+        await waitFor(settled);
+
+        expect(uiRequests()).toEqual([]);
+        expect(cli.invocations).toEqual([
+          expect.objectContaining({ clusterId: "c1", program: "kubectl", args: API_RESOURCES_ARGS, timeoutMs: 30_000 }),
+          expect.objectContaining({ clusterId: "c1", program: "kubectl", args: KUBECONFIG_NAMESPACE_ARGS }),
+          expect.objectContaining({ args: ["get", "pods"] }),
+          expect.objectContaining({ args: ["get", "ks", "-n", "flux-system"] }),
+        ]);
+        expect(cli.invocations[0]?.signal).toBeInstanceOf(AbortSignal);
+      });
+
+      it("reads the resources again when a call names one the chat has not seen, and then runs it", async () => {
+        const answers: Record<string, Partial<CliResult>> = { "get pods": { stdout: "web-1\n" } };
+        cli = createStandInCli({ answers });
+        let nextCall!: () => void;
+        faux.setResponses([
+          fauxAssistantMessage([fauxToolCall("kubectl", { args: ["get", "pods"] })], { stopReason: "toolUse" }),
+          heldUntil(
+            new Promise<void>((resolve) => {
+              nextCall = resolve;
+            }),
+            fauxAssistantMessage([fauxToolCall("kubectl", { args: ["get", "helmreleases", "-A"] })], {
+              stopReason: "toolUse",
+            }),
+          ),
+          fauxAssistantMessage([fauxText("done")]),
+        ]);
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "pods, then releases" });
+        await waitFor(() => cli.actions().length > 0);
+        // Flux's helm-controller was installed meanwhile.
+        answers[API_RESOURCES_KEY] = {
+          stdout: apiResourcesTable([
+            ...STAND_IN_RESOURCES,
+            ["helmreleases", "hr", "helm.toolkit.fluxcd.io/v2", true, "HelmRelease"],
+          ]),
+        };
+        answers["get helmreleases -A"] = { stdout: "podinfo\n" };
+        nextCall();
+        await waitFor(settled);
+
+        expect(cli.invocations.map((invocation) => invocation.args.join(" "))).toEqual([
+          API_RESOURCES_KEY,
+          KUBECONFIG_NAMESPACE_KEY,
+          "get pods",
+          API_RESOURCES_KEY,
+          "get helmreleases -A",
+        ]);
+        expect(uiRequests()).toEqual([]);
+      });
+
+      it("blocks a call whose resource the cluster does not serve after reading the resources again", async () => {
+        cli = createStandInCli({ answers: { "get pods": { stdout: "web-1\n" } } });
+        faux.setResponses(kubectlCalls(["get", "pods"], ["get", "frobnicators"]));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "pods and frobnicators?" });
+        await waitFor(settled);
+
+        expect(cli.invocations.map((invocation) => invocation.args.join(" "))).toEqual([
+          API_RESOURCES_KEY,
+          KUBECONFIG_NAMESPACE_KEY,
+          "get pods",
+          API_RESOURCES_KEY,
+        ]);
+        expect(toolResultTexts()[1]).toMatch(/^Blocked by the floor.* Resources the cluster does not serve: /);
+      });
+
+      it("reads the resources only once for the chat's first call, even when it names one they lack", async () => {
+        faux.setResponses(callThenEcho("kubectl", { args: ["get", "frobnicators"] }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "frobnicators?" });
+        await waitFor(settled);
+
+        expect(cli.invocations.map((invocation) => invocation.args.join(" "))).toEqual([
+          API_RESOURCES_KEY,
+          KUBECONFIG_NAMESPACE_KEY,
+        ]);
+        expect(toolResultTexts()[0]).toMatch(/^Blocked by the floor.* Resources the cluster does not serve: /);
+      });
+
+      it("gives a target without -n the namespace the cluster's kubeconfig selects", async () => {
+        cli = createStandInCli({ answers: { [KUBECONFIG_NAMESPACE_KEY]: { stdout: "team-a" } } });
+        faux.setResponses(callThenEcho("kubectl", { args: scaleWeb }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "scale web" });
+        await waitFor(() => uiRequests().length > 0);
+
+        expect(uiRequests()[0]).toMatchObject({
+          canonicalForms: [{ verb: "scale", resource: "deployments", name: "web", namespace: "team-a" }],
+        });
+        await answer(host, false);
+        await waitFor(settled);
+      });
+
+      it("blocks the call when the cluster's resources cannot be read", async () => {
+        cli = createStandInCli({
+          answers: { [API_RESOURCES_KEY]: { stderr: "error: You must be logged in to the server\n", exitCode: 1 } },
+        });
+        faux.setResponses(callThenEcho("kubectl", { args: ["get", "pods"] }));
+        const host = kubectlHost();
+
+        await host.handleCommand("c1", { type: "prompt", message: "pods?" });
+        await waitFor(settled);
+
+        expect(toolResultTexts()).toEqual([
+          "Could not read the resources the cluster serves: kubectl api-resources listed no resources: " +
+            "error: You must be logged in to the server",
+        ]);
+        expect(cli.actions()).toEqual([]);
+      });
+    });
+
+    describe("the cli_policy section", () => {
+      const sectionsSeen: Record<string, string>[] = [];
+      const recordSections: FauxFactory = (context) => {
+        const sections: Record<string, string> = {};
+        for (const message of context.messages) {
+          if (message.role !== "system") continue;
+          for (const [name, text] of Object.entries(message.sections ?? {})) {
+            if (text === null) delete sections[name];
+            else sections[name] = text;
+          }
+        }
+        sectionsSeen.push(sections);
+        return fauxAssistantMessage([fauxText("ok")]);
+      };
+      const ask = async (host: AgentHost) => {
+        const before = envelopes.length;
+        await host.handleCommand("c1", { type: "prompt", message: "hi" });
+        await waitFor(() =>
+          envelopes.slice(before).some((e) => e.kind === "event" && e.payload.type === "agent_settled"),
+        );
+      };
+
+      beforeEach(() => {
+        sectionsSeen.length = 0;
+      });
+
+      it("names the cluster's profile, lists its rules and fallback level, and summarizes the floor", async () => {
+        faux.setResponses([recordSections]);
+        const host = kubectlHost();
+
+        await ask(host);
+
+        const section = sectionsSeen[0]?.cli_policy ?? "";
+        expect(section).toMatch(/^<cli_policy>\n[\s\S]*\n<\/cli_policy>$/);
+        expect(section).toContain('The policy profile of this cluster is "Standard".');
+        expect(section).toContain("- kubectl get *: Allow\n");
+        expect(section).toContain("- kubectl logs *: Ask\n");
+        expect(section).toContain("- kubectl exec *: Always ask\n");
+        expect(section).toContain("- kubectl delete namespaces *: Always ask\n");
+        expect(section).toContain("Fallback level: Ask");
+        expect(section).toMatch(/- Flags that change the cluster or the identity: --kubeconfig, --context/);
+        expect(section).toMatch(/- Invocations that never end or need a terminal: proxy, port-forward/);
+      });
+
+      it("reads the profile before every run", async () => {
+        faux.setResponses([recordSections, recordSections]);
+        let profile = STANDARD_PROFILE;
+        const host = kubectlHost({ getPolicyProfile: () => profile });
+
+        await ask(host);
+        profile = READ_ONLY_PROFILE;
+        await ask(host);
+
+        expect(
+          sectionsSeen.map((sections) => sections.cli_policy?.match(/profile of this cluster is "([^"]+)"/)?.[1]),
+        ).toEqual(["Standard", "Read only"]);
+        expect(sectionsSeen[1]?.cli_policy).toContain("Fallback level: Deny");
+      });
+
+      it("is not set for an agent without the kubectl tool", async () => {
+        faux.setResponses([recordSections]);
+        const host = createHost();
+
+        await ask(host);
+
+        expect(sectionsSeen[0]).not.toHaveProperty("cli_policy");
+      });
     });
   });
 
@@ -1230,7 +1722,9 @@ describe("AgentHost", () => {
     const scaleWeb = { kind: "Deployment", name: "web", namespace: "default", data: { spec: { replicas: 3 } } };
     const WEB_PATH = "/apis/apps/v1/namespaces/default/deployments/web";
 
-    const uiRequests = () => envelopes.flatMap((e) => (e.kind === "ui_request" ? [e.payload] : []));
+    // The structured tools' requests; the kubectl calls have their own tests above.
+    const uiRequests = () =>
+      envelopes.flatMap((e) => (e.kind === "ui_request" && !isCliApprovalRequest(e.payload) ? [e.payload] : []));
     const uiResolved = () => envelopes.flatMap((e) => (e.kind === "ui_resolved" ? [e.payload] : []));
     // The requests that change the cluster: every one but the reads.
     const writes = () => cluster.requests.filter(({ method }) => method !== "get" && method !== "getResponse");

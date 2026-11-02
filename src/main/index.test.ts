@@ -184,7 +184,6 @@ describe("LensExtensionAiMain", () => {
         FAKE_KUBECTL_PID_FILE: pidFile,
       });
       vi.stubEnv("FAKE_KUBECTL_LEAK", "main's own environment");
-      PreferencesStore.getInstanceOrCreate<PreferencesStore>().toolApprovalOverrides = { kubectl: false };
     });
 
     afterEach(() => {
@@ -231,17 +230,18 @@ describe("LensExtensionAiMain", () => {
       expect(consoleError).not.toHaveBeenCalled();
     });
 
+    // A diff runs without a card under Standard, the profile of every cluster.
     it("sends the manifest on standard input", async () => {
       const manifest = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n";
 
-      const result = await callKubectl({ args: ["apply"], manifest });
+      const result = await callKubectl({ args: ["diff"], manifest });
 
       const output = JSON.parse(result.text.split("Standard output:\n")[1] ?? "");
-      expect(output).toMatchObject({ args: ["apply", "-f", "-"], stdin: manifest });
+      expect(output).toMatchObject({ args: ["diff", "-f", "-"], stdin: manifest });
     });
 
     it("turns a non-zero exit code into an error result with the standard error", async () => {
-      const result = await callKubectl({ args: ["fail"] });
+      const result = await callKubectl({ args: ["get", "pods", "fail"] });
 
       expect(result).toEqual({
         text: "Exit code: 3\n\nStandard output: (empty)\n\nStandard error:\nerror: failed on purpose",
@@ -250,7 +250,7 @@ describe("LensExtensionAiMain", () => {
     });
 
     it("caps the output", async () => {
-      const result = await callKubectl({ args: ["flood"] });
+      const result = await callKubectl({ args: ["get", "pods", "flood"] });
 
       expect(result.text).toMatch(
         /^Exit code: 0\n\nStandard output:\nhead\ny+\n\[\.\.\. 147467 of 409611 bytes cut \.\.\.\]\ny+\ntail$/,
@@ -258,7 +258,7 @@ describe("LensExtensionAiMain", () => {
     });
 
     it("kills the process on Stop", async () => {
-      const result = await callKubectl({ args: ["hang"] }, async () => {
+      const result = await callKubectl({ args: ["get", "pods", "hang"] }, async () => {
         await waitFor(() => existsSync(pidFile) && readFileSync(pidFile, "utf8") !== "", 10_000);
         await invokeAgent("c1", { type: "abort" });
       });
@@ -271,7 +271,7 @@ describe("LensExtensionAiMain", () => {
     });
 
     it("kills the process on the timeout", async () => {
-      const result = await callKubectl({ args: ["hang"], timeoutSeconds: 0.5 });
+      const result = await callKubectl({ args: ["get", "pods", "hang"], timeoutSeconds: 0.5 });
 
       expect(result).toEqual({
         text: "kubectl was killed after its timeout of 0.5 s.\n\nStandard output:\nwaiting",
@@ -281,8 +281,9 @@ describe("LensExtensionAiMain", () => {
       await waitFor(() => !isRunning(pid));
     });
 
+    // Freelens downloads the cluster's kubectl for the first invocation, the gate's read of the resources.
     it("reports the phases and the progress of a kubectl download as partial tool updates", async () => {
-      vi.mocked(Main.Shell.getKubectlPath).mockImplementation(async (_clusterId, options) => {
+      vi.mocked(Main.Shell.getKubectlPath).mockImplementationOnce(async (_clusterId, options) => {
         const download = options as Main.Shell.KubectlDownloadOptions;
         download.onPhase?.("Downloading kubectl 1.31.2");
         download.onDownloadProgress?.({ transferred: 0, total: 1000 });

@@ -1,12 +1,14 @@
-import { isCliInvocationDetails } from "../../../common/agent-protocol";
+import { isCliApprovalRequest, isCliInvocationDetails } from "../../../common/agent-protocol";
 import { MessageType } from "../../../common/objects/message-type";
 import { generateUuid } from "../../../common/utils/uuid";
+import { formatCommandLine } from "../cli/command-line";
 
 import type {
   AgentEnvelope,
   AgentSnapshot,
   ApprovalRequest,
   ChatMessage,
+  CliApprovalRequest,
   ImageContent,
   SessionStats,
   TextContent,
@@ -206,19 +208,39 @@ const isRunningAfter = (isRunning: boolean, envelope: AgentEnvelope) => {
 /** The approval card's third answer: approve this call and stop asking in this chat. */
 export const APPROVE_ALL_OPTION = "Approve all in this chat";
 
-const approvalCard = (request: ApprovalRequest): MessageObject => ({
+const APPROVAL_QUESTION = "Do you want to approve this action?";
+
+// A kubectl call shows as its command line; its body comes from the request.
+// "Approve all in this chat" never covers Always ask, so it is not offered there.
+const cliApprovalCard = (request: CliApprovalRequest): MessageObject => ({
   messageId: generateUuid(),
   type: MessageType.INTERRUPT,
-  action: request.title,
-  question: "Do you want to approve this action?",
-  text: `\`\`\`yaml\n${request.message}\`\`\``,
-  actionDetails: request.message,
-  options: ["yes", "no", APPROVE_ALL_OPTION],
+  action: formatCommandLine(request.program, request.args),
+  question: APPROVAL_QUESTION,
+  text: "",
+  cliApproval: request,
+  options: request.level === "alwaysAsk" ? ["yes", "no"] : ["yes", "no", APPROVE_ALL_OPTION],
   approved: null,
   approvalId: request.id,
-  resources: request.backup,
   sent: false,
 });
+
+const approvalCard = (request: ApprovalRequest): MessageObject =>
+  isCliApprovalRequest(request)
+    ? cliApprovalCard(request)
+    : {
+        messageId: generateUuid(),
+        type: MessageType.INTERRUPT,
+        action: request.title,
+        question: APPROVAL_QUESTION,
+        text: `\`\`\`yaml\n${request.message}\`\`\``,
+        actionDetails: request.message,
+        options: ["yes", "no", APPROVE_ALL_OPTION],
+        approved: null,
+        approvalId: request.id,
+        resources: request.backup,
+        sent: false,
+      };
 
 const updateApproval = (messages: MessageObject[], id: string, update: Partial<MessageObject>) => {
   const index = messages.findIndex((message) => message.approvalId === id);

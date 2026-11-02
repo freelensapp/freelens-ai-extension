@@ -1,7 +1,10 @@
 // The chat agent's prompt, merged from the old analyzer, operator and general
 // purpose prompts. It replaces pi's coding prompt entirely, so the agent never
 // hears about files or a shell. pi appends a `cwd` section, and the agent host
-// sets the `cluster` and `user_rules` sections before every prompt.
+// sets the `cluster`, `user_rules` and `cli_policy` sections before every prompt.
+
+import { FLOOR_ENTRIES } from "../../common/invocation-policy/floor";
+import { POLICY_LEVEL_LABELS, type PolicyProfile } from "../../common/invocation-policy/policy-profile";
 export const SYSTEM_PROMPT = `You are Freelens AI, a Kubernetes assistant for the cluster open in this Freelens window. The <cluster> section, when present, names that cluster.
 You help the user understand, troubleshoot and manage the cluster: analyze its state and events, read container logs, diagnose issues, suggest best practices, and change resources when asked.
 You also answer general Kubernetes, software engineering and other technical questions directly, without tools. If a question is ambiguous or lacks detail, ask a clarifying question first.
@@ -60,6 +63,32 @@ Specific, actionable steps the user should take (commands, configuration changes
 Links to relevant Kubernetes documentation or community best practices, such as https://kubernetes.io/docs/home/.
 
 If the input is ambiguous or incomplete, clearly state what additional information is needed to assist further.`;
+
+/**
+ * The `cli_policy` section: what the cluster's policy profile lets the kubectl
+ * tool do, and what the floor rejects whatever the profile says, so that the
+ * agent does not spend turns on calls that will be blocked.
+ */
+export const cliPolicySection = (profile: PolicyProfile): string =>
+  [
+    `The policy profile of this cluster is "${profile.name}". Every kubectl call first passes the floor, then gets a policy level from the profile:`,
+    "- Allow: it runs.",
+    '- Ask: it waits for the user\'s approval, unless the user chose "Approve all in this chat".',
+    "- Always ask: it waits for the user's approval every time.",
+    "- Deny: it is blocked.",
+    "A call has one target per resource, name or manifest object, written `kubectl <verb> <resource> <name> -n <namespace>`, and gets the most restrictive level of its targets. A rule matches targets with literals, globs and `*`; when several match, the most specific decides, and the fallback level applies when none does.",
+    "",
+    "Rules of the profile:",
+    ...(profile.rules.length > 0
+      ? profile.rules.map((rule) => `- ${rule.pattern}: ${POLICY_LEVEL_LABELS[rule.level]}`)
+      : ["- (none)"]),
+    `Fallback level: ${POLICY_LEVEL_LABELS[profile.fallbackLevel]}`,
+    "",
+    "The floor blocks, whatever the profile says:",
+    ...Object.values(FLOOR_ENTRIES).map((entry) => `- ${entry.title}: ${entry.covers.join(", ")}`),
+    "",
+    "Do not make calls that the floor or the profile blocks; tell the user what you would run instead.",
+  ].join("\n");
 
 /** Appends the user's custom agent rules to a system prompt; empty rules add nothing. */
 export const withUserRules = (prompt: string, rules: string | undefined): string => {

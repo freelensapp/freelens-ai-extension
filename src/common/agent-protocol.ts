@@ -12,6 +12,9 @@
 // type check holds them to these declarations: a role or an event type pi adds
 // fails it until it is listed here.
 
+import type { CanonicalForm, CliProgram } from "./invocation-policy/canonical-form";
+import type { PolicyLevel } from "./invocation-policy/policy-profile";
+
 /** pi's `TextContent`. */
 export interface TextContent {
   type: "text";
@@ -204,10 +207,11 @@ export interface ApprovalTarget {
 }
 
 /**
- * Main asks the user to approve a tool call: pi's `confirm` UI request, with
- * the action as YAML in `message` and the object it is about.
+ * Main asks the user to approve a call of one of the structured tools: pi's
+ * `confirm` UI request, with the action as YAML in `message` and the object it
+ * is about.
  */
-export interface ApprovalRequest {
+export interface ToolApprovalRequest {
   id: string;
   toolCallId: string;
   method: "confirm";
@@ -220,6 +224,35 @@ export interface ApprovalRequest {
    */
   backup?: string;
 }
+
+/** The policy levels that wait for the user's approval. */
+export type ApprovalLevel = Extract<PolicyLevel, "ask" | "alwaysAsk">;
+
+/**
+ * Main asks the user to approve a CLI invocation whose policy level waits for
+ * approval: pi's `confirm` UI request, with the invocation as the agent asked
+ * for it and what the invocation policy made of it.
+ */
+export interface CliApprovalRequest {
+  id: string;
+  toolCallId: string;
+  method: "confirm";
+  program: CliProgram;
+  /** The arguments the agent called the program with, before the tool adds `-f -` or a logs tail. */
+  args: string[];
+  /** The manifest the invocation sends on standard input; absent without one. */
+  manifest?: string;
+  /** One per target of the invocation. */
+  canonicalForms: CanonicalForm[];
+  /** Always ask is never covered by "Approve all in this chat". */
+  level: ApprovalLevel;
+  /** The name of the cluster's policy profile that gave the level. */
+  profileName: string;
+}
+
+export type ApprovalRequest = ToolApprovalRequest | CliApprovalRequest;
+
+export const isCliApprovalRequest = (request: ApprovalRequest): request is CliApprovalRequest => "program" in request;
 
 /** An approval was answered, or denied by Stop. */
 export interface ApprovalResolution {

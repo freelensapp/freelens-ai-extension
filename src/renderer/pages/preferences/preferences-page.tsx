@@ -10,10 +10,13 @@ const { observer } = MobxReact;
 const { useCallback, useEffect, useRef, useState } = React;
 
 import { DEFAULT_CHAT_RETENTION_DAYS } from "../../../common/agent-protocol";
-import { AGENT_TOOLS } from "../../../common/agent-tools";
+import { AGENT_TOOLS, kubectlTool } from "../../../common/agent-tools";
 import { requiresApproval, withApprovalOverride } from "../../../common/agent-tools/approval-settings";
 import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore, parseRetentionDays } from "../../../common/store";
 import { THINKING_LEVELS, type ThinkingLevel } from "../../../common/thinking-level";
+
+// The invocation policy decides the kubectl calls, so kubectl has no approval setting.
+const APPROVAL_SETTING_TOOLS = AGENT_TOOLS.filter((tool) => tool.name !== kubectlTool.name);
 
 interface DraftFieldProps {
   value: string;
@@ -164,7 +167,7 @@ export const PreferencesPage = observer(() => {
         default, and so does reading pod logs, which can contain secrets or personal data. A change applies to the next
         call.
       </div>
-      {AGENT_TOOLS.map((tool) => (
+      {APPROVAL_SETTING_TOOLS.map((tool) => (
         <div key={tool.name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
           <span style={{ flex: 1, fontFamily: "monospace" }}>{tool.name}</span>
           <span style={{ minWidth: 110, fontSize: 12, opacity: 0.7 }}>

@@ -32,9 +32,6 @@ export interface KubectlToolResult {
   details: CliInvocationDetails;
 }
 
-/** The verbs that take objects with `-f`, which the tool sends a manifest to. */
-const MANIFEST_VERBS: ReadonlySet<string> = new Set(["apply", "create", "replace", "delete", "diff"]);
-
 /** The flags of `kubectl logs` that choose how much of the log to read. */
 const LOG_WINDOW_FLAGS = ["--tail", "--since", "--since-time"];
 
@@ -45,33 +42,18 @@ export type PreparedKubectlInvocation =
   | { ok: true; args: string[]; manifest?: string; timeoutMs: number; grep?: RegExp }
   | { ok: false; error: string };
 
-// `-f`, its value attached or not, and `--filename`: kubectl would read a file
-// of the user's disk. The tool adds `-f -` itself for a manifest.
-const readsFile = (arg: string) =>
-  arg === "--filename" || arg.startsWith("--filename=") || (arg.startsWith("-f") && !arg.startsWith("--"));
-
 /**
- * Checks a call and builds the arguments kubectl runs with: `-f -` for a
- * manifest, and for logs without a tail or a time window the "pod logs tail
- * lines" preference as `--tail`. The arguments after `--` belong to the
- * command `exec` runs, so they are left alone.
+ * Builds the arguments kubectl runs with: `-f -` for a manifest, and for logs
+ * without a tail or a time window the "pod logs tail lines" preference as
+ * `--tail`. The arguments after `--` belong to the command `exec` runs, so
+ * they are left alone. The invocation policy has checked the arguments and the
+ * manifest before; only `grep` is checked here.
  */
 export function prepareKubectlInvocation(input: KubectlToolInput, podLogsTailLines: number): PreparedKubectlInvocation {
   const end = input.args.indexOf("--");
   const own = end < 0 ? [...input.args] : input.args.slice(0, end);
   const rest = end < 0 ? [] : input.args.slice(end);
-  if (own.some(readsFile)) {
-    return { ok: false, error: "kubectl reads no files: send the objects in manifest instead of -f or --filename." };
-  }
-  if (input.manifest !== undefined) {
-    if (!MANIFEST_VERBS.has(own[0] ?? "")) {
-      return {
-        ok: false,
-        error: "A manifest is accepted only with apply, create, replace, delete or diff, as the first argument.",
-      };
-    }
-    own.push("-f", "-");
-  }
+  if (input.manifest !== undefined) own.push("-f", "-");
   if (own[0] === "logs" && !own.some(setsLogWindow)) {
     own.push(`--tail=${podLogsTailLines}`);
   }

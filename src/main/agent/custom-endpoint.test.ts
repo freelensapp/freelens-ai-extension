@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createFakeKubeJsonApi } from "../../../test/kube-json-api";
 import { createStandInCli } from "../../../test/stand-in-cli";
 import { getClusterVersionTool } from "../../common/agent-tools";
+import { STANDARD_PROFILE } from "../../common/invocation-policy/shipped-profiles";
 import { AgentHost } from "./agent-host";
 import { addCustomProvider } from "./custom-providers";
 import type { AddressInfo } from "node:net";
@@ -89,6 +90,7 @@ describe("AgentHost on a custom OpenAI-compatible endpoint", () => {
       getClusterStatus: () => "connected",
       getClusterApi: () => createFakeKubeJsonApi().api,
       runCli: createStandInCli().run,
+      getPolicyProfile: () => STANDARD_PROFILE,
       getPodLogsTailLines: () => 500,
       getModelRef: () => ({ provider: "my-litellm", id: "qwen3" }),
       retry: false,

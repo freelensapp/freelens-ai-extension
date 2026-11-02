@@ -4,6 +4,14 @@ export type PolicyLevel = "allow" | "ask" | "alwaysAsk" | "deny";
 /** The levels from the least to the most restrictive. */
 export const POLICY_LEVELS: readonly PolicyLevel[] = ["allow", "ask", "alwaysAsk", "deny"];
 
+/** How a level is named to the user and the model. */
+export const POLICY_LEVEL_LABELS: Readonly<Record<PolicyLevel, string>> = {
+  allow: "Allow",
+  ask: "Ask",
+  alwaysAsk: "Always ask",
+  deny: "Deny",
+};
+
 /** The more restrictive of two levels. */
 export const mostRestrictiveLevel = (a: PolicyLevel, b: PolicyLevel): PolicyLevel =>
   POLICY_LEVELS.indexOf(a) >= POLICY_LEVELS.indexOf(b) ? a : b;
