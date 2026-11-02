@@ -41,8 +41,8 @@ See the spec, "Renderer" (profile editor).
 - Decisions taken while building it:
   - "Duplicate" is offered on shipped profiles too, as `GLOSSARY.md` says a
     shipped profile is duplicated to make a variant; Rename and Delete are
-    offered on user profiles only. A copy is named "Copy of <name>".
-  - A new profile's name is optional: left empty, it is "Copy of <name>" or,
+    offered on user profiles only. A copy is named `"Copy of <name>"`.
+  - A new profile's name is optional: left empty, it is `"Copy of <name>"` or,
     for an empty profile, "New profile".
   - Deleting a profile asks with `window.confirm`, as removing a custom
     endpoint does, and removes the assignments to it, so its clusters get the
