@@ -136,23 +136,34 @@ in the main process"), and the views use the host's `KubeEvent` only. So
 
 - **Registrations.** `src/renderer/index.tsx` registers the chat page
   (`clusterPages`), its sidebar entry (`clusterPageMenus`), the "Explain" item
-  of the Event menu (`kubeObjectMenuItems`) and the preferences
-  (`appPreferences`). The "Explain" item is built with
+  of the Event menu (`kubeObjectMenuItems`), the preferences
+  (`appPreferences`) and the "Freelens AI" tab of a cluster's settings
+  (`entitySettings`, for `Common.Catalog.KubernetesCluster`'s `apiVersion` and
+  `kind`), whose view receives the cluster's catalog entity, its id the
+  cluster id. The "Explain" item is built with
   `Renderer.K8sApi.menuItemFor(Renderer.K8sApi.KubeEvent, { MenuItem })`, and
   its props extend `Common.Types.KubeObjectMenuItemProps<KubeEvent>`. The page
   id is `MAIN_PAGE_ID` of `src/renderer/navigation/pages.ts`, used wherever the
   page is named. `onActivate` starts the agent client and the provider client
   and `onDeactivate` stops them (see "The pi agent" and "Lifecycle").
-- **Error boundary.** `clusterPages`, `kubeObjectMenuItems` and
-  `appPreferences` are mapped through `withPageErrorBoundary`,
-  `withMenuItemErrorBoundary` and `withPreferenceErrorBoundary` of
+- **Error boundary.** `clusterPages`, `kubeObjectMenuItems`,
+  `appPreferences` and `entitySettings` are mapped through
+  `withPageErrorBoundary`, `withMenuItemErrorBoundary`,
+  `withPreferenceErrorBoundary` and `withEntitySettingErrorBoundary` of
   `src/renderer/components/error-boundary.tsx`, so that an entry added to them
-  is wrapped too. An error a page or a preference `Input` throws shows the
-  error page in its place; one a menu item or a preference `Hint` throws leaves
-  it out. Either is logged with `Common.logger` and the extension's name. The
-  host has no boundary around a menu item or an extension's preferences, and
-  its boundary around a frame would replace the whole cluster view or
-  preferences page.
+  is wrapped too. An error a page, a preference `Input` or a settings tab
+  throws shows the error page in its place; one a menu item or a preference
+  `Hint` throws leaves it out. Either is logged with `Common.logger` and the
+  extension's name. The host has no boundary around a menu item, an
+  extension's preferences or a settings tab, and its boundary around a frame
+  would replace the whole cluster view, preferences page or settings page.
+- **Policy profiles.** The cluster's profile is picked by
+  `ClusterProfilePicker` of `src/renderer/components/cluster-profile/`, on the
+  settings tab and in each row of the preferences' cluster table, which lists
+  `Renderer.Catalog.getAllClusters()`; `ClusterProfileBadge` shows it in the
+  chat header. They read it with `clusterPolicyProfile` inside an `observer`
+  and replace `profileAssignments` as a whole, which makes main check the
+  pending approvals again (see "Approvals").
 - **Preferences.** `src/renderer/pages/preferences/preferences-page.tsx` is
   the `Input` of the one `appPreferences` entry, an `observer` that writes
   `PreferencesStore` directly; text areas commit on blur. Its providers
@@ -249,9 +260,10 @@ mechanism; this is the list to check a change against.
 - **Nothing in module state that `onDeactivate` cannot reach.** A session, a
   timer, a run or a login kept there survives a reload, and the next
   `onActivate` starts a second one ("Lifecycle").
-- **Every page, menu item and preference inside an error boundary.** The host
-  has none around a menu item or an extension's preferences, and its boundary
-  around a frame replaces the whole cluster view or preferences page. Map the
+- **Every page, menu item, preference and settings tab inside an error
+  boundary.** The host has none around a menu item, an extension's
+  preferences or a settings tab, and its boundary around a frame replaces the
+  whole cluster view, preferences page or settings page. Map the
   registrations through their wrappers in `error-boundary.tsx` ("Renderer
   Components").
 - **A view gets the extension from its registration.** The host passes a
@@ -585,14 +597,19 @@ loaded, so it throws under Vitest. `vitest.config.ts` aliases the package to
   host does;
 - `Renderer.K8sApi.menuItemFor`, which returns the registration with the
   components it is given;
+- `Common.Catalog.KubernetesCluster`, the cluster entity a settings tab's
+  view receives, with the host's static `apiVersion` and `kind`, made from
+  its `metadata`, `spec` and `status`, whose `getId()` is `metadata.uid`;
 - `vi.fn()` stand-ins for `Common.logger`, `Main.Catalog.getClusterById`,
-  `Main.Catalog.getAllClusters`, `Main.K8sApi.KubeJsonApi.forCluster`,
+  `Main.Catalog.getAllClusters`, `Renderer.Catalog.getAllClusters`,
+  `Main.K8sApi.KubeJsonApi.forCluster`,
   `Main.Shell.getEnvironment`, `Main.Shell.getKubectlPath`,
   `Main.Util.fetch` and the terminal of `Renderer.Component`;
 - plain DOM stand-ins for the host components the views render (`Button`,
-  `Icon`, `Input`, `Switch`, `HorizontalLine`, `MonacoEditor`, which shows its
-  value as text, and `Select`, a button per option and one that clears it with
-  `null`).
+  `Icon`, `Input`, `Switch`, `HorizontalLine`, `SubTitle`, `MonacoEditor`,
+  which shows its value as text, and `Select`, a group named by its
+  `aria-label` with a button per option, the option of its `value` pressed,
+  and one that clears it with `null`).
 
 Extend it when a test needs more of the host; it is runtime only, the types
 stay the real declaration's. knip does not follow the alias, so the stub is an
