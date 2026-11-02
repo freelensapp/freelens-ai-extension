@@ -1,5 +1,6 @@
 import { Renderer } from "@freelensapp/extensions";
 import * as MobxReact from "mobx-react";
+import { PolicyProfileSettings } from "./policy-profiles/policy-profile-settings";
 import styles from "./preferences-page.module.scss";
 import { ProviderSettings } from "./provider-settings";
 import { useStoreValueOnBlur } from "./use-store-value-on-blur";
@@ -81,6 +82,10 @@ export const PreferencesPage = observer(() => {
         onFocus={customAgentRulesField.onFocus}
         onBlur={customAgentRulesField.onBlur}
       />
+
+      <HorizontalLine />
+
+      <PolicyProfileSettings />
 
       <HorizontalLine />
 

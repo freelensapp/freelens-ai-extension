@@ -1,0 +1,188 @@
+// The profile editor of the preferences: the list of profiles next to the
+// profile chosen in it. The colors follow the theme through the host's
+// variables, in the light and the dark theme.
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.hint {
+  margin-bottom: 8px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.field-label {
+  margin-top: 8px;
+  font-weight: bold;
+}
+
+.default-profile-picker {
+  max-width: 320px;
+  margin-bottom: 16px;
+}
+
+.editor {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.profile-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-right: 1px solid var(--borderFaintColor);
+}
+
+.profile-list-item {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px 0 0 4px;
+  background: none;
+  color: var(--textColorPrimary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--sidebarItemHoverBackground);
+  }
+
+  &:focus-visible {
+    outline: 1px solid var(--inputControlHoverBorder);
+    outline-offset: -1px;
+  }
+
+  &[aria-current="true"] {
+    background: var(--tableBgcSelected);
+    color: var(--tableSelectedRowColor);
+  }
+}
+
+.profile-name {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag {
+  padding: 0 6px;
+  border: 1px solid var(--borderColor);
+  border-radius: 8px;
+  font-size: 11px;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.details {
+  min-width: 0;
+}
+
+.details-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.details-title {
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: bold;
+}
+
+.actions,
+.rename-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.rename-field {
+  flex: 1;
+}
+
+.fallback-level {
+  margin-bottom: 12px;
+}
+
+.level-picker {
+  max-width: 200px;
+}
+
+.rules-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  th {
+    padding: 4px 8px 4px 0;
+    border-bottom: 1px solid var(--borderFaintColor);
+    font-weight: normal;
+    opacity: 0.7;
+    text-align: left;
+  }
+
+  td {
+    padding: 3px 8px 3px 0;
+    vertical-align: middle;
+  }
+}
+
+// The host's Input takes the class on its wrapper, not on the field.
+.pattern-input :global(input) {
+  font-family: monospace;
+}
+
+.level-cell {
+  width: 160px;
+}
+
+.remove-cell {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.form {
+  max-width: 520px;
+  margin: 8px 0 12px;
+  padding: 16px;
+  border: 1px solid var(--borderColor);
+  border-radius: 6px;
+}
+
+.form-title {
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: bold;
+}
+
+.form-field {
+  margin-bottom: 10px;
+}
+
+.form-label {
+  margin-bottom: 4px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
