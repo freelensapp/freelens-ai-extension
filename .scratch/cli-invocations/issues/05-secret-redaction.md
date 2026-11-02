@@ -24,3 +24,7 @@ See the spec, "Secret redaction".
 - [ ] Agent host tests cover a redacted single Secret, a redacted list mixed
       with other resources, YAML and JSON output, table output, a reveal that
       asks, and a reveal denied by the user.
+
+## Comments
+
+The floor's handling of object-printing writes on Secrets and of verbose logging is decided in ticket 02, Comments, items 1 and 2.

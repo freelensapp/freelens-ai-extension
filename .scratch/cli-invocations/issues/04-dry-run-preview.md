@@ -35,3 +35,15 @@ See the spec, "The approval gate", and ADR 0003.
 - [ ] Checked in Freelens dev: scaling a Deployment shows a diff of
       `spec.replicas`, and patching with an invalid field fails without a
       card.
+
+## Comments
+
+From ticket 02 (see its Comments):
+
+- Read `DRY_RUN_VERBS` of `src/common/invocation-policy/dry-run-verbs.ts`
+  rather than hard-coding the verbs. Its `acceptsYamlOutput` says whether
+  the gate can add `-o yaml`: it must leave `-o yaml` out for `cordon`,
+  `uncordon` and `drain`, which take no `-o`, and for `delete`, which takes
+  only `-o name`.
+- `rollout restart` has no `--dry-run` in kubectl 1.36, so it is not on the
+  list and is asked without a preview. No other verb was removed.
