@@ -10,8 +10,14 @@ const preferences = () => PreferencesStore.getInstanceOrCreate<PreferencesStore>
 // not as a string.
 const responsesStream = (texts: string[]) => {
   const response = { id: "resp_1", object: "response", created_at: 0, model: "gpt-6.1-sol", output: [] };
+  const message = { type: "message", id: "msg_1", role: "assistant" };
   const events = [
     { type: "response.created", response: { ...response, status: "in_progress" } },
+    {
+      type: "response.output_item.added",
+      output_index: 0,
+      item: { ...message, status: "in_progress", content: [] },
+    },
     ...texts.map((delta) => ({
       type: "response.output_text.delta",
       item_id: "msg_1",
@@ -19,7 +25,23 @@ const responsesStream = (texts: string[]) => {
       content_index: 0,
       delta,
     })),
-    { type: "response.completed", response: { ...response, status: "completed" } },
+    {
+      type: "response.output_item.done",
+      output_index: 0,
+      item: {
+        ...message,
+        status: "completed",
+        content: [{ type: "output_text", text: texts.join(""), annotations: [] }],
+      },
+    },
+    {
+      type: "response.completed",
+      response: {
+        ...response,
+        status: "completed",
+        usage: { input_tokens: 3, input_tokens_details: { cached_tokens: 0 }, output_tokens: 2 },
+      },
+    },
   ];
   const body = events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
   return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });

@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createFakeKubeJsonApi, installFakeClusters } from "../../../../test/kube-json-api";
 import { clusterApiFor, type KubeJsonApi } from "./cluster-api";
 
-const config = (clusterId?: string) => ({ configurable: { clusterId } });
-
 let cluster: ReturnType<typeof createFakeKubeJsonApi>;
 
 beforeEach(() => {
@@ -12,7 +10,7 @@ beforeEach(() => {
 });
 
 const clusterApi = (): KubeJsonApi => {
-  const api = clusterApiFor(config("cluster-a"));
+  const api = clusterApiFor("cluster-a");
   if (typeof api === "string") {
     throw new Error(api);
   }

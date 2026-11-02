@@ -14,9 +14,9 @@ export const supportsTemperature = (modelName: string): boolean => !isReasoningM
 // Models whose function tools work only through the Responses API. The GPT-6
 // family answers tool calls on Chat Completions with an error (GPT-6 Luna and
 // GPT-6.1 Terra only with reasoning effort `none`, which the preferences do not
-// offer). The other patterns are the models `@langchain/openai` already sends to
-// Responses on its own (`_modelPrefersResponsesAPI`), listed here so that they
-// get the same request options as GPT-6.
+// offer). The other patterns are models that OpenAI serves on Responses only or
+// first (`gpt-5.6`, the `-pro` models, `codex`), so that they get the same
+// request options as GPT-6.
 const RESPONSES_API_MODEL_PATTERNS: RegExp[] = [/gpt-6/i, /gpt-5\.6/i, /gpt-5\.\d+-pro/i, /codex/i];
 
 export const requiresResponsesApi = (modelName: string): boolean =>

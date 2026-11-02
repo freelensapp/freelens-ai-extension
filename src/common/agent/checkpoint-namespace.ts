@@ -1,8 +1,8 @@
-// The `PersistentMemorySaver` persists each agent's LangGraph checkpointer state
-// under a namespace key in the shared, host-managed `AgentStateStore`. Because
-// that store is backed by a single JSON file shared by the agents of every
-// cluster, the namespace must include the cluster id so each connected cluster keeps its
-// own agent memory instead of overwriting (or reading) another cluster's blob.
+// The agent runtime persists each agent's conversations under a namespace key
+// in the shared, host-managed `AgentStateStore`. Because that store is backed
+// by a single JSON file shared by the agents of every cluster, the namespace
+// must include the cluster id so each connected cluster keeps its own agent
+// memory instead of overwriting (or reading) another cluster's.
 //
 // Pure helpers with no host/MobX dependencies so they can be unit-tested
 // directly (see checkpoint-namespace.test.ts).

@@ -1,29 +1,41 @@
 import { Main } from "@freelensapp/extensions";
-import { interrupt } from "@langchain/langgraph";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { createFakeKubeJsonApi, DELETED_AT, installFakeClusters } from "../../../../test/kube-json-api";
 import { PreferencesStore } from "../../../common/store";
-import {
-  createKubernetesResource,
-  deleteKubernetesResource,
-  deletePod,
-  getClusterVersion,
-  getKubernetesResource,
-  getNamespaces,
-  getPodLogs,
-  getWarningEventsByNamespace,
-  listKubernetesResources,
-  patchKubernetesResource,
-  restartKubernetesResource,
-  updateKubernetesResource,
-} from "./tools";
+import { describeToolCall, refuseBeforeApproval } from "./kubernetes-resource";
+import { type KubernetesTools, kubernetesToolApproval, kubernetesTools } from "./tools";
 
-// The approval gate is LangGraph's `interrupt()`, which needs a running graph;
-// here it answers at once. The gate inside a real graph is covered by
-// approval-gate.test.ts.
-vi.mock("@langchain/langgraph", () => ({ interrupt: vi.fn(() => "yes") }));
+// A tool as the AI SDK calls it once its call is approved, with the run's
+// cluster as its context. The approval itself runs in the agent loop, which
+// agent-service.test.ts covers; here the tools run at once.
+const asTool = <Name extends keyof KubernetesTools>(name: Name) => ({
+  invoke: async (input: Record<string, unknown>, clusterId: string | undefined) => {
+    const { execute } = kubernetesTools[name];
+    if (!execute) {
+      throw new Error(`The tool ${name} has no execute.`);
+    }
+    return (execute as (input: unknown, options: unknown) => Promise<unknown>)(input, {
+      toolCallId: "call-1",
+      messages: [],
+      context: { clusterId },
+    }) as Promise<never>;
+  },
+});
 
-const config = (clusterId?: string) => ({ configurable: { clusterId } });
+const getNamespaces = asTool("getNamespaces");
+const getClusterVersion = asTool("getClusterVersion");
+const getWarningEventsByNamespace = asTool("getEventsForNamespace");
+const listKubernetesResources = asTool("listKubernetesResources");
+const getKubernetesResource = asTool("getKubernetesResource");
+const getPodLogs = asTool("getPodLogs");
+const createKubernetesResource = asTool("createKubernetesResource");
+const updateKubernetesResource = asTool("updateKubernetesResource");
+const patchKubernetesResource = asTool("patchKubernetesResource");
+const deleteKubernetesResource = asTool("deleteKubernetesResource");
+const deletePod = asTool("deletePod");
+const restartKubernetesResource = asTool("restartKubernetesResource");
+
+const config = (clusterId?: string) => clusterId;
 
 const WEB = {
   apiVersion: "apps/v1",
@@ -60,7 +72,6 @@ let cluster: ReturnType<typeof createFakeKubeJsonApi>;
 let other: ReturnType<typeof createFakeKubeJsonApi>;
 
 beforeEach(() => {
-  vi.mocked(interrupt).mockReset().mockReturnValue("yes");
   PreferencesStore.resetInstance();
   cluster = createFakeKubeJsonApi(
     {
@@ -192,7 +203,6 @@ describe("the read tools", () => {
 
     const result = await getPodLogs.invoke({ name: "web-1", namespace: "default", tailLines: 50 }, config("cluster-a"));
 
-    expect(interrupt).not.toHaveBeenCalled();
     expect(cluster.requests.at(-1)).toMatchObject({
       method: "getResponse",
       path: "/api/v1/namespaces/default/pods/web-1/log",
@@ -231,15 +241,84 @@ describe("the read tools", () => {
       previous: "true",
     });
   });
+});
 
-  it("asks for approval before reading the logs when the preference says so", async () => {
-    vi.mocked(interrupt).mockReturnValue("no");
+describe("the approvals", () => {
+  const approval = kubernetesToolApproval() as Record<string, (input: Record<string, unknown>) => unknown>;
+  const statusOf = (toolName: string, input: Record<string, unknown>) => approval[toolName]?.(input);
 
-    const result = await getPodLogs.invoke({ name: "web-1", namespace: "default" }, config("cluster-a"));
+  it("asks for approval before reading the logs only when the preference says so", () => {
+    const preferences = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
-    expect(interrupt).toHaveBeenCalledOnce();
-    expect(result).toBe("The user denied the action");
-    expect(cluster.requests.some(({ method }) => method === "getResponse")).toBe(false);
+    preferences.podLogsRequireApproval = true;
+    expect(statusOf("getPodLogs", { name: "web-1", namespace: "default" })).toBe("user-approval");
+
+    preferences.podLogsRequireApproval = false;
+    expect(statusOf("getPodLogs", { name: "web-1", namespace: "default" })).toBeUndefined();
+  });
+
+  it("asks for approval of every write and of no read", () => {
+    expect(Object.keys(approval).sort()).toEqual([
+      "createKubernetesResource",
+      "deleteKubernetesResource",
+      "deletePod",
+      "getPodLogs",
+      "patchKubernetesResource",
+      "restartKubernetesResource",
+      "updateKubernetesResource",
+    ]);
+    expect(statusOf("deleteKubernetesResource", { kind: "Deployment", name: "web", namespace: "default" })).toBe(
+      "user-approval",
+    );
+  });
+
+  it("refuses a write that would fail before it reaches the cluster, without asking", () => {
+    expect(statusOf("restartKubernetesResource", { kind: "Service", name: "web", namespace: "default" })).toEqual({
+      type: "denied",
+      reason: refuseBeforeApproval("restartKubernetesResource", { kind: "Service", name: "web" }),
+    });
+    expect(refuseBeforeApproval("deletePod", { name: "web-1", mode: "evict" })).toBe(
+      'Pods are namespaced; please provide a namespace to delete "web-1".',
+    );
+    expect(refuseBeforeApproval("createKubernetesResource", { kind: "Kustomization", data: { spec: {} } })).toBe(
+      "Could not determine the name for the Kustomization to create.",
+    );
+  });
+
+  it("shows the current object as the backup in the approval request", async () => {
+    const request = await describeToolCall(
+      "updateKubernetesResource",
+      {
+        kind: "Kustomization",
+        apiVersion: "kustomize.toolkit.fluxcd.io/v1",
+        name: "apps",
+        namespace: "flux-system",
+        data: { spec: { path: "./other" } },
+      },
+      "cluster-a",
+    );
+
+    expect(request.actionToApprove).toMatchObject({ action: "UPDATE KUSTOMIZATION", name: "apps" });
+    expect(request.resourcesString).toContain("path: ./apps");
+    expect(request.actionString).toContain("path: ./other");
+    // Building the request reads the object and changes nothing.
+    expect(cluster.actions().map(({ method }) => method)).toEqual(["get"]);
+  });
+
+  it("names the action and the pod of a pod delete", async () => {
+    const request = await describeToolCall(
+      "deletePod",
+      { name: "web-1", namespace: "default", mode: "evict" },
+      "cluster-a",
+    );
+
+    expect(request.actionToApprove).toEqual({
+      action: "DELETE POD (evict)",
+      name: "web-1",
+      namespace: "default",
+      mode: "evict",
+    });
+    expect(request.resourcesString).toContain("name: web-1");
   });
 });
 
@@ -267,40 +346,6 @@ describe("the write tools", () => {
         },
       }),
     ]);
-  });
-
-  it("sends nothing when the user denies the action", async () => {
-    vi.mocked(interrupt).mockReturnValue("no");
-
-    const result = await createKubernetesResource.invoke(
-      {
-        kind: "Kustomization",
-        apiVersion: "kustomize.toolkit.fluxcd.io/v1",
-        namespace: "flux-system",
-        data: { metadata: { name: "infra" } },
-      },
-      config("cluster-a"),
-    );
-
-    expect(result).toBe("The user denied the action");
-    expect(cluster.actions()).toEqual([]);
-  });
-
-  it("shows the current object as the backup in the approval request", async () => {
-    await updateKubernetesResource.invoke(
-      {
-        kind: "Kustomization",
-        apiVersion: "kustomize.toolkit.fluxcd.io/v1",
-        name: "apps",
-        namespace: "flux-system",
-        data: { ...KUSTOMIZATION, spec: { path: "./apps/production" } },
-      },
-      config("cluster-a"),
-    );
-
-    const request = vi.mocked(interrupt).mock.calls[0]?.[0] as { resourcesString?: string; actionToApprove: object };
-    expect(request.actionToApprove).toMatchObject({ action: "UPDATE KUSTOMIZATION", name: "apps" });
-    expect(request.resourcesString).toContain("path: ./apps\n");
   });
 
   it("updates with a PUT of the object", async () => {

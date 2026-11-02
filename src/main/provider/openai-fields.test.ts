@@ -1,79 +1,82 @@
-import { describe, expect, it, vi } from "vitest";
-import { buildOpenAIChatFields } from "./openai-fields";
+import { describe, expect, it } from "vitest";
+import { DEFAULT_OPENAI_BASE_URL } from "../../common/provider/ai-models";
+import { buildOpenAIModelOptions, COMPATIBLE_PROVIDER_NAME, isOpenAIBaseUrl } from "./openai-fields";
 
-const fetch = vi.fn<typeof globalThis.fetch>();
+const GATEWAY = "https://gateway.example.com/v1";
 
-const baseOptions = {
-  apiKey: "sk-test",
-  baseUrl: "https://gateway.example.com/v1",
-  fetch,
-};
+describe("buildOpenAIModelOptions", () => {
+  it("sends a model of another base URL to the OpenAI-compatible provider", () => {
+    expect(buildOpenAIModelOptions({ modelName: "gpt-4.1", baseUrl: GATEWAY })).toEqual({
+      api: "compatible",
+      temperature: 0,
+      providerOptions: { [COMPATIBLE_PROVIDER_NAME]: {} },
+    });
+  });
 
-describe("buildOpenAIChatFields", () => {
-  it("sends the requests to the endpoint with the given fetch and key", () => {
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-4.1" });
-    expect(fields.model).toBe("gpt-4.1");
-    expect(fields.apiKey).toBe("sk-test");
-    expect(fields.configuration?.baseURL).toBe("https://gateway.example.com/v1");
-    expect(fields.configuration?.fetch).toBe(fetch);
+  it("sends a model of the OpenAI API to its Chat Completions", () => {
+    expect(buildOpenAIModelOptions({ modelName: "gpt-4.1", baseUrl: `${DEFAULT_OPENAI_BASE_URL}/` }).api).toBe("chat");
   });
 
   it("sets temperature 0 and no reasoning effort for non-reasoning models", () => {
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-4.1", reasoningEffort: "high" });
-    expect(fields.temperature).toBe(0);
-    expect(fields.reasoning).toBeUndefined();
+    const options = buildOpenAIModelOptions({ modelName: "gpt-4.1", baseUrl: GATEWAY, reasoningEffort: "high" });
+    expect(options.temperature).toBe(0);
+    expect(options.providerOptions[COMPATIBLE_PROVIDER_NAME]?.reasoningEffort).toBeUndefined();
   });
 
   it("sets reasoning effort and omits temperature for reasoning models", () => {
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-5.5", reasoningEffort: "high" });
-    expect(fields.reasoning?.effort).toBe("high");
-    expect(fields.temperature).toBeUndefined();
+    const options = buildOpenAIModelOptions({
+      modelName: "gpt-5.5",
+      baseUrl: DEFAULT_OPENAI_BASE_URL,
+      reasoningEffort: "high",
+    });
+    expect(options).toEqual({ api: "chat", providerOptions: { openai: { reasoningEffort: "high" } } });
   });
 
   it("omits reasoning effort when it is not configured", () => {
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "gpt-5.5", reasoningEffort: "" });
-    expect(fields.reasoning).toBeUndefined();
-    expect(fields.temperature).toBeUndefined();
+    const options = buildOpenAIModelOptions({ modelName: "gpt-5.5", baseUrl: GATEWAY, reasoningEffort: "" });
+    expect(options.providerOptions[COMPATIBLE_PROVIDER_NAME]).toEqual({});
+    expect(options.temperature).toBeUndefined();
   });
-
-  it.each(["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"])(
-    "sets reasoning effort and omits temperature for %s",
-    (modelName) => {
-      const fields = buildOpenAIChatFields({ ...baseOptions, modelName, reasoningEffort: "medium" });
-      expect(fields.reasoning?.effort).toBe("medium");
-      expect(fields.temperature).toBeUndefined();
-    },
-  );
 
   it.each(["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-5.6-cyber"])(
-    "sends %s through the Responses API, stateless and with non-strict tools",
+    "sends %s through the Responses API, at any base URL, without storing it",
     (modelName) => {
-      const fields = buildOpenAIChatFields({ ...baseOptions, modelName });
-      expect(fields.useResponsesApi).toBe(true);
-      expect(fields.zdrEnabled).toBe(true);
-      expect(fields.supportsStrictToolCalling).toBe(false);
-      expect(fields.modelKwargs).toEqual({ include: ["reasoning.encrypted_content"] });
+      for (const baseUrl of [DEFAULT_OPENAI_BASE_URL, GATEWAY]) {
+        const options = buildOpenAIModelOptions({ modelName, baseUrl, reasoningEffort: "medium" });
+        expect(options).toEqual({
+          api: "responses",
+          providerOptions: {
+            openai: { store: false, include: ["reasoning.encrypted_content"], reasoningEffort: "medium" },
+          },
+        });
+      }
     },
   );
 
-  it.each(["gpt-5.5", "gpt-5.4-mini", "gpt-4.1", "deepseek-v4-pro"])(
-    "leaves the API of %s to the client",
-    (modelName) => {
-      const fields = buildOpenAIChatFields({ ...baseOptions, modelName });
-      expect(fields.useResponsesApi).toBeUndefined();
-      expect(fields.zdrEnabled).toBeUndefined();
-      expect(fields.supportsStrictToolCalling).toBeUndefined();
-      expect(fields.modelKwargs).toBeUndefined();
-    },
-  );
-
-  it("disables thinking via modelKwargs when requested", () => {
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "deepseek-v4-pro", disableThinking: true });
-    expect(fields.modelKwargs).toMatchObject({ thinking: { type: "disabled" } });
+  it.each(["gpt-5.5", "gpt-5.4-mini", "gpt-4.1", "deepseek-v4-pro"])("leaves %s on Chat Completions", (modelName) => {
+    expect(buildOpenAIModelOptions({ modelName, baseUrl: GATEWAY }).api).toBe("compatible");
   });
 
-  it("omits the thinking modelKwargs when not requested", () => {
-    const fields = buildOpenAIChatFields({ ...baseOptions, modelName: "deepseek-v4-pro" });
-    expect(fields.modelKwargs).toBeUndefined();
+  it("disables thinking in the request body of another base URL when requested", () => {
+    const options = buildOpenAIModelOptions({ modelName: "deepseek-v4-pro", baseUrl: GATEWAY, disableThinking: true });
+    expect(options.providerOptions[COMPATIBLE_PROVIDER_NAME]).toEqual({ thinking: { type: "disabled" } });
+  });
+
+  it("omits the thinking option when not requested, and for the OpenAI API", () => {
+    expect(buildOpenAIModelOptions({ modelName: "deepseek-v4-pro", baseUrl: GATEWAY }).providerOptions).toEqual({
+      [COMPATIBLE_PROVIDER_NAME]: {},
+    });
+    expect(
+      buildOpenAIModelOptions({ modelName: "gpt-4.1", baseUrl: DEFAULT_OPENAI_BASE_URL, disableThinking: true })
+        .providerOptions,
+    ).toEqual({ openai: {} });
+  });
+});
+
+describe("isOpenAIBaseUrl", () => {
+  it("matches the OpenAI API with or without a trailing slash, and nothing else", () => {
+    expect(isOpenAIBaseUrl(DEFAULT_OPENAI_BASE_URL)).toBe(true);
+    expect(isOpenAIBaseUrl(` ${DEFAULT_OPENAI_BASE_URL}/ `)).toBe(true);
+    expect(isOpenAIBaseUrl(GATEWAY)).toBe(false);
   });
 });
