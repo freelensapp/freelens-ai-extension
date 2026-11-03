@@ -1,7 +1,7 @@
 // The kubectl and helm tools in main: turn a call into a CLI invocation for the
 // runner and its result into the text the model reads.
 
-import { DEFAULT_CLI_TIMEOUT_SECONDS, MAX_CLI_TIMEOUT_SECONDS } from "../../../common/agent-tools/kubectl-tool";
+import { DEFAULT_CLI_TIMEOUT_SECONDS, MAX_CLI_TIMEOUT_SECONDS } from "../../../common/agent-tools/cli-tool-parameters";
 import { isRejection, splitAtCommand } from "../../../common/invocation-policy/cli-invocation";
 import { parseHelmInvocation } from "../../../common/invocation-policy/helm-canonical-forms";
 import { parseKubectlInvocation } from "../../../common/invocation-policy/kubectl-invocation";
@@ -9,7 +9,8 @@ import { redactSecretOutput, SECRET_REDACTION_NOTE, type SecretRedaction } from 
 
 import type { CliInvocationDetails } from "../../../common/agent-protocol";
 import type { CliProgram } from "../../../common/invocation-policy/canonical-form";
-import type { CliResult, CliRunner } from "../cli-runner";
+import type { CliResult } from "../cli-runner";
+import type { ClusterReadContext } from "./cluster-resources";
 
 /** The arguments of a kubectl or helm call; pi has checked them against the tool's schema. */
 export interface CliToolInput {
@@ -20,16 +21,11 @@ export interface CliToolInput {
   revealSecrets?: boolean;
 }
 
-export interface CliToolContext {
-  clusterId: string;
+/** What a call runs with: the cluster, the runner, pi's signal (Stop kills the process) and the progress callback. */
+export interface CliToolContext extends ClusterReadContext {
   program: CliProgram;
-  runCli: CliRunner;
-  /** pi's signal for the tool call: Stop kills the process. */
-  signal?: AbortSignal;
   /** The "pod logs tail lines" preference. */
   podLogsTailLines: number;
-  /** What the runner reports before the process starts, such as a kubectl download. */
-  onProgress: (message: string) => void;
   /** Set for a kubectl get of Secrets, or a helm call that can print a release's manifest, without revealSecrets. */
   secretRedaction?: SecretRedaction;
 }

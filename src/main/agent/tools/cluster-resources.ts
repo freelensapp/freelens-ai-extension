@@ -3,7 +3,7 @@
 // Both are CLI invocations of the gate itself, through the same runner as the
 // tool's.
 
-import { DEFAULT_CLI_TIMEOUT_SECONDS } from "../../../common/agent-tools/kubectl-tool";
+import { DEFAULT_CLI_TIMEOUT_SECONDS } from "../../../common/agent-tools/cli-tool-parameters";
 import { apiGroupOf } from "../../../common/invocation-policy/resource-catalog";
 
 import type { CliProgram } from "../../../common/invocation-policy/canonical-form";

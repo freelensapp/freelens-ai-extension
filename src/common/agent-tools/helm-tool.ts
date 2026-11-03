@@ -1,4 +1,4 @@
-import { cliToolParameters } from "./kubectl-tool";
+import { cliToolParameters } from "./cli-tool-parameters";
 
 import type { AgentToolDefinition } from "./index";
 

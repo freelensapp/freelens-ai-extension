@@ -877,8 +877,8 @@ main (`docs/adr/0003-agent-tools-are-cli-invocations.md`, which supersedes ADR
 
 The tools are defined once, in `src/common/agent-tools/kubectl-tool.ts` and
 `helm-tool.ts`: name, label, description and the same typebox `parameters`
-(`cliToolParameters`: `args`, `manifest`, `grep`, `timeoutSeconds`,
-`revealSecrets`). `AGENT_TOOLS` lists them, and the renderer reads them for
+(`cliToolParameters` of `cli-tool-parameters.ts`, with the timeout limits:
+`args`, `manifest`, `grep`, `timeoutSeconds`, `revealSecrets`). `AGENT_TOOLS` lists them, and the renderer reads them for
 the chat's tool list. In main, `CliGate#toPiTool` wraps each as a pi tool with
 `executionMode: "sequential"`, so pi runs the calls of a batch one at a time
 and asks an approval only after the previous call has finished; there is no
