@@ -100,7 +100,7 @@ pnpm clean:all            # Clean everything (dist, dts, node_modules, tgz)
 ```text
 src/
   main/index.ts                      # Extension entry point (main process, ESM): store, pi's ModelRuntime, agent host, provider service, IPC handlers
-  main/agent/                        # Agent host, approval gate, CLI runner, system prompts, provider service, custom endpoints, old-settings import
+  main/agent/                        # Agent host, approval gate (cli-gate.ts), CLI runner, system prompts, provider service, custom endpoints, old-settings import
   main/agent/tools/                  # The kubectl and helm tools: the gate's reads of the cluster, dry-run previews, Secret redaction, block reasons
   main/utils/                        # Logger of main
   renderer/index.tsx                 # Extension entry point (renderer process, ESM): pages, menus, preferences
@@ -263,7 +263,7 @@ mechanism; this is the list to check a change against.
   sends one chat's invocation to the other's cluster ("CLI invocations in the
   main process").
 - **Every CLI invocation goes through the invocation policy.** The tool runs
-  only a call that the gate let through (`passedCliCalls`), with what the
+  only a call that the gate let through (`CliGate`'s passed calls), with what the
   policy decided about it, the Secret redaction included. A new tool, or a new
   path to the runner, that skips the gate runs the agent's arguments past the
   floor and the profile, and prints Secret values. Only the gate's own reads
@@ -812,7 +812,10 @@ and its tests pass stand-ins.
 - **AI Explain.** The `explain` command runs in a throwaway in-memory session
   with `EXPLAIN_PROMPT` and the user's rules and no tools. It streams as
   `event` envelopes under its own `sessionId` and is never saved.
-- **Approvals** are pi's `tool_call` hook (see "Approvals").
+- **Approvals** are pi's `tool_call` hook, which `CliGate` of
+  `src/main/agent/cli-gate.ts` serves for each session; the host keeps the
+  pending approvals of every cluster in its `PendingApprovals` (see
+  "Approvals").
 - **Stop** (`abort`) aborts the run, the CLI invocation in progress and a
   pending approval, which is denied.
 
@@ -876,7 +879,7 @@ The tools are defined once, in `src/common/agent-tools/kubectl-tool.ts` and
 `helm-tool.ts`: name, label, description and the same typebox `parameters`
 (`cliToolParameters`: `args`, `manifest`, `grep`, `timeoutSeconds`,
 `revealSecrets`). `AGENT_TOOLS` lists them, and the renderer reads them for
-the chat's tool list. In main, `toPiTool` wraps each as a pi tool with
+the chat's tool list. In main, `CliGate#toPiTool` wraps each as a pi tool with
 `executionMode: "sequential"`, so pi runs the calls of a batch one at a time
 and asks an approval only after the previous call has finished; there is no
 read or write classification. `runCliTool` of `tools/cli-tool.ts` turns a call
@@ -946,9 +949,12 @@ into an invocation for the runner, and its result into what the model reads.
 
 ### Approvals
 
-pi's `tool_call` hook (`AgentHost#gate`) runs before every call, with the
-invocation policy of `src/common/invocation-policy/`, a pure module that
-reaches no Node, pi or DOM API.
+pi's `tool_call` hook (`CliGate#check` of `src/main/agent/cli-gate.ts`, one
+gate per session) runs before every call, with the invocation policy of
+`src/common/invocation-policy/`, a pure module that reaches no Node, pi or
+DOM API. The agent host keeps the sessions, the runs, the envelopes and the
+lifecycle; the gate keeps the cluster's resources and the calls it let
+through, and `PendingApprovals` the approvals that wait for an answer.
 
 - **The policy.** `evaluateInvocationPolicy` takes the program, the agent's
   own arguments (before `-f -` or a logs tail), the manifest,
@@ -968,7 +974,7 @@ reaches no Node, pi or DOM API.
   `kubectl config view --minify -o jsonpath={..namespace}`
   (`tools/cluster-resources.ts`) through the same runner and pi's signal, and
   keeps the catalog and the namespace (else `default`) for the chat's
-  session. A resource the catalog lacks reads it again once; a catalog that
+  session in its `ClusterResourceCache`. A resource the catalog lacks reads it again once; a catalog that
   cannot be read blocks the call.
 - **The profile.** The host resolves it per call from the
   `getPolicyProfileSettings` option (`clusterPolicyProfile` of
@@ -980,8 +986,8 @@ reaches no Node, pi or DOM API.
   (`tools/block-reasons.ts`), which the model gets as the tool's result and
   the tool card shows. Allow lets it run. Ask asks the user unless "Approve
   all in this chat" is on; Always ask always asks, and its card does not offer
-  "Approve all in this chat". The gate records every call it lets through in
-  `passedCliCalls`, with its program and its Secret redaction, and a tool
+  "Approve all in this chat". The gate records every call it lets through,
+  by tool call id, with its program and its Secret redaction, and a tool
   runs only a call of its program recorded there.
 - **The dry run.** Before asking about a call whose verb is on
   `DRY_RUN_VERBS` (`dry-run-verbs.ts`), `previewKubectlInvocation`

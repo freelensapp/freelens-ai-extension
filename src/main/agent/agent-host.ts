@@ -1,40 +1,20 @@
-import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   type AgentSession,
   createAgentSession,
   DefaultResourceLoader,
-  defineTool,
   type ModelRuntime,
   SessionManager,
   SettingsManager,
-  type ToolCallEvent,
-  type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CHAT_RETENTION_DAYS, errorText, failureResponse, successResponse } from "../../common/agent-protocol";
-import { helmTool, kubectlTool } from "../../common/agent-tools";
-import { DRY_RUN_VERBS } from "../../common/invocation-policy/dry-run-verbs";
-import {
-  evaluateInvocationPolicy,
-  type InvocationPolicyResult,
-} from "../../common/invocation-policy/invocation-policy";
 import { clusterPolicyProfile, type PolicyProfileSettings } from "../../common/invocation-policy/profile-assignment";
 import { DEFAULT_THINKING_LEVEL, type ThinkingLevel } from "../../common/thinking-level";
 import useLog from "../utils/logger";
+import { CliGate, isCliTool, PendingApprovals } from "./cli-gate";
 import { toJsonEvent } from "./json-event";
 import { cliPolicySection, EXPLAIN_PROMPT, SYSTEM_PROMPT, withUserRules } from "./system-prompt";
-import { dryRunRejectionReason, floorBlockReason, profileDenyReason } from "./tools/block-reasons";
-import { type CliToolInput, prepareCliInvocation, runCliTool } from "./tools/cli-tool";
-import {
-  type ClusterReadContext,
-  type ClusterResources,
-  readDefaultNamespace,
-  readResourceCatalog,
-} from "./tools/cluster-resources";
-import { previewHelmInvocation } from "./tools/helm-preview";
-import { previewKubectlInvocation } from "./tools/kubectl-preview";
-import { planSecretRedaction, type SecretRedaction } from "./tools/secret-redaction";
 
 import type { Model } from "@earendil-works/pi-ai";
 
@@ -44,21 +24,14 @@ import type {
   AgentResponse,
   AgentSnapshot,
   ChatMessage,
-  CliApprovalPreview,
-  CliApprovalRequest,
   TranscriptEntry,
 } from "../../common/agent-protocol";
 import type { AgentToolDefinition } from "../../common/agent-tools";
-import type { CliProgram } from "../../common/invocation-policy/canonical-form";
 import type { PolicyProfile } from "../../common/invocation-policy/policy-profile";
 import type { CliRunner } from "./cli-runner";
 
 const { log } = useLog("freelens-ai");
 
-export const DENIED_REASON = "The user denied the action";
-const CLUSTER_NOT_CONNECTED = "Cluster not connected";
-// `ClusterConnectionStatus.CONNECTED` of the host's catalog.
-const CONNECTED = "connected";
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Left in a cluster's session folder by New chat until the new chat has a
 // file, so a restart in between does not reopen the chat the user left.
@@ -130,26 +103,7 @@ interface ClusterAgent {
   // and a restart, which all drop this object, turn it off. It covers Ask
   // calls only, never Always ask.
   autoApprove: boolean;
-  // The resources and the namespace of the cluster, read before the chat's
-  // first kubectl or helm call and kept for its session; the resources are
-  // read again when a call names one they lack.
-  clusterResources?: ClusterResources;
-  // The kubectl and helm calls the gate let through, by tool call id, until
-  // they run: a call runs only after the gate, with what the policy decided
-  // about it.
-  passedCliCalls: Map<string, PassedCliCall>;
 }
-
-interface PassedCliCall {
-  program: CliProgram;
-  secretRedaction?: SecretRedaction;
-}
-
-/** The program each CLI tool runs, by the tool's name. */
-const CLI_TOOL_PROGRAMS: ReadonlyMap<string, CliProgram> = new Map([
-  [kubectlTool.name, "kubectl"],
-  [helmTool.name, "helm"],
-]);
 
 // An AI Explain run: a throwaway pi session that is never saved. Registered
 // before its session exists, so a second explanation or a prompt sent while it
@@ -162,48 +116,6 @@ interface ExplainRun {
   /** Settles once pi started the run or the explanation ended without one. */
   started: Promise<void>;
 }
-
-/**
- * A call that waits for approval, checked under the cluster's profile as it is
- * now: the reason to block it, or the level and the profile's name its card
- * shows. A level of Allow shows as Ask: the user still answers it.
- */
-type ApprovalCheck = { block: string } | Pick<CliApprovalRequest, "level" | "profileName">;
-
-interface PendingApproval {
-  clusterId: string;
-  sessionId: string;
-  /** Replaced when a check gives it another level or profile, so the answer is gated on the current level. */
-  request: CliApprovalRequest;
-  /** Settles the approval; a denial blocks the call with `reason`, the user's denial by default. */
-  settle: (confirmed: boolean, reason?: string) => void;
-  checkNow: () => ApprovalCheck;
-}
-
-// The policy's result for a kubectl or helm call with the agent's own
-// arguments, before the tool adds `-f -` or a logs tail.
-const evaluateCliCallWith = (
-  program: CliProgram,
-  input: CliToolInput,
-  profile: PolicyProfile,
-  { catalog, defaultNamespace }: ClusterResources,
-): InvocationPolicyResult =>
-  evaluateInvocationPolicy({
-    program,
-    args: input.args,
-    ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
-    revealSecrets: input.revealSecrets === true,
-    profile,
-    catalog,
-    defaultNamespace,
-  });
-
-// A call that waits for approval, checked under `profile`: the floor entry or the profile's Deny blocks it.
-const approvalCheck = (profile: PolicyProfile, decision: InvocationPolicyResult): ApprovalCheck => {
-  if (decision.kind === "floor") return { block: floorBlockReason(decision) };
-  if (decision.level === "deny") return { block: profileDenyReason(profile, decision) };
-  return { level: decision.level === "alwaysAsk" ? "alwaysAsk" : "ask", profileName: profile.name };
-};
 
 // The chat shows only these, the tool results under their calls; pi's system
 // prompt and custom entries stay in main.
@@ -231,8 +143,9 @@ const safeFolderName = (clusterId: string) => clusterId.replace(/[^A-Za-z0-9._-]
  */
 export class AgentHost {
   private readonly clusters = new Map<string, Promise<ClusterAgent>>();
-  // No timeout: an approval waits until the user answers or stops the run.
-  private readonly pendingApprovals = new Map<string, PendingApproval>();
+  private readonly approvals = new PendingApprovals((clusterId, sessionId, body) =>
+    this.send(clusterId, sessionId, body),
+  );
   // Per cluster rather than per session, so a snapshot taken before the first
   // run reports 0.
   private readonly seqs = new Map<string, number>();
@@ -278,21 +191,11 @@ export class AgentHost {
    * changes.
    */
   recheckPendingApprovals(): void {
-    for (const pending of [...this.pendingApprovals.values()]) {
-      const check = pending.checkNow();
-      if ("block" in check) {
-        pending.settle(false, check.block);
-      } else if (check.level !== pending.request.level || check.profileName !== pending.request.profileName) {
-        pending.request = { ...pending.request, ...check };
-        this.send(pending.clusterId, pending.sessionId, { kind: "ui_request", payload: pending.request });
-      }
-    }
+    this.approvals.recheck();
   }
 
   dispose(): void {
-    for (const pending of [...this.pendingApprovals.values()]) {
-      pending.settle(false);
-    }
+    this.approvals.deny();
     for (const cluster of this.clusters.values()) {
       cluster.then((agent) => agent.session.dispose()).catch(() => undefined);
     }
@@ -527,9 +430,7 @@ export class AgentHost {
     }
     const agent = this.clusters.get(clusterId);
     if (!agent) return successResponse("abort");
-    for (const pending of [...this.pendingApprovals.values()]) {
-      if (pending.clusterId === clusterId) pending.settle(false);
-    }
+    this.approvals.deny(clusterId);
     try {
       await (await agent).session.abort();
       return successResponse("abort");
@@ -685,8 +586,7 @@ export class AgentHost {
         messages: transcript(session),
         streamingMessage: streaming?.role === "assistant" ? streaming : undefined,
         isStreaming: session.isStreaming || explaining(),
-        pendingUiRequest: [...this.pendingApprovals.values()].find((pending) => pending.clusterId === clusterId)
-          ?.request,
+        pendingUiRequest: this.approvals.requestOf(clusterId),
         autoApprove,
         stats: session.getSessionStats(),
       };
@@ -724,20 +624,22 @@ export class AgentHost {
     confirmed: boolean,
     approveAll: boolean,
   ): Promise<AgentResponse> {
-    const pending = this.pendingApprovals.get(id);
+    const pending = this.approvals.get(id);
     if (!pending || pending.clusterId !== clusterId) {
       return failureResponse("ui_response", `No pending approval ${id}`);
     }
-    // An Always ask approval never turns it on, so it cannot cover a later Always ask.
+    // An Always ask approval never turns it on, so it cannot cover a later
+    // Always ask. The level is the request's current one, which a re-check
+    // may have changed.
     const coversLaterCalls = pending.request.level === "ask";
     if (confirmed === true && approveAll && coversLaterCalls) {
       const agent = await this.clusters.get(clusterId)?.catch(() => undefined);
       // Turned on before the call is released, so the next gated call already
       // skips the card. Stop may have denied the approval meanwhile.
-      if (!agent || !this.pendingApprovals.has(id)) return failureResponse("ui_response", `No pending approval ${id}`);
+      if (!agent || !this.approvals.get(id)) return failureResponse("ui_response", `No pending approval ${id}`);
       this.setAutoApprove(clusterId, agent, true);
     }
-    pending.settle(confirmed === true);
+    this.approvals.answer(id, confirmed === true);
     return successResponse("ui_response");
   }
 
@@ -753,175 +655,8 @@ export class AgentHost {
     this.send(clusterId, agent.session.sessionId, { kind: "auto_approve", payload: { enabled } });
   }
 
-  // pi's `tool_call` hook: a kubectl or helm call goes through the invocation
-  // policy. pi asks for one call at a time.
-  private async gate(
-    clusterId: string,
-    event: ToolCallEvent,
-    signal: AbortSignal | undefined,
-  ): Promise<ToolCallEventResult | undefined> {
-    const program = CLI_TOOL_PROGRAMS.get(event.toolName);
-    if (program) return this.gateCliCall(clusterId, program, event, signal);
-    return undefined;
-  }
-
-  // The invocation policy decides every kubectl and helm call with the
-  // cluster's profile: the floor and Deny block it with the reason, Allow runs
-  // it, Ask asks unless "Approve all in this chat" is on, and Always ask always
-  // asks.
-  private async gateCliCall(
-    clusterId: string,
-    program: CliProgram,
-    event: ToolCallEvent,
-    signal: AbortSignal | undefined,
-  ): Promise<ToolCallEventResult | undefined> {
-    // Not even the gate's own invocations start for a cluster that is not connected.
-    if (this.options.getClusterStatus(clusterId) !== CONNECTED) return { block: true, reason: CLUSTER_NOT_CONNECTED };
-    const input = event.input as unknown as CliToolInput;
-    const prepared = prepareCliInvocation(program, input, this.options.getPodLogsTailLines());
-    if (!prepared.ok) return { block: true, reason: prepared.error };
-    const agent = await this.clusters.get(clusterId);
-    if (!agent) return { block: true, reason: "The cluster session is not available." };
-
-    const profile = this.policyProfile(clusterId);
-    const read: ClusterReadContext = {
-      clusterId,
-      runCli: this.options.runCli,
-      signal,
-      // The kubectl download, if any, happens in the gate's first invocation:
-      // it shows on the call's card as the tool's own progress does.
-      onProgress: (text) =>
-        this.send(clusterId, agent.session.sessionId, {
-          kind: "event",
-          payload: {
-            type: "tool_execution_update",
-            toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            partialResult: { content: [{ type: "text", text }] },
-          },
-        }),
-    };
-    let decision: InvocationPolicyResult;
-    try {
-      decision = await this.evaluateCliCall(agent, program, input, profile, read);
-    } catch (error) {
-      return { block: true, reason: `Could not read the resources the cluster serves: ${errorText(error)}` };
-    }
-    if (decision.kind === "floor") return { block: true, reason: floorBlockReason(decision) };
-    if (decision.level === "deny") return { block: true, reason: profileDenyReason(profile, decision) };
-    const secretRedaction = planSecretRedaction(program, input.args, decision.targets);
-    const pass = () => {
-      agent.passedCliCalls.set(event.toolCallId, { program, ...(secretRedaction ? { secretRedaction } : {}) });
-      return undefined;
-    };
-    if (decision.level === "allow") return pass();
-    if (decision.level === "ask" && agent.autoApprove) return pass();
-
-    // Before asking, the server's dry run of a verb that has one: a change the
-    // server rejects fails without a card, with the server's message.
-    const dryRunVerb = DRY_RUN_VERBS[program].find((verb) =>
-      decision.targets.some((target) => target.form.verb === verb.verb),
-    );
-    const [firstTarget] = decision.targets;
-    let preview: CliApprovalPreview | undefined;
-    if (dryRunVerb && agent.clusterResources && firstTarget) {
-      const outcome =
-        program === "helm"
-          ? await previewHelmInvocation(read, { args: prepared.args, verb: dryRunVerb, target: firstTarget.form })
-          : await previewKubectlInvocation(read, {
-              args: prepared.args,
-              ...(prepared.manifest === undefined ? {} : { manifest: prepared.manifest }),
-              verb: dryRunVerb,
-              targets: decision.targets.map((target) => target.form),
-              catalog: agent.clusterResources.catalog,
-            });
-      if (outcome.kind === "stopped") return { block: true, reason: DENIED_REASON };
-      if (outcome.kind === "rejected") return { block: true, reason: dryRunRejectionReason(outcome.message) };
-      preview = outcome.preview;
-    }
-
-    // The resources read for this call stay on the agent, so the call is
-    // evaluated again with them when the profiles change: after the dry run,
-    // which may take a while, and while the approval waits.
-    const resources = agent.clusterResources;
-    const checkNow = (): ApprovalCheck => {
-      const current = this.policyProfile(clusterId);
-      return resources
-        ? approvalCheck(current, evaluateCliCallWith(program, input, current, resources))
-        : approvalCheck(profile, decision);
-    };
-    const check = checkNow();
-    if ("block" in check) return { block: true, reason: check.block };
-    const request: CliApprovalRequest = {
-      id: randomUUID(),
-      toolCallId: event.toolCallId,
-      method: "confirm",
-      program,
-      args: [...input.args],
-      ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
-      canonicalForms: decision.targets.map((target) => target.form),
-      ...check,
-      ...(preview ? { preview } : {}),
-    };
-    return (await this.askUser(clusterId, agent, signal, request, checkNow)) ?? pass();
-  }
-
-  // The policy's result for a kubectl or helm call, with the agent's own
-  // arguments, before the tool adds `-f -` or a logs tail. helm needs the
-  // namespace only. A resource the catalog lacks may have been added to the
-  // cluster since it was read, so the catalog is read again once, unless it
-  // was read for this very call.
-  private async evaluateCliCall(
-    agent: ClusterAgent,
-    program: CliProgram,
-    input: CliToolInput,
-    profile: PolicyProfile,
-    read: ClusterReadContext,
-  ): Promise<InvocationPolicyResult> {
-    const evaluate = (resources: ClusterResources) => evaluateCliCallWith(program, input, profile, resources);
-    const known = agent.clusterResources;
-    if (!known) {
-      const catalog = await readResourceCatalog(read);
-      agent.clusterResources = { catalog, defaultNamespace: await readDefaultNamespace(read) };
-      return evaluate(agent.clusterResources);
-    }
-    const decision = evaluate(known);
-    if (decision.kind !== "floor" || decision.entry.id !== "unknown-resource") return decision;
-    agent.clusterResources = { ...known, catalog: await readResourceCatalog(read) };
-    return evaluate(agent.clusterResources);
-  }
-
   private policyProfile(clusterId: string): PolicyProfile {
     return clusterPolicyProfile(this.options.getPolicyProfileSettings(), clusterId);
-  }
-
-  // Waits for the user's answer to an approval request. A run aborted some
-  // other way than our Stop denies the approval too, so the hook never hangs.
-  private async askUser(
-    clusterId: string,
-    agent: ClusterAgent,
-    signal: AbortSignal | undefined,
-    request: CliApprovalRequest,
-    checkNow: () => ApprovalCheck,
-  ): Promise<ToolCallEventResult | undefined> {
-    if (signal?.aborted) return { block: true, reason: DENIED_REASON };
-    const answer = await new Promise<{ confirmed: boolean; reason: string }>((resolve) => {
-      const onAbort = () => settle(false);
-      const settle = (confirmed: boolean, reason = DENIED_REASON) => {
-        if (!this.pendingApprovals.delete(request.id)) return;
-        signal?.removeEventListener("abort", onAbort);
-        this.send(clusterId, agent.session.sessionId, {
-          kind: "ui_resolved",
-          payload: { id: request.id, confirmed },
-        });
-        resolve({ confirmed, reason });
-      };
-      const sessionId = agent.session.sessionId;
-      this.pendingApprovals.set(request.id, { clusterId, sessionId, request, settle, checkNow });
-      signal?.addEventListener("abort", onAbort, { once: true });
-      this.send(clusterId, agent.session.sessionId, { kind: "ui_request", payload: request });
-    });
-    return answer.confirmed ? undefined : { block: true, reason: answer.reason };
   }
 
   private thinkingLevel(): ThinkingLevel {
@@ -947,6 +682,34 @@ export class AgentHost {
     const markerPath = join(sessionDir, NEW_CHAT_MARKER);
     mkdirSync(sessionDir, { recursive: true });
 
+    // The gate of this session's kubectl and helm calls. It reads the chat
+    // once the session exists: pi calls the tools only during a run.
+    let chat: ClusterAgent | undefined;
+    const gate = new CliGate({
+      clusterId,
+      runCli: this.options.runCli,
+      getClusterStatus: this.options.getClusterStatus,
+      getPolicyProfile: () => this.policyProfile(clusterId),
+      getPodLogsTailLines: this.options.getPodLogsTailLines,
+      isApprovingAll: () => chat?.autoApprove === true,
+      showProgress: (event, text) => {
+        if (!chat) return;
+        this.send(clusterId, chat.session.sessionId, {
+          kind: "event",
+          payload: {
+            type: "tool_execution_update",
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            partialResult: { content: [{ type: "text", text }] },
+          },
+        });
+      },
+      askUser: (signal, request, checkNow) =>
+        chat
+          ? this.approvals.ask(clusterId, chat.session.sessionId, signal, request, checkNow)
+          : Promise.resolve({ block: true, reason: "The cluster session is not available." }),
+    });
+
     // Only our own prompt and tools: no pi coding prompt, context files,
     // skills, prompt templates or extensions loaded from disk.
     const resourceLoader = new DefaultResourceLoader({
@@ -961,9 +724,9 @@ export class AgentHost {
       extensionFactories: [
         (pi) => {
           for (const tool of tools) {
-            pi.registerTool(this.toPiTool(clusterId, tool));
+            pi.registerTool(gate.toPiTool(tool));
           }
-          pi.on("tool_call", (event, ctx) => this.gate(clusterId, event, ctx.signal));
+          pi.on("tool_call", (event, ctx) => gate.check(event, ctx.signal));
           // pi hands each prompt a fresh copy of the sections and sends the
           // model only the ones that changed, so an edit applies from the next
           // message and an empty value removes its section. It fires for a run
@@ -975,7 +738,7 @@ export class AgentHost {
             const userRules = this.options.getUserRules?.()?.trim();
             if (clusterName) sections.cluster = clusterName;
             if (userRules) sections.user_rules = userRules;
-            if (tools.some((tool) => CLI_TOOL_PROGRAMS.has(tool.name))) {
+            if (tools.some(isCliTool)) {
               sections.cli_policy = cliPolicySection(this.policyProfile(clusterId));
             }
           });
@@ -1005,7 +768,8 @@ export class AgentHost {
 
     this.useInjectedFetch(session);
 
-    const agent: ClusterAgent = { session, autoApprove: false, passedCliCalls: new Map() };
+    const agent: ClusterAgent = { session, autoApprove: false };
+    chat = agent;
     // Called from pi's listener loop and from a microtask, where a throw would
     // break the run or go uncaught in main, so a failure is only logged.
     const sendStats = () => {
@@ -1057,41 +821,5 @@ export class AgentHost {
     } catch (error) {
       log.error(`Broadcasting to the frames of cluster ${clusterId} failed:`, error);
     }
-  }
-
-  // Every tool runs here in main, through the CLI runner.
-  private toPiTool(clusterId: string, tool: AgentToolDefinition) {
-    const program = CLI_TOOL_PROGRAMS.get(tool.name);
-    if (program) return this.toCliPiTool(clusterId, program, tool);
-    throw new Error(`No runner for the tool ${tool.name}`);
-  }
-
-  private toCliPiTool(clusterId: string, program: CliProgram, tool: AgentToolDefinition) {
-    return defineTool({
-      name: tool.name,
-      label: tool.label,
-      description: tool.description,
-      parameters: tool.parameters,
-      executionMode: "sequential",
-      execute: async (toolCallId, params, signal, onUpdate) => {
-        // No process starts for a cluster that is not connected.
-        if (this.options.getClusterStatus(clusterId) !== CONNECTED) {
-          throw new Error(CLUSTER_NOT_CONNECTED);
-        }
-        const agent = await this.clusters.get(clusterId);
-        const passed = agent?.passedCliCalls.get(toolCallId);
-        agent?.passedCliCalls.delete(toolCallId);
-        if (passed?.program !== program) throw new Error("The invocation policy has not checked this call.");
-        const result = await runCliTool(params as CliToolInput, {
-          ...passed,
-          clusterId,
-          runCli: this.options.runCli,
-          signal,
-          podLogsTailLines: this.options.getPodLogsTailLines(),
-          onProgress: (message) => onUpdate?.({ content: [{ type: "text", text: message }], details: undefined }),
-        });
-        return { content: [{ type: "text", text: result.text }], details: result.details, isError: result.isError };
-      },
-    });
   }
 }

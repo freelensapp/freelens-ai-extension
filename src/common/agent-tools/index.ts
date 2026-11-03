@@ -5,7 +5,7 @@ import type { TSchema } from "typebox";
 
 /**
  * One tool of the agent, shared by main and the cluster frame. Main turns it
- * into a pi tool that runs CLI invocations (src/main/agent/agent-host.ts); the
+ * into a pi tool that runs CLI invocations (src/main/agent/cli-gate.ts); the
  * renderer reads the definitions for the chat's tool list.
  */
 export interface AgentToolDefinition<TParams extends TSchema = TSchema> {

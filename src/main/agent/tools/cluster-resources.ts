@@ -6,6 +6,7 @@
 import { DEFAULT_CLI_TIMEOUT_SECONDS } from "../../../common/agent-tools/kubectl-tool";
 
 import type { CliProgram } from "../../../common/invocation-policy/canonical-form";
+import type { InvocationPolicyResult } from "../../../common/invocation-policy/invocation-policy";
 import type { CatalogResource, ResourceCatalog } from "../../../common/invocation-policy/resource-catalog";
 import type { CliRunner } from "../cli-runner";
 
@@ -121,4 +122,37 @@ export async function readDefaultNamespace(context: ClusterReadContext): Promise
   const result = await runGateInvocation(context, "kubectl", KUBECONFIG_NAMESPACE_ARGS);
   const namespace = result.exitCode === 0 ? result.stdout.trim() : "";
   return /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(namespace) ? namespace : FALLBACK_NAMESPACE;
+}
+
+/**
+ * The resources and the namespace of a cluster, kept for a chat's session.
+ * They are read before the chat's first evaluation. A resource they lack may
+ * have been added to the cluster since, so the resources are read again once
+ * when an evaluation rejects a call for that, unless they were read for this
+ * very call.
+ */
+export class ClusterResourceCache {
+  private resources?: ClusterResources;
+
+  /** The resources of the last evaluation; undefined before the first. */
+  get current(): ClusterResources | undefined {
+    return this.resources;
+  }
+
+  /** Evaluates a call with the resources, reading them first when needed; throws when they cannot be read. */
+  async evaluate(
+    read: ClusterReadContext,
+    evaluate: (resources: ClusterResources) => InvocationPolicyResult,
+  ): Promise<InvocationPolicyResult> {
+    const known = this.resources;
+    if (!known) {
+      const catalog = await readResourceCatalog(read);
+      this.resources = { catalog, defaultNamespace: await readDefaultNamespace(read) };
+      return evaluate(this.resources);
+    }
+    const decision = evaluate(known);
+    if (decision.kind !== "floor" || decision.entry.id !== "unknown-resource") return decision;
+    this.resources = { ...known, catalog: await readResourceCatalog(read) };
+    return evaluate(this.resources);
+  }
 }
