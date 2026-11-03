@@ -134,12 +134,16 @@ export function findCatalogResource(catalog: ResourceCatalog, spelling: string):
 export const findCategoryResources = (catalog: ResourceCatalog, category: string): CatalogResource[] =>
   catalog.filter((entry) => entry.categories.includes(category.toLowerCase()));
 
+/** The API group of an apiVersion: `apps` of `apps/v1`, empty for the core group's `v1`. */
+export const apiGroupOf = (apiVersion: string): string =>
+  apiVersion.includes("/") ? apiVersion.slice(0, apiVersion.lastIndexOf("/")) : "";
+
 /** The resource of a manifest object, by its kind and the group of its apiVersion. */
 export const findCatalogKind = (
   catalog: ResourceCatalog,
   apiVersion: string,
   kind: string,
 ): CatalogResource | undefined => {
-  const group = apiVersion.includes("/") ? apiVersion.slice(0, apiVersion.lastIndexOf("/")) : "";
+  const group = apiGroupOf(apiVersion);
   return catalog.find((entry) => entry.kind === kind && entry.group === group);
 };

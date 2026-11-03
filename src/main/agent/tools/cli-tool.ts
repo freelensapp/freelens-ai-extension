@@ -2,7 +2,7 @@
 // runner and its result into the text the model reads.
 
 import { DEFAULT_CLI_TIMEOUT_SECONDS, MAX_CLI_TIMEOUT_SECONDS } from "../../../common/agent-tools/kubectl-tool";
-import { isRejection } from "../../../common/invocation-policy/cli-invocation";
+import { isRejection, splitAtCommand } from "../../../common/invocation-policy/cli-invocation";
 import { parseHelmInvocation } from "../../../common/invocation-policy/helm-canonical-forms";
 import { parseKubectlInvocation } from "../../../common/invocation-policy/kubectl-invocation";
 import { redactSecretOutput, SECRET_REDACTION_NOTE, type SecretRedaction } from "./secret-redaction";
@@ -96,9 +96,7 @@ export function prepareCliInvocation(
   secretRedaction?: SecretRedaction,
 ): PreparedCliInvocation {
   const args = secretRedaction?.kind === "objects" ? secretRedaction.args : input.args;
-  const end = args.indexOf("--");
-  const own = end < 0 ? [...args] : args.slice(0, end);
-  const rest = end < 0 ? [] : args.slice(end);
+  const { own, command } = splitAtCommand(args);
   if (program === "kubectl" && input.manifest !== undefined) own.push("-f", "-");
   if (program === "kubectl" && readsLogsWithoutWindow(input.args)) {
     own.push(`--tail=${podLogsTailLines}`);
@@ -114,7 +112,7 @@ export function prepareCliInvocation(
   const timeoutSeconds = Math.min(input.timeoutSeconds ?? defaultTimeoutSeconds, MAX_CLI_TIMEOUT_SECONDS);
   return {
     ok: true,
-    args: [...own, ...rest],
+    args: [...own, ...command],
     ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
     timeoutMs: timeoutSeconds * 1000,
     grep,

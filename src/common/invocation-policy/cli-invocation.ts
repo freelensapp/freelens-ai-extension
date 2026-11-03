@@ -71,6 +71,15 @@ export const isFlagOn = (invocation: { flags: ReadonlyMap<string, string> }, lon
   return value !== undefined && !FALSE_VALUES.has(value);
 };
 
+/**
+ * The arguments before `--`, the program's own, and the rest from `--` on,
+ * which belong to the command of `exec` or `run`.
+ */
+export const splitAtCommand = (args: readonly string[]): { own: string[]; command: string[] } => {
+  const end = args.indexOf("--");
+  return end < 0 ? { own: [...args], command: [] } : { own: args.slice(0, end), command: args.slice(end) };
+};
+
 /** Whether a value is a floor rejection rather than what was asked for. */
 export const isRejection = (value: unknown): value is FloorRejection =>
   typeof value === "object" && value !== null && "kind" in value && value.kind === "floor";

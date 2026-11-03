@@ -6,6 +6,7 @@
 
 import { Buffer } from "node:buffer";
 import { parseDocument, stringify as stringifyYaml } from "yaml";
+import { splitAtCommand } from "../../../common/invocation-policy/cli-invocation";
 import { printsReleaseManifest } from "../../../common/invocation-policy/helm-secret-output";
 import { parseKubectlInvocation } from "../../../common/invocation-policy/kubectl-invocation";
 
@@ -65,11 +66,10 @@ export function planSecretRedaction(
       .filter((token) => token.longs.length === 1 && token.longs[0] === "--output")
       .flatMap((token) => Array.from({ length: token.count }, (_, offset) => token.index + offset)),
   );
-  const end = args.indexOf("--");
-  const own = (end < 0 ? args : args.slice(0, end)).filter((_, index) => !dropped.has(index));
+  const { own, command } = splitAtCommand(args);
   return {
     kind: "objects",
-    args: [...own, "-o", "json", ...(end < 0 ? [] : args.slice(end))],
+    args: [...own.filter((_, index) => !dropped.has(index)), "-o", "json", ...command],
     print: YAML_FORMATS.has(format) ? "yaml" : "json",
   };
 }

@@ -9,7 +9,14 @@
 
 import { parseHelmInvocation } from "../../../common/invocation-policy/helm-canonical-forms";
 import { unifiedDiff } from "./line-diff";
-import { type PreviewOutcome, previewFailure, runPreviewInvocation } from "./preview-invocation";
+import {
+  dryRunRejection,
+  type PreviewOutcome,
+  previewFailure,
+  previewUnavailable,
+  runPreviewInvocation,
+  wasStopped,
+} from "./preview-invocation";
 
 import type { CanonicalForm } from "../../../common/invocation-policy/canonical-form";
 import type { DryRunVerb } from "../../../common/invocation-policy/dry-run-verbs";
@@ -86,15 +93,14 @@ export async function previewHelmInvocation(
   const { verb, target } = call;
   const release = target.name ?? "";
   const run = (args: readonly string[]) => runPreviewInvocation(context, "helm", args);
-  const stopped = (result: CliResult) => result.killed === "stopped" || context.signal?.aborted === true;
+  const stopped = (result: CliResult) => wasStopped(context, result);
 
   const output = verb.acceptsYamlOutput ? ["-o", "json"] : [];
   const dryRun = await run([...call.args, "--dry-run=server", ...output]);
   if (stopped(dryRun)) return { kind: "stopped" };
+  const rejection = dryRunRejection(dryRun, HELM_REJECTION);
+  if (rejection !== undefined) return { kind: "rejected", message: rejection };
   const dryRunFailed = dryRun.exitCode !== 0;
-  if (dryRunFailed && dryRun.killed === undefined && HELM_REJECTION.test(dryRun.stderr)) {
-    return { kind: "rejected", message: dryRun.stderr.trim() };
-  }
 
   // The revision a rollback goes back to: the one it names, else the one before the latest, as helm takes it.
   let revision: number | undefined;
@@ -121,10 +127,7 @@ export async function previewHelmInvocation(
   const current = await run(readManifest);
   if (stopped(current)) return { kind: "stopped" };
   const currentManifest = current.exitCode === 0 ? normalized(current.stdout) : undefined;
-  const unavailable = (reason: string): PreviewOutcome => ({
-    kind: "preview",
-    preview: { kind: "unavailable", reason, ...(currentManifest ? { backup: currentManifest } : {}) },
-  });
+  const unavailable = (reason: string) => previewUnavailable(reason, currentManifest);
 
   if (dryRunFailed) return unavailable(previewFailure("the dry run", dryRun));
   if (currentManifest === undefined) return unavailable(previewFailure("reading the manifest of the release", current));

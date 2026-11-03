@@ -13,13 +13,7 @@ import {
   evaluateInvocationPolicy,
   type InvocationPolicyResult,
 } from "../../common/invocation-policy/invocation-policy";
-import {
-  CLUSTER_NOT_CONNECTED,
-  DENIED_REASON,
-  dryRunRejectionReason,
-  floorBlockReason,
-  profileDenyReason,
-} from "./tools/block-reasons";
+import { blockOrDecision, CLUSTER_NOT_CONNECTED, DENIED_REASON, dryRunRejectionReason } from "./tools/block-reasons";
 import { type CliToolInput, prepareCliInvocation, runCliTool } from "./tools/cli-tool";
 import { type ClusterReadContext, ClusterResourceCache, type ClusterResources } from "./tools/cluster-resources";
 import { previewHelmInvocation } from "./tools/helm-preview";
@@ -52,9 +46,9 @@ export const isCliTool = (tool: AgentToolDefinition): boolean => CLI_TOOL_PROGRA
 export type ApprovalCheck = { block: string } | Pick<CliApprovalRequest, "level" | "profileName">;
 
 // A call that waits for approval, checked under `profile`: the floor entry or the profile's Deny blocks it.
-const approvalCheck = (profile: PolicyProfile, decision: InvocationPolicyResult): ApprovalCheck => {
-  if (decision.kind === "floor") return { block: floorBlockReason(decision) };
-  if (decision.level === "deny") return { block: profileDenyReason(profile, decision) };
+const approvalCheck = (profile: PolicyProfile, result: InvocationPolicyResult): ApprovalCheck => {
+  const decision = blockOrDecision(profile, result);
+  if ("block" in decision) return decision;
   return { level: decision.level === "alwaysAsk" ? "alwaysAsk" : "ask", profileName: profile.name };
 };
 
@@ -227,16 +221,16 @@ export class CliGate {
       // it shows on the call's card as the tool's own progress does.
       onProgress: (message) => this.options.showProgress(event, message),
     };
-    let decision: InvocationPolicyResult;
+    let result: InvocationPolicyResult;
     try {
-      decision = await this.clusterResources.evaluate(read, (resources) =>
+      result = await this.clusterResources.evaluate(read, (resources) =>
         evaluateCliCall(program, input, profile, resources),
       );
     } catch (error) {
       return { block: true, reason: `Could not read the resources the cluster serves: ${errorText(error)}` };
     }
-    if (decision.kind === "floor") return { block: true, reason: floorBlockReason(decision) };
-    if (decision.level === "deny") return { block: true, reason: profileDenyReason(profile, decision) };
+    const decision = blockOrDecision(profile, result);
+    if ("block" in decision) return { block: true, reason: decision.block };
     const secretRedaction = planSecretRedaction(program, input.args, decision.targets);
     const pass = () => {
       this.passedCalls.set(event.toolCallId, { program, ...(secretRedaction ? { secretRedaction } : {}) });
@@ -276,7 +270,7 @@ export class CliGate {
       const current = getPolicyProfile();
       return resources
         ? approvalCheck(current, evaluateCliCall(program, input, current, resources))
-        : approvalCheck(profile, decision);
+        : approvalCheck(profile, result);
     };
     const check = checkNow();
     if ("block" in check) return { block: true, reason: check.block };

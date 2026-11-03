@@ -6,7 +6,7 @@ import { formatCanonicalForm } from "../../../common/invocation-policy/canonical
 import { POLICY_LEVEL_LABELS, type PolicyProfile } from "../../../common/invocation-policy/policy-profile";
 
 import type { FloorRejection } from "../../../common/invocation-policy/floor";
-import type { PolicyDecision } from "../../../common/invocation-policy/invocation-policy";
+import type { InvocationPolicyResult, PolicyDecision } from "../../../common/invocation-policy/invocation-policy";
 
 /** The user denied the approval, or Stop, New chat or a deactivation denied it. */
 export const DENIED_REASON = "The user denied the action";
@@ -29,6 +29,18 @@ export const profileDenyReason = (profile: PolicyProfile, decision: PolicyDecisi
         }`,
     );
   return `Denied by the policy profile "${profile.name}": ${denied.join("; ")}.`;
+};
+
+/**
+ * Why the policy blocks a call, the floor entry or the profile's Deny, or the
+ * decision about a call it does not block.
+ */
+export const blockOrDecision = (
+  profile: PolicyProfile,
+  result: InvocationPolicyResult,
+): { block: string } | PolicyDecision => {
+  if (result.kind === "floor") return { block: floorBlockReason(result) };
+  return result.level === "deny" ? { block: profileDenyReason(profile, result) } : result;
 };
 
 /** A dry run the server rejected: the call would be rejected the same way, so it does not run and nobody is asked. */

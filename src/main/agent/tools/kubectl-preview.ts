@@ -6,8 +6,17 @@
 
 import { parseAllDocuments, stringify as stringifyYaml } from "yaml";
 import { formatCanonicalForm } from "../../../common/invocation-policy/canonical-form";
+import { splitAtCommand } from "../../../common/invocation-policy/cli-invocation";
+import { apiGroupOf } from "../../../common/invocation-policy/resource-catalog";
 import { unifiedDiff } from "./line-diff";
-import { type PreviewOutcome, previewFailure, runPreviewInvocation } from "./preview-invocation";
+import {
+  dryRunRejection,
+  type PreviewOutcome,
+  previewFailure,
+  previewUnavailable,
+  runPreviewInvocation,
+  wasStopped,
+} from "./preview-invocation";
 
 import type { CliTargetDiff } from "../../../common/agent-protocol";
 import type { CanonicalForm } from "../../../common/invocation-policy/canonical-form";
@@ -51,10 +60,8 @@ const isObject = (value: unknown): value is KubeObject =>
 // `delete` takes only `-o name`, which names the objects it would delete.
 const dryRunArgs = (args: readonly string[], verb: DryRunVerb): string[] => {
   const output = verb.acceptsYamlOutput ? ["-o", "yaml"] : verb.verb === "delete" ? ["-o", "name"] : [];
-  const end = args.indexOf("--");
-  const own = end < 0 ? args : args.slice(0, end);
-  const rest = end < 0 ? [] : args.slice(end);
-  return [...own, "--dry-run=server", ...output, ...rest];
+  const { own, command } = splitAtCommand(args);
+  return [...own, "--dry-run=server", ...output, ...command];
 };
 
 const readArgs = (target: CanonicalForm): string[] => [
@@ -98,8 +105,7 @@ const parseObjects = (stdout: string): KubeObject[] | undefined => {
   return objects;
 };
 
-const groupOf = (apiVersion: unknown): string =>
-  typeof apiVersion === "string" && apiVersion.includes("/") ? apiVersion.slice(0, apiVersion.lastIndexOf("/")) : "";
+const groupOf = (apiVersion: unknown): string => (typeof apiVersion === "string" ? apiGroupOf(apiVersion) : "");
 
 // The plural resource of an object, as the canonical forms name it.
 const resourceOf = (catalog: ResourceCatalog, kind: string, group: string): string | undefined =>
@@ -146,11 +152,10 @@ export async function previewKubectlInvocation(
 ): Promise<PreviewOutcome> {
   const { verb, catalog } = call;
   const dryRun = await run(context, dryRunArgs(call.args, verb), call.manifest);
-  if (dryRun.killed === "stopped" || context.signal?.aborted) return { kind: "stopped" };
+  if (wasStopped(context, dryRun)) return { kind: "stopped" };
+  const rejection = dryRunRejection(dryRun, SERVER_REJECTION);
+  if (rejection !== undefined) return { kind: "rejected", message: rejection };
   const dryRunFailed = dryRun.exitCode !== 0;
-  if (dryRunFailed && dryRun.killed === undefined && SERVER_REJECTION.test(dryRun.stderr)) {
-    return { kind: "rejected", message: dryRun.stderr.trim() };
-  }
 
   // The targets named in the call; a selector, `--all` or a missing name targets objects only the cluster knows.
   const forms = call.targets.filter((target) => target.verb !== "reveal");
@@ -169,7 +174,7 @@ export async function previewKubectlInvocation(
   const current = new Map<CanonicalForm, CurrentObject>();
   for (const target of named) {
     const read = await run(context, readArgs(target));
-    if (read.killed === "stopped" || context.signal?.aborted) return { kind: "stopped" };
+    if (wasStopped(context, read)) return { kind: "stopped" };
     const [object] = read.exitCode === 0 ? (parseObjects(read.stdout) ?? []) : [];
     current.set(
       target,
@@ -182,10 +187,7 @@ export async function previewKubectlInvocation(
   }
 
   const backups = [...current.values()].flatMap((object) => (object.kind === "found" ? [object.yaml] : []));
-  const unavailable = (reason: string): PreviewOutcome => ({
-    kind: "preview",
-    preview: { kind: "unavailable", reason, ...(backups.length > 0 ? { backup: backups.join("---\n") } : {}) },
-  });
+  const unavailable = (reason: string) => previewUnavailable(reason, backups.join("---\n"));
 
   if (dryRunFailed) return unavailable(previewFailure("the dry run", dryRun));
   const failedRead = [...current.values()].find((object) => object.kind === "failed");

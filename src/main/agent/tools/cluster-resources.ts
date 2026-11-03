@@ -4,6 +4,7 @@
 // tool's.
 
 import { DEFAULT_CLI_TIMEOUT_SECONDS } from "../../../common/agent-tools/kubectl-tool";
+import { apiGroupOf } from "../../../common/invocation-policy/resource-catalog";
 
 import type { CliProgram } from "../../../common/invocation-policy/canonical-form";
 import type { InvocationPolicyResult } from "../../../common/invocation-policy/invocation-policy";
@@ -74,7 +75,7 @@ export function parseApiResources(stdout: string): ResourceCatalog | undefined {
     return {
       name: cell(row, "NAME"),
       shortNames: splitList(cell(row, "SHORTNAMES")),
-      group: apiVersion.includes("/") ? apiVersion.slice(0, apiVersion.lastIndexOf("/")) : "",
+      group: apiGroupOf(apiVersion),
       kind: cell(row, "KIND"),
       namespaced: cell(row, "NAMESPACED") === "true",
       categories: splitList(cell(row, "CATEGORIES")),

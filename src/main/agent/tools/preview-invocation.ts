@@ -30,6 +30,26 @@ export const runPreviewInvocation = async (
   }
 };
 
+/** Whether pi's signal (Stop) ended a preview invocation, or the call while it ran. */
+export const wasStopped = (context: ClusterReadContext, result: CliResult): boolean =>
+  result.killed === "stopped" || context.signal?.aborted === true;
+
+/**
+ * The server's message when a dry run failed the way the call would, which
+ * `rejection` recognizes in its error output; undefined for a dry run that
+ * succeeded, was killed or failed any other way.
+ */
+export const dryRunRejection = (dryRun: CliResult, rejection: RegExp): string | undefined =>
+  dryRun.exitCode !== 0 && dryRun.killed === undefined && rejection.test(dryRun.stderr)
+    ? dryRun.stderr.trim()
+    : undefined;
+
+/** A card without a preview: the reason, and the current YAML or manifest of the targets as the backup. */
+export const previewUnavailable = (reason: string, backup?: string): PreviewOutcome => ({
+  kind: "preview",
+  preview: { kind: "unavailable", reason, ...(backup ? { backup } : {}) },
+});
+
 /** Why a preview invocation gave nothing to show: its timeout, or its error output. */
 export const previewFailure = (what: string, result: CliResult): string => {
   if (result.killed === "timeout")
