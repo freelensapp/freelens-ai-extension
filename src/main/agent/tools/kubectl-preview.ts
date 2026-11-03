@@ -57,9 +57,8 @@ const isObject = (value: unknown): value is KubeObject =>
 
 // The dry-run flags, before the arguments after `--`, which belong to a command. The
 // values given last win, so they replace the agent's own `--dry-run` or `-o`.
-// `delete` takes only `-o name`, which names the objects it would delete.
 const dryRunArgs = (args: readonly string[], verb: DryRunVerb): string[] => {
-  const output = verb.acceptsYamlOutput ? ["-o", "yaml"] : verb.verb === "delete" ? ["-o", "name"] : [];
+  const output = verb.output === "none" ? [] : ["-o", verb.output];
   const { own, command } = splitAtCommand(args);
   return [...own, "--dry-run=server", ...output, ...command];
 };
@@ -194,11 +193,11 @@ export async function previewKubectlInvocation(
   if (failedRead?.kind === "failed") return unavailable(failedRead.reason);
 
   let reported: KubeObject[] | string[];
-  if (verb.acceptsYamlOutput) {
+  if (verb.output === "yaml") {
     const objects = parseObjects(dryRun.stdout);
     if (!objects) return unavailable("kubectl printed a dry run the preview does not recognize");
     reported = objects;
-  } else if (verb.verb === "delete") {
+  } else if (verb.output === "name") {
     reported = dryRun.stdout.split("\n").flatMap((line) => (line.trim() ? [nameLineObject(catalog, line.trim())] : []));
   } else {
     return unavailable(`kubectl ${verb.verb} prints no object in a dry run`);
@@ -216,7 +215,7 @@ export async function previewKubectlInvocation(
     const before = current.get(target);
     const beforeYaml = before?.kind === "found" ? before.yaml : "";
     let afterYaml = "";
-    if (verb.acceptsYamlOutput) {
+    if (verb.output === "yaml") {
       const object = (reported as KubeObject[]).find((candidate) => matches(catalog, target, candidate));
       if (!object) return unavailable("kubectl printed a dry run the preview does not recognize");
       afterYaml = toYaml(object);

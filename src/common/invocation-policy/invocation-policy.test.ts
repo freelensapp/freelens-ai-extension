@@ -765,17 +765,17 @@ describe("the dry-run verbs", () => {
     if (result.kind !== "policy") throw new Error(`rejected by the floor: ${result.reason}`);
     const verb = result.targets[0]?.form.verb ?? "";
     expect(dryRunVerbOf(verb)).toBeDefined();
-    if (dryRunVerbOf(verb)?.acceptsYamlOutput)
+    if (dryRunVerbOf(verb)?.output === "yaml")
       expect(floorEntryOf(`${args} --dry-run=server -o yaml`, options)).toBe("passes");
   });
 
   it.each(["cordon node-1", "uncordon node-1", "drain node-1"])("say that kubectl %s takes no -o", (args) => {
-    expect(dryRunVerbOf(args.split(" ")[0] ?? "")?.acceptsYamlOutput).toBe(false);
+    expect(dryRunVerbOf(args.split(" ")[0] ?? "")?.output).toBe("none");
     expect(floorEntryOf(`${args} --dry-run=server -o yaml`)).toBe("unparseable");
   });
 
-  it("say that kubectl delete takes no -o yaml", () => {
-    expect(dryRunVerbOf("delete")?.acceptsYamlOutput).toBe(false);
+  it("say that kubectl delete prints its dry run with -o name only", () => {
+    expect(dryRunVerbOf("delete")?.output).toBe("name");
   });
 
   it.each(["get pods", "logs api", "exec api -- ls", "rollout pause deploy/api", "run debug --image=busybox"])(
@@ -1079,12 +1079,12 @@ describe("the dry-run verbs of helm", () => {
   const helmDryRunVerbOf = (verb: string) => DRY_RUN_VERBS.helm.find((candidate) => candidate.verb === verb);
 
   it.each([
-    ["upgrade web bitnami/nginx --reuse-values --set a=1", true],
-    ["rollback web 2", false],
-  ])("name the verb of helm %s, which accepts --dry-run=server", (args, acceptsYamlOutput) => {
+    ["upgrade web bitnami/nginx --reuse-values --set a=1", "json"],
+    ["rollback web 2", "none"],
+  ])("name the verb of helm %s, which accepts --dry-run=server", (args, output) => {
     const result = evaluateHelm(`${args} --dry-run=server`);
     if (result.kind !== "policy") throw new Error(`rejected by the floor: ${result.reason}`);
-    expect(helmDryRunVerbOf(result.targets[0]?.form.verb ?? "")?.acceptsYamlOutput).toBe(acceptsYamlOutput);
+    expect(helmDryRunVerbOf(result.targets[0]?.form.verb ?? "")?.output).toBe(output);
   });
 
   it.each(["list", "status web", "get values web", "uninstall web"])("leave out the verb of helm %s", (args) => {

@@ -96,8 +96,9 @@ on the dry-run list. `kubectl rollout restart --help` of kubectl 1.36.5 has
 no `--dry-run`, and what the CLI's help says wins over the spec. Every other
 verb on the list was checked the same way (every `set` and `create`
 subcommand included) and has `--dry-run`. The list also says, per verb,
-whether it takes `-o yaml` (`acceptsYamlOutput`): `delete` takes only
-`-o name`, and `cordon`, `uncordon` and `drain` take no `-o`.
+whether it takes `-o yaml` (`acceptsYamlOutput`, since replaced by
+`output`): `delete` takes only `-o name`, and `cordon`, `uncordon` and
+`drain` take no `-o`.
 
 Other notes:
 

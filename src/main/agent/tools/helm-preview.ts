@@ -95,7 +95,7 @@ export async function previewHelmInvocation(
   const run = (args: readonly string[]) => runPreviewInvocation(context, "helm", args);
   const stopped = (result: CliResult) => wasStopped(context, result);
 
-  const output = verb.acceptsYamlOutput ? ["-o", "json"] : [];
+  const output = verb.output === "none" ? [] : ["-o", verb.output];
   const dryRun = await run([...call.args, "--dry-run=server", ...output]);
   if (stopped(dryRun)) return { kind: "stopped" };
   const rejection = dryRunRejection(dryRun, HELM_REJECTION);
@@ -105,7 +105,7 @@ export async function previewHelmInvocation(
   // The revision a rollback goes back to: the one it names, else the one before the latest, as helm takes it.
   let revision: number | undefined;
   let revisionFailure: string | undefined;
-  if (!verb.acceptsYamlOutput && !dryRunFailed) {
+  if (verb.output === "none" && !dryRunFailed) {
     const invocation = parseHelmInvocation(call.args);
     const named = "kind" in invocation ? 0 : Number(invocation.operands[1] ?? "0");
     if (named > 0) {

@@ -5,11 +5,13 @@ export interface DryRunVerb {
   /** The verb of the canonical forms: `set` covers every `set` subcommand, `create` every `create` subcommand. */
   verb: string;
   /**
-   * Whether its invocations also take `-o yaml`, to print what the cluster
-   * would become. `delete` takes only `-o name`; `cordon`, `uncordon` and
-   * `drain` take no `-o`.
+   * The output format its dry run is read with: `yaml`, the objects the
+   * cluster would make; `name`, the objects `delete` would delete, since it
+   * takes no other; `json`, the release a helm `upgrade` would make; `none`
+   * for `cordon`, `uncordon` and `drain`, which take no `-o`, and a helm
+   * `rollback`, which prints no release.
    */
-  acceptsYamlOutput: boolean;
+  output: "yaml" | "json" | "name" | "none";
 }
 
 /**
@@ -21,23 +23,23 @@ export interface DryRunVerb {
  */
 export const DRY_RUN_VERBS: Readonly<Record<CliProgram, readonly DryRunVerb[]>> = {
   kubectl: [
-    { verb: "apply", acceptsYamlOutput: true },
-    { verb: "create", acceptsYamlOutput: true },
-    { verb: "replace", acceptsYamlOutput: true },
-    { verb: "patch", acceptsYamlOutput: true },
-    { verb: "delete", acceptsYamlOutput: false },
-    { verb: "scale", acceptsYamlOutput: true },
-    { verb: "label", acceptsYamlOutput: true },
-    { verb: "annotate", acceptsYamlOutput: true },
-    { verb: "set", acceptsYamlOutput: true },
-    { verb: "rollout undo", acceptsYamlOutput: true },
-    { verb: "cordon", acceptsYamlOutput: false },
-    { verb: "uncordon", acceptsYamlOutput: false },
-    { verb: "drain", acceptsYamlOutput: false },
-    { verb: "taint", acceptsYamlOutput: true },
+    { verb: "apply", output: "yaml" },
+    { verb: "create", output: "yaml" },
+    { verb: "replace", output: "yaml" },
+    { verb: "patch", output: "yaml" },
+    { verb: "delete", output: "name" },
+    { verb: "scale", output: "yaml" },
+    { verb: "label", output: "yaml" },
+    { verb: "annotate", output: "yaml" },
+    { verb: "set", output: "yaml" },
+    { verb: "rollout undo", output: "yaml" },
+    { verb: "cordon", output: "none" },
+    { verb: "uncordon", output: "none" },
+    { verb: "drain", output: "none" },
+    { verb: "taint", output: "yaml" },
   ],
   helm: [
-    { verb: "upgrade", acceptsYamlOutput: true },
-    { verb: "rollback", acceptsYamlOutput: false },
+    { verb: "upgrade", output: "json" },
+    { verb: "rollback", output: "none" },
   ],
 };
