@@ -9,7 +9,7 @@ See the spec, "Renderer" (profile editor).
 
 **Blocked by:** 08
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] The test box splits the command line into arguments, calls the same
       invocation policy as main with the built-in resource catalog, and shows

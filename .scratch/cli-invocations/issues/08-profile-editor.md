@@ -10,7 +10,7 @@ See the spec, "Renderer" (profile editor).
 
 **Blocked by:** 06
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] The preferences list the shipped and user profiles; the shipped ones
       are marked read-only and cannot be edited.

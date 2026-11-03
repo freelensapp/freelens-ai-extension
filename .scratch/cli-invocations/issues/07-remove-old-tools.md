@@ -9,7 +9,7 @@ See the spec, "The two tools", "The system prompt" and "Documentation".
 
 **Blocked by:** 04, 05, 06
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] The tool list holds only `kubectl`. The twelve tools are removed, along
       with the resolution of kinds to API paths, the manifest schemas and

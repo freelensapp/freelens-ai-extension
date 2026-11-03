@@ -9,7 +9,7 @@ See the spec, "Renderer" (cluster settings tab, badge, assignment table).
 
 **Blocked by:** 06
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] A "Freelens AI" tab registered through `entitySettings` for the cluster
       entity holds a profile picker for that cluster, wrapped in an error

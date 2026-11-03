@@ -10,7 +10,7 @@ See the spec, "The approval gate", and ADR 0003.
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] For an Ask or Always ask invocation whose verb is on the dry-run list,
       the gate runs the same invocation with `--dry-run=server -o yaml`, and

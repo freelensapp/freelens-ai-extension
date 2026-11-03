@@ -9,7 +9,7 @@ See the spec, "Secret redaction".
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] A `get` that includes the resource `secrets`, without `revealSecrets`,
       runs with `-o json` whatever output was asked for. In the result, every

@@ -12,7 +12,7 @@ See the spec, "The two tools" and "Running a CLI invocation".
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] The agent's tool list holds a `kubectl` tool with the parameters `args`,
       `manifest`, `grep`, `timeoutSeconds` and `revealSecrets`, marked
@@ -76,3 +76,7 @@ provider and choose a model, and leave the `kubectl` approval at its default
   the card's output says "kubectl was stopped before it ended.";
 - no error in DevTools of the cluster frame, and none of the `freelens-ai`
   scope in main's log.
+
+Resolved on `cli-invocations`. The manual check above describes the per-tool
+approval card of this ticket, which ticket 03 replaced; run cases A1 to A3 of
+`../manual-test-cases.md` instead.

@@ -14,7 +14,7 @@ profiles and their storage" (the shipped profiles).
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] The parser knows kubectl's global flags, which flags take a value, and
       the verbs of several words. It accepts every spelling of a flag and

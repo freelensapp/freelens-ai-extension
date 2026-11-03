@@ -11,7 +11,7 @@ forms and floor entries) and "Policy profiles and their storage".
 
 **Blocked by:** 04, 07
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] A `helm` tool with the same parameters runs the binary of
       `Main.Shell.getHelmPath(clusterId)` through the same runner.

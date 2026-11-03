@@ -12,7 +12,7 @@ approval card).
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] pi's `tool_call` hook runs the invocation policy for every `kubectl`
       call. A floor rejection or Deny blocks it with the reason, Allow runs it,

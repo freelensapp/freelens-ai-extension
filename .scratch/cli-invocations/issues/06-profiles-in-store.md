@@ -11,7 +11,7 @@ See the spec, "Policy profiles and their storage" and "Migration".
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** resolved (HITL check pending: manual-test-cases.md)
 
 - [x] `PreferencesStore` gains user profiles (id, name, rules of pattern and
       level, fallback level), the assignments from cluster id to profile id,
