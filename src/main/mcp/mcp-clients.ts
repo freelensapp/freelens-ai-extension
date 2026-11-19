@@ -1,26 +1,29 @@
-// The MCP servers of the preferences, run in main: one `MCPAdapter` per
-// cluster, so each chat's servers talk to its own cluster. A stdio server is
-// a child process of main, started with the environment of the cluster's
-// terminal (`Main.Shell.getEnvironment`); HTTP and SSE servers are reached from
-// main too. Nothing of an MCP server leaves main: the renderer sees only the
-// agent's stream and its approvals, through the bridge.
+// The MCP servers of the preferences, run in main: one client per cluster, so
+// each chat's servers talk to its own cluster. A stdio server is a child process
+// of main, started with the environment of the cluster's terminal
+// (`Main.Shell.getEnvironment`); HTTP and SSE servers are reached from main
+// with the host's fetch, so the user's proxy and certificate preferences apply.
+// Nothing of an MCP server leaves main: the renderer sees only the agent's
+// stream and its approvals, through the bridge.
 
+import { createMCPClient, type MCPClient } from "@ai-sdk/mcp";
+import { StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import { Common, Main } from "@freelensapp/extensions";
-import { MCPAdapter } from "@langchain/mcp-adapters";
 import useLog from "../utils/logger";
 import {
   isStdioServer,
   type McpServers,
   parseMcpServers,
+  toServerTransport,
   withClusterEnvironment,
-  withoutElicitation,
 } from "./mcp-configuration";
 
-import type { StructuredToolInterface } from "@langchain/core/tools";
-import type { Connection } from "@langchain/mcp-adapters";
+import type { ToolSet } from "ai";
 
 export interface McpClient {
-  listTools(): Promise<StructuredToolInterface[]>;
+  // The tools of every server of the client, by the names their servers give
+  // them; starts the servers on the first call.
+  listTools(): Promise<ToolSet>;
   // Stops every server of the client; a stdio server's process ends with it.
   close(): Promise<void>;
 }
@@ -31,25 +34,82 @@ export interface McpClientsDependencies {
   createClient(servers: McpServers): McpClient;
 }
 
+// Read at call time: the namespace is the host's, and exists only once the
+// extension is loaded.
+const hostFetch: typeof globalThis.fetch = (input, init) => Main.Util.fetch(input, init);
+
+const connect = (name: string, server: unknown): Promise<MCPClient> => {
+  const transport = toServerTransport(name, server);
+  return createMCPClient({
+    clientName: "freelens-ai-extension",
+    // No capabilities: in particular no elicitation, which would ask the user
+    // for input in the middle of a tool call, and which the chat cannot show.
+    transport:
+      transport.type === "stdio"
+        ? new StdioMCPTransport({
+            command: transport.command,
+            args: transport.args,
+            env: transport.env,
+            cwd: transport.cwd,
+          })
+        : { type: transport.type, url: transport.url, headers: transport.headers, fetch: hostFetch },
+  });
+};
+
+/**
+ * A client of the AI SDK for every server of the configuration. The tools keep
+ * the names their servers give them, which the custom agent rules of the
+ * preferences may name, so two servers with a tool of the same name fail the
+ * start.
+ */
+export const createServersClient = (servers: McpServers, connectServer = connect): McpClient => {
+  const clients: MCPClient[] = [];
+  let closed = false;
+
+  const close = async () => {
+    closed = true;
+    await Promise.allSettled(clients.splice(0).map((client) => client.close()));
+  };
+
+  const start = async (name: string, server: unknown): Promise<ToolSet> => {
+    const client = await connectServer(name, server);
+    clients.push(client);
+    if (closed) {
+      await close();
+      throw new Error("The MCP servers were stopped while they started.");
+    }
+    return client.tools();
+  };
+
+  return {
+    listTools: async () => {
+      const toolSets = await Promise.all(Object.entries(servers).map(([name, server]) => start(name, server)));
+      const tools: ToolSet = {};
+      for (const toolSet of toolSets) {
+        for (const [name, tool] of Object.entries(toolSet)) {
+          if (name in tools) {
+            throw new Error(`Two MCP servers have a tool named "${name}".`);
+          }
+          tools[name] = tool;
+        }
+      }
+      return tools;
+    },
+    close,
+  };
+};
+
 const hostDependencies: McpClientsDependencies = {
   isConnected: (clusterId) =>
     Main.Catalog.getClusterById(clusterId)?.status === Common.Clusters.ClusterConnectionStatus.CONNECTED,
   getEnvironment: (clusterId) => Main.Shell.getEnvironment(clusterId),
-  createClient: (servers) =>
-    new MCPAdapter({
-      throwOnLoadError: true,
-      // The tools keep the names their servers give them, which the custom
-      // agent rules of the preferences may name.
-      prefixToolNameWithServerName: false,
-      // The connections are the user's JSON; the adapter validates them.
-      servers: withoutElicitation(servers) as Record<string, Connection>,
-    }),
+  createClient: (servers) => createServersClient(servers),
 };
 
 interface Entry {
   configuration: string;
   client?: McpClient;
-  tools: Promise<StructuredToolInterface[]>;
+  tools: Promise<ToolSet>;
   closed: boolean;
 }
 
@@ -69,7 +129,7 @@ export class McpClients {
    * configuration stops them and starts the new ones. A failed start leaves
    * nothing running, so the next request tries again.
    */
-  getTools(clusterId: string, configuration: string): Promise<StructuredToolInterface[]> {
+  getTools(clusterId: string, configuration: string): Promise<ToolSet> {
     const current = this.entries.get(clusterId);
     if (current && current.configuration === configuration) {
       return current.tools;
@@ -78,7 +138,7 @@ export class McpClients {
       void this.close(clusterId);
     }
 
-    const entry: Entry = { configuration, closed: false, tools: Promise.resolve([]) };
+    const entry: Entry = { configuration, closed: false, tools: Promise.resolve({}) };
     // Kept before the start, which removes it again when it fails before its
     // first await.
     this.entries.set(clusterId, entry);
@@ -86,11 +146,9 @@ export class McpClients {
     return entry.tools;
   }
 
-  private async start(clusterId: string, entry: Entry): Promise<StructuredToolInterface[]> {
+  private async start(clusterId: string, entry: Entry): Promise<ToolSet> {
     try {
       const servers = parseMcpServers(entry.configuration);
-      // The adapter refuses an empty map too, but with a Zod error over every
-      // shape of its configuration, which says nothing the user can act on.
       if (Object.keys(servers).length === 0) {
         throw new Error("No MCP servers provided");
       }
@@ -103,8 +161,8 @@ export class McpClients {
       }
       entry.client = this.dependencies.createClient(withClusterEnvironment(servers, environment));
       const tools = await entry.client.listTools();
-      for (const tool of tools) {
-        this.log.debug(`Loaded MCP tool ${tool.name} for cluster ${clusterId}: ${tool.description}`);
+      for (const [name, tool] of Object.entries(tools)) {
+        this.log.debug(`Loaded MCP tool ${name} for cluster ${clusterId}: ${tool.description}`);
       }
       return tools;
     } catch (error) {

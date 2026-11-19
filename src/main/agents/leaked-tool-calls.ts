@@ -1,17 +1,14 @@
-// Detects tool-call markup that has leaked into assistant message *content*
-// instead of being returned as a structured `tool_calls` field.
+// Detects tool-call markup that has leaked into the assistant *text* instead of
+// being returned as a structured tool call.
 //
 // This happens when an OpenAI-compatible endpoint serves a model whose native
 // tool-call token format (for example DeepSeek's "DSML" / `<｜tool▁calls▁begin｜>`
-// markup) is not parsed server-side. LangChain's `ChatOpenAI` only reads the
-// OpenAI `tool_calls` field, so the raw tokens surface as plain text, no tool is
-// ever invoked, and the tool-approval prompt never fires. Detecting it lets the
+// markup) is not parsed server-side. The provider only reads the OpenAI
+// `tool_calls` field, so the raw tokens surface as plain text, no tool is ever
+// invoked, and the tool-approval prompt never fires. Detecting it lets the
 // agent fail with an actionable message instead of dumping raw markup to the UI.
 
-import { AIMessage, isAIMessage } from "@langchain/core/messages";
-
-import type { BaseMessage, MessageContent } from "@langchain/core/messages";
-import type { ToolCall } from "@langchain/core/messages/tool";
+import { type MessageContent, messageContentToText } from "../../common/provider/token-estimate";
 
 // Shared, user-facing explanation for a leaked / missing structured tool call.
 export const LEAKED_TOOL_CALL_MESSAGE =
@@ -30,34 +27,9 @@ const LEAKED_TOOL_CALL_PATTERNS: RegExp[] = [
   /<\s*[｜|]\s*tool[▁_\s]calls?[▁_\s]begin\s*[｜|]\s*>/i,
 ];
 
-// Flatten LangChain message content (string or array of content parts) to text.
-const toText = (content: MessageContent): string => {
-  if (typeof content === "string") {
-    return content;
-  }
-  if (!Array.isArray(content)) {
-    return "";
-  }
-  return content
-    .map((part) => {
-      if (typeof part === "string") {
-        return part;
-      }
-      if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
-        return part.text;
-      }
-      return "";
-    })
-    .join("");
-};
-
-// Public alias: flatten LangChain message content to plain text. Reused by the
-// supervisor routing recovery to scan assistant text for a routing decision.
-export const messageContentToText = (content: MessageContent): string => toText(content);
-
 // True when the assistant content contains tool-call tokens that leaked as text.
 export const containsLeakedToolCallMarkup = (content: MessageContent): boolean => {
-  const text = toText(content);
+  const text = messageContentToText(content);
   if (!text) {
     return false;
   }
@@ -79,10 +51,10 @@ export const containsLeakedToolCallMarkup = (content: MessageContent): boolean =
 //     </｜｜DSML｜｜invoke>
 //   </｜｜DSML｜｜tool_calls>
 //
-// Recovering these into structured `tool_calls` lets the agent graph execute the
-// tools instead of dumping the raw markup to the UI. The native token format
-// (`<｜tool▁calls▁begin｜>`) carries no parseable arguments, so it is left for the
-// `containsLeakedToolCallMarkup` guard to report.
+// Recovering these into structured tool calls (see dsml-middleware.ts) lets the
+// agent execute the tools instead of dumping the raw markup to the UI. The
+// native token format (`<｜tool▁calls▁begin｜>`) carries no parseable arguments,
+// so it is left for the `containsLeakedToolCallMarkup` guard to report.
 
 // Namespace fragment shared by every DSML tag: one or two bars, "DSML", one or
 // two bars. Tolerates ASCII "|" and surrounding whitespace.
@@ -120,11 +92,18 @@ const parseParamValue = (rawValue: string, isString: boolean): unknown => {
   }
 };
 
+// A tool call recovered from the markup. The caller gives it an id that is
+// unique in the conversation.
+export interface DsmlToolCall {
+  name: string;
+  args: Record<string, unknown>;
+}
+
 export interface ParsedDsmlToolCalls {
   // The assistant text with all DSML markup removed (trimmed).
   cleanedText: string;
   // Structured tool calls recovered from the markup (empty when none found).
-  toolCalls: ToolCall[];
+  toolCalls: DsmlToolCall[];
 }
 
 // Parse DeepSeek DSML tool-call markup out of assistant content. Returns the
@@ -132,14 +111,13 @@ export interface ParsedDsmlToolCalls {
 // `invoke` block is present, `toolCalls` is empty and `cleanedText` is the
 // original text (trimmed).
 export const parseDsmlToolCalls = (content: MessageContent): ParsedDsmlToolCalls => {
-  const text = toText(content);
-  const toolCalls: ToolCall[] = [];
+  const text = messageContentToText(content);
+  const toolCalls: DsmlToolCall[] = [];
 
   if (!text) {
     return { cleanedText: "", toolCalls };
   }
 
-  let index = 0;
   for (const invokeMatch of text.matchAll(DSML_INVOKE_BLOCK)) {
     const name = invokeMatch[1]?.trim();
     const body = invokeMatch[2] ?? "";
@@ -157,8 +135,7 @@ export const parseDsmlToolCalls = (content: MessageContent): ParsedDsmlToolCalls
       args[nameAttr[1]] = parseParamValue(paramMatch[2] ?? "", PARAM_STRING_ATTR.test(attrs));
     }
 
-    toolCalls.push({ name, args, id: `dsml_tool_call_${index}`, type: "tool_call" });
-    index++;
+    toolCalls.push({ name, args });
   }
 
   if (toolCalls.length === 0) {
@@ -169,43 +146,15 @@ export const parseDsmlToolCalls = (content: MessageContent): ParsedDsmlToolCalls
   return { cleanedText, toolCalls };
 };
 
-// When an assistant message carries DSML tool-call markup in its text but no
-// structured `tool_calls`, return a new message with the tool calls recovered
-// and the markup stripped. Messages that already have structured tool calls, or
-// that contain no recoverable DSML markup, are returned unchanged.
-export const recoverDsmlToolCalls = (message: BaseMessage): BaseMessage => {
-  if (!isAIMessage(message) || (message.tool_calls && message.tool_calls.length > 0)) {
-    return message;
-  }
-
-  const { cleanedText, toolCalls } = parseDsmlToolCalls(message.content);
-  if (toolCalls.length === 0) {
-    return message;
-  }
-
-  return new AIMessage({
-    id: message.id,
-    content: cleanedText,
-    tool_calls: toolCalls,
-    invalid_tool_calls: message.invalid_tool_calls,
-    additional_kwargs: message.additional_kwargs,
-    response_metadata: message.response_metadata,
-    usage_metadata: message.usage_metadata,
-    name: message.name,
-  });
-};
-
 // ---------------------------------------------------------------------------
 // Unsupported / hallucinated tool calls
 // ---------------------------------------------------------------------------
 //
 // The model may request a tool that does not exist in the extension, for
 // example a shell-style `runCommand` (no command-execution capability is
-// implemented). Such a call can arrive as a structured `tool_calls` entry or be
-// recovered from DSML markup; either way `ToolNode` only answers with a generic
-// "Tool not found" message that the agent then summarizes into a confusing
-// result. Detecting unknown tool names lets the agent fail with an actionable
-// explanation instead.
+// implemented). The AI SDK answers such a call with a tool error that the model
+// would summarize into a confusing result, so the agent fails with an
+// actionable explanation instead (see agent-service.ts).
 
 // Shared, user-facing explanation for an unsupported tool call.
 export const UNSUPPORTED_TOOL_CALL_MESSAGE =
@@ -218,23 +167,4 @@ export const buildUnsupportedToolCallMessage = (toolNames: string[]): string => 
   const names = toolNames.map((name) => `\`${name}\``).join(", ");
   const subject = toolNames.length === 1 ? "an unsupported tool" : "unsupported tools";
   return `The model tried to use ${subject} (${names}). ${UNSUPPORTED_TOOL_CALL_MESSAGE}`;
-};
-
-// Return the de-duplicated names of any tool calls in the given messages whose
-// name is not part of `knownToolNames`. Empty when every requested tool is known
-// (or no tool calls are present).
-export const findUnknownToolCalls = (messages: BaseMessage[], knownToolNames: Iterable<string>): string[] => {
-  const known = new Set(knownToolNames);
-  const unknown = new Set<string>();
-  for (const message of messages) {
-    if (!isAIMessage(message) || !message.tool_calls) {
-      continue;
-    }
-    for (const toolCall of message.tool_calls) {
-      if (toolCall.name && !known.has(toolCall.name)) {
-        unknown.add(toolCall.name);
-      }
-    }
-  }
-  return [...unknown];
 };

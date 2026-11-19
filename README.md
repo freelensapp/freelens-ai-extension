@@ -106,13 +106,13 @@ in [Connecting a model](#connecting-a-model) and, with screenshots, in the
 
 Freelens AI is a **client of a large language model API**. It does not run a
 model itself; instead it sends your prompts and the cluster context to a model
-provider and renders the response. The agent logic (the LangGraph supervisor,
-the cluster tools, structured output, and human-in-the-loop approvals) runs
+provider and renders the response. The agent logic (one agent on the Vercel AI
+SDK, the cluster tools, and human-in-the-loop approvals) runs
 inside the extension, in the main process of Freelens, and only the model
 inference is delegated to the provider.
 
 - **Talks the OpenAI Chat Completions and Responses APIs.** The extension is
-  built on the OpenAI client and the OpenAI-compatible wire format. Most models
+  built on the OpenAI providers of the AI SDK and the OpenAI-compatible wire format. Most models
   are reached through Chat Completions; the GPT-6 models, which take tools only
   through the Responses API, are reached through Responses (see [Available
   Models](#available-models)). It works with OpenAI

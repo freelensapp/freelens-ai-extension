@@ -1,8 +1,9 @@
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type McpClient, McpClients } from "./mcp-clients";
+import { createServersClient, type McpClient, McpClients } from "./mcp-clients";
 
-import type { StructuredToolInterface } from "@langchain/core/tools";
+import type { MCPClient } from "@ai-sdk/mcp";
+import type { ToolSet } from "ai";
 
 import type { McpServers } from "./mcp-configuration";
 
@@ -14,7 +15,7 @@ const environmentOf = (clusterId: string) => ({ KUBECONFIG: `/run/freelens/${clu
 // Clients that record the servers they were created with and whether they were
 // closed, and a host whose clusters are connected unless a test says otherwise.
 const createFakes = () => {
-  const clients: { servers: McpServers; closed: boolean; tools: StructuredToolInterface[] }[] = [];
+  const clients: { servers: McpServers; closed: boolean; tools: ToolSet }[] = [];
   const connected = new Set(["cluster-a", "cluster-b"]);
   const dependencies = {
     isConnected: vi.fn((clusterId: string) => connected.has(clusterId)),
@@ -25,7 +26,11 @@ const createFakes = () => {
       return environmentOf(clusterId);
     }),
     createClient: vi.fn((servers: McpServers): McpClient => {
-      const record = { servers, closed: false, tools: [{ name: `tool-${clients.length}` } as StructuredToolInterface] };
+      const record = {
+        servers,
+        closed: false,
+        tools: { [`tool-${clients.length}`]: { description: "an MCP tool" } } as unknown as ToolSet,
+      };
       clients.push(record);
       return {
         listTools: async () => record.tools,
@@ -162,6 +167,41 @@ describe("McpClients", () => {
   });
 });
 
+describe("createServersClient", () => {
+  // Clients of the AI SDK whose tools are named by the test, and which record
+  // whether they were closed.
+  const fakeConnect = (toolsOf: Record<string, string[]>) => {
+    const closed: string[] = [];
+    const connect = vi.fn(async (name: string) => {
+      const tools = Object.fromEntries((toolsOf[name] ?? []).map((tool) => [tool, { description: tool }]));
+      return {
+        tools: async () => tools,
+        close: async () => {
+          closed.push(name);
+        },
+      } as unknown as MCPClient;
+    });
+    return { closed, connect };
+  };
+
+  it("joins the tools of every server under the names their servers give them", async () => {
+    const { connect } = fakeConnect({ kubernetes: ["pods_list"], flux: ["reconcile"] });
+    const client = createServersClient({ kubernetes: { command: "npx" }, flux: { url: "https://flux" } }, connect);
+
+    expect(Object.keys(await client.listTools())).toEqual(["pods_list", "reconcile"]);
+    expect(connect.mock.calls.map(([name]) => name)).toEqual(["kubernetes", "flux"]);
+  });
+
+  it("fails the start when two servers have a tool of the same name, and closes them all", async () => {
+    const { closed, connect } = fakeConnect({ one: ["list"], two: ["list"] });
+    const client = createServersClient({ one: { command: "a" }, two: { command: "b" } }, connect);
+
+    await expect(client.listTools()).rejects.toThrow('Two MCP servers have a tool named "list".');
+    await client.close();
+    expect(closed.sort()).toEqual(["one", "two"]);
+  });
+});
+
 describe("McpClients with a real stdio server", () => {
   const server = fileURLToPath(new URL("../../../test/fixtures/environment-mcp-server.mjs", import.meta.url));
   const configuration = JSON.stringify({ mcpServers: { environment: { command: process.execPath, args: [server] } } });
@@ -185,11 +225,13 @@ describe("McpClients with a real stdio server", () => {
       getEnvironment: async (clusterId) => ({ KUBECONFIG: `/run/freelens/${clusterId}` }),
     });
 
-    const [tool] = await mcpClients.getTools("cluster-a", configuration);
-    // The text the server answered with, as the tool's content.
-    const { kubeconfig, pid } = JSON.parse(String(await tool?.invoke({}))) as { kubeconfig: string; pid: number };
+    const tools = await mcpClients.getTools("cluster-a", configuration);
+    expect(Object.keys(tools)).toEqual(["showEnvironment"]);
+    // The text the server answered with, as the content of the tool's result.
+    const execute = tools.showEnvironment?.execute as (input: unknown, options: unknown) => Promise<unknown>;
+    const result = (await execute({}, { toolCallId: "call-1", messages: [] })) as { content: { text: string }[] };
+    const { kubeconfig, pid } = JSON.parse(result.content[0]?.text ?? "{}") as { kubeconfig: string; pid: number };
 
-    expect(tool?.name).toBe("showEnvironment");
     expect(kubeconfig).toBe("/run/freelens/cluster-a");
     expect(isRunning(pid)).toBe(true);
 

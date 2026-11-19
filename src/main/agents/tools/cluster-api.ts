@@ -1,12 +1,10 @@
 // How the Kubernetes tools reach the chat's cluster from main: the cluster id
-// travels in the run config (`configurable.clusterId`, set by agent-service.ts),
-// and every request goes through the host's `KubeJsonApi` for that cluster, by
-// path, so built-in kinds, custom resources, subresources and `/version` are
-// reached the same way.
+// travels as the typed context of every tool (`toolsContext`, set by
+// freelens-agent.ts), and every request goes through the host's `KubeJsonApi`
+// for that cluster, by path, so built-in kinds, custom resources, subresources
+// and `/version` are reached the same way.
 
 import { Main } from "@freelensapp/extensions";
-
-import type { RunnableConfig } from "@langchain/core/runnables";
 
 type HostKubeJsonApi = ReturnType<typeof Main.K8sApi.KubeJsonApi.forCluster>;
 
@@ -43,17 +41,11 @@ const sendingSetQueryValues = (api: HostKubeJsonApi): KubeJsonApi => ({
   getResponse: (path, params, init) => api.getResponse(path, withSetQueryValues(params), init),
 });
 
-export const clusterIdFromConfig = (config?: RunnableConfig): string | undefined => {
-  const clusterId: unknown = config?.configurable?.clusterId;
-  return typeof clusterId === "string" && clusterId.length > 0 ? clusterId : undefined;
-};
-
 /**
  * The host's JSON client for the run's cluster, or a message for the model when
  * the run names no cluster or Freelens does not know it.
  */
-export const clusterApiFor = (config?: RunnableConfig): KubeJsonApi | string => {
-  const clusterId = clusterIdFromConfig(config);
+export const clusterApiFor = (clusterId: string | undefined): KubeJsonApi | string => {
   if (!clusterId) {
     return "No cluster is selected for this chat.";
   }

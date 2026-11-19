@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isStdioServer, parseMcpServers, withClusterEnvironment, withoutElicitation } from "./mcp-configuration";
+import { isStdioServer, parseMcpServers, toServerTransport, withClusterEnvironment } from "./mcp-configuration";
 
 describe("parseMcpServers", () => {
   it("reads the servers of the configuration", () => {
@@ -68,29 +68,47 @@ describe("withClusterEnvironment", () => {
   });
 });
 
-describe("withoutElicitation", () => {
-  it("turns elicitation off for stdio and HTTP servers, also where the server turned it on", () => {
+describe("toServerTransport", () => {
+  it("reads a stdio server, with its arguments, environment and directory", () => {
     expect(
-      withoutElicitation({
-        kubernetes: { command: "npx" },
-        remote: { url: "https://mcp.example.com/mcp", mode: "modern" },
-        asking: { transport: "http", url: "https://mcp.example.com/mcp", elicitation: true },
+      toServerTransport("kubernetes", {
+        command: "npx",
+        args: ["mcp-server-kubernetes"],
+        env: { KUBECONFIG: "/run/kube", DEBUG: 1 },
+        cwd: "/tmp",
       }),
     ).toEqual({
-      kubernetes: { command: "npx", elicitation: false },
-      remote: { url: "https://mcp.example.com/mcp", mode: "modern", elicitation: false },
-      asking: { transport: "http", url: "https://mcp.example.com/mcp", elicitation: false },
+      type: "stdio",
+      command: "npx",
+      args: ["mcp-server-kubernetes"],
+      env: { KUBECONFIG: "/run/kube", DEBUG: "1" },
+      cwd: "/tmp",
+    });
+    expect(toServerTransport("explicit", { transport: "stdio", command: "server" })).toEqual({
+      type: "stdio",
+      command: "server",
     });
   });
 
-  it("leaves SSE servers, legacy servers and invalid entries as they are", () => {
-    const servers = {
-      sse: { transport: "sse", url: "https://mcp.example.com/sse" },
-      typed: { type: "sse", url: "https://mcp.example.com/sse" },
-      legacy: { command: "npx", mode: "legacy" },
-      invalid: "npx",
-    };
+  it("reads an HTTP server by default and an SSE server by its transport or type", () => {
+    expect(
+      toServerTransport("remote", { url: "https://mcp.example.com/mcp", headers: { authorization: "t" } }),
+    ).toEqual({ type: "http", url: "https://mcp.example.com/mcp", headers: { authorization: "t" } });
+    expect(toServerTransport("sse", { transport: "sse", url: "https://mcp.example.com/sse" })).toEqual({
+      type: "sse",
+      url: "https://mcp.example.com/sse",
+    });
+    expect(toServerTransport("typed", { type: "sse", url: "https://mcp.example.com/sse" })).toMatchObject({
+      type: "sse",
+    });
+  });
 
-    expect(withoutElicitation(servers)).toEqual(servers);
+  it.each([
+    ["npx", 'The MCP server "bad" is not an object.'],
+    [{ transport: "stdio" }, 'The MCP server "bad" has no "command".'],
+    [{ transport: "websocket", url: "ws://mcp" }, 'The MCP server "bad" has an unknown transport "websocket".'],
+    [{ headers: {} }, 'The MCP server "bad" has no "url".'],
+  ])("refuses %j with a message that names the server", (server, message) => {
+    expect(() => toServerTransport("bad", server)).toThrow(message);
   });
 });

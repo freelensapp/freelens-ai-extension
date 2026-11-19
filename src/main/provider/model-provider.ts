@@ -1,11 +1,13 @@
+import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { Main } from "@freelensapp/extensions";
+import { defaultSettingsMiddleware, type LanguageModel, type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import { AIProviders, DEFAULT_OPENAI_BASE_URL } from "../../common/provider/ai-models";
 import { findProvider } from "../../common/provider/model-list";
 import { PreferencesStore } from "../../common/store";
-import { DsmlAwareChatOpenAI } from "./dsml-aware-chat-model";
+import { dsmlToolCallMiddleware } from "./dsml-middleware";
 import { emitsDsmlToolCalls } from "./model-capabilities";
-import { OfflineTokenChatOpenAI } from "./offline-token-chat-model";
-import { buildOpenAIChatFields } from "./openai-fields";
+import { buildOpenAIModelOptions, COMPATIBLE_PROVIDER_NAME } from "./openai-fields";
 
 // Read at call time: the namespace is the host's, and exists only once the
 // extension is loaded.
@@ -22,7 +24,12 @@ export const resolveOpenAIKey = (preferencesStore: PreferencesStore): string | u
 export const useModelProvider = () => {
   const preferencesStore = PreferencesStore.getInstanceOrCreate<PreferencesStore>();
 
-  const getModel = () => {
+  /**
+   * The selected model as a `LanguageModel` of the AI SDK, with its default
+   * call settings (temperature, provider options) applied by a middleware, so
+   * every caller (the agents, Explain, compaction) sends the same request.
+   */
+  const getModel = (): LanguageModel => {
     const modelName = preferencesStore.selectedModel;
 
     // Guard the empty-list / no-selection case: the chat UI offers a
@@ -41,23 +48,38 @@ export const useModelProvider = () => {
           throw new Error("No API key configured. Set it in the extension preferences or in OPENAI_API_KEY.");
         }
 
-        const fields = buildOpenAIChatFields({
+        const baseURL = preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL;
+        const { api, temperature, providerOptions } = buildOpenAIModelOptions({
           modelName,
-          apiKey,
-          baseUrl: preferencesStore.openAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
-          fetch: hostFetch,
+          baseUrl: baseURL,
           reasoningEffort: preferencesStore.openAIReasoningEffort,
           disableThinking: preferencesStore.disableThinking,
         });
 
+        const model =
+          api === "compatible"
+            ? createOpenAICompatible({
+                name: COMPATIBLE_PROVIDER_NAME,
+                baseURL,
+                apiKey,
+                fetch: hostFetch,
+                // The usage of a streamed answer, which a gateway sends only
+                // when it is asked for.
+                includeUsage: true,
+              }).chatModel(modelName)
+            : createOpenAI({ baseURL, apiKey, fetch: hostFetch })[api](modelName);
+
+        const middleware: LanguageModelMiddleware[] = [
+          defaultSettingsMiddleware({ settings: { temperature, providerOptions } }),
+        ];
         // DeepSeek models leak their native "DSML" tool-call markup into the
         // assistant text when the endpoint has no server-side tool-call parser.
-        // Use a client that recovers those tool calls so the agents can run them.
+        // Recover those tool calls so the agents can run them.
         if (emitsDsmlToolCalls(modelName)) {
-          return new DsmlAwareChatOpenAI({ ...fields, streaming: true });
+          middleware.push(dsmlToolCallMiddleware);
         }
 
-        return new OfflineTokenChatOpenAI(fields);
+        return wrapLanguageModel({ model, middleware });
       }
       default:
         throw new Error(`Unsupported provider: ${provider}`);

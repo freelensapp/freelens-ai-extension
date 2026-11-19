@@ -4,7 +4,8 @@
 // that the process is gone after the client closes.
 //
 // It speaks just enough of the protocol (newline-delimited JSON-RPC) for
-// `MCPAdapter`: initialize, tools/list and tools/call.
+// the MCP client of the AI SDK: initialize, tools/list and tools/call; any other
+// method, such as the protocol discovery of a modern client, is not found.
 import { createInterface } from "node:readline";
 
 const send = (message) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);

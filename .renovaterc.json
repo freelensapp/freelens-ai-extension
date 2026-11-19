@@ -61,14 +61,15 @@
       "description": [
         "Libraries that Freelens also has take the version of its default catalog in pnpm-workspace.yaml on main: the extension compiles and tests against the versions the host runs.",
         "Every dependency except the ones excluded with ! here: a dependency added to package.json is in the Freelens catalog unless it is added to that list. One that is in neither fails its lookup on the Dependency Dashboard.",
-        "Excluded: the libraries the extension bundles that Freelens does not have (LangChain, loglevel, lucide-react, react-markdown, remark-gfm, yaml), which take the newest release.",
+        "Excluded: the libraries the extension bundles that Freelens does not have (the AI SDK, loglevel, lucide-react, react-markdown, remark-gfm, yaml), which take the newest release.",
         "The custom datasource has no release dates, so minimumReleaseAge is off; Freelens has the same pnpm policy and adopts only versions that already satisfy it."
       ],
       "matchManagers": ["npm"],
       "matchDepTypes": ["dependencies", "devDependencies"],
       "matchPackageNames": [
         "!@freelensapp/**",
-        "!@langchain/**",
+        "!@ai-sdk/**",
+        "!ai",
         "!loglevel",
         "!lucide-react",
         "!react-markdown",

@@ -62,11 +62,14 @@
     "react",
     // bundled libraries. The build inlines them, and Freelens installs no
     // dependencies of an extension, so they are devDependencies too, which the
-    // --production --strict pass reports as unlisted
-    "@langchain/core",
-    "@langchain/langgraph",
-    "@langchain/mcp-adapters",
-    "@langchain/openai",
+    // --production --strict pass reports as unlisted. `@ai-sdk/provider` is
+    // imported for its types only (the language model specification of the
+    // DSML middleware), and `ai` brings its runtime
+    "@ai-sdk/mcp",
+    "@ai-sdk/openai",
+    "@ai-sdk/openai-compatible",
+    "@ai-sdk/provider",
+    "ai",
     "loglevel",
     "lucide-react",
     "react-markdown",

@@ -111,6 +111,10 @@ export default defineConfig(({ mode }) => {
       rolldownOptions: {
         external: entryPoint.external,
         platform: entryPoint.platform,
+        // One file per entry: a dynamic import of a bundled library (the AI
+        // SDK loads `@vercel/oidc` that way) would otherwise become a chunk of
+        // its own, next to an entry the host loads and watches alone.
+        output: { codeSplitting: false },
       },
     },
   };
