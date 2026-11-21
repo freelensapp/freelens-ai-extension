@@ -26,6 +26,7 @@ jobs:
         include:
           # The Freelens releases the extension supports, by their tags.
           - freelens_version: v2.0.0
+          - freelens_version: v2.1.0
 
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
