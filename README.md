@@ -115,12 +115,12 @@ inference is delegated to the provider.
   built on the OpenAI client and the OpenAI-compatible wire format. Most models
   are reached through Chat Completions; the GPT-6 models, which take tools only
   through the Responses API, are reached through Responses (see [Available
-  Models](#available-models)). It works with OpenAI
+Models](#available-models)). It works with OpenAI
   directly, and with any endpoint that implements the same API — either natively
   or through an OpenAI-compatible gateway such as
   [LiteLLM](https://github.com/BerriAI/litellm) (see [Using other providers
-  through an OpenAI-compatible
-  gateway](#using-other-providers-through-an-openai-compatible-gateway)).
+through an OpenAI-compatible
+gateway](#using-other-providers-through-an-openai-compatible-gateway)).
 - **Pay-as-you-go billing.** You bring your own API key, and the provider bills
   you per token for the requests the extension makes. There is no bundled
   subscription or hosted backend; usage cost depends entirely on the model and
@@ -317,7 +317,7 @@ context of the conversation.
 
 - **Editable model list** seeded with OpenAI models, with model-specific
   behavior chosen by name heuristics (see [Available
-  Models](#available-models)).
+Models](#available-models)).
 - **OpenAI-compatible gateways** for reaching other providers, with built-in
   handling for DeepSeek and other "thinking" models.
 - **Custom agent rules** can be added from the preferences to steer the agent.
