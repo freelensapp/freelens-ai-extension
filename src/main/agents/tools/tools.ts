@@ -46,7 +46,9 @@ const fieldsSchema = z
       "returned resource to trim the output to only the fields you need, instead of the full and often verbose " +
       "object. Each selector is relative to a single resource and the result keeps the nested structure of the " +
       'matched fields. Examples: ".metadata.name", ".status.phase", ".spec.containers[*].image", ' +
-      '".metadata.labels[\'app.kubernetes.io/name\']", ".spec.containers[0].name". ' +
+      '".metadata.labels[\'app.kubernetes.io/name\']", ".spec.containers[0].name", ' +
+      "\".status.conditions[?(@.type=='Ready')].status\". Filters take ==, !=, <, <=, >, >= or [?(@.key)] " +
+      "for presence. " +
       "Omit to return the full resource.",
   );
 const subresourceSchema = z

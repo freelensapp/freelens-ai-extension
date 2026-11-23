@@ -97,6 +97,57 @@ describe("buildFieldSelector", () => {
     select?.(pod);
     expect(pod.metadata.labels).toHaveProperty("app", "nginx");
   });
+
+  describe("filters", () => {
+    const kustomization = {
+      metadata: { name: "apps" },
+      status: {
+        conditions: [
+          { type: "Reconciling", status: "False", reason: "Progressing", observedGeneration: 3 },
+          { type: "Ready", status: "True", reason: "Succeeded", message: "a]b", observedGeneration: 4 },
+        ],
+      },
+    };
+    // Serialize to normalize the sparse array (an unmatched index becomes null).
+    const select = (fields: string[]) => JSON.parse(JSON.stringify(buildFieldSelector(fields)?.(kustomization)));
+
+    it("selects the array elements matching an equality filter", () => {
+      expect(select([".status.conditions[?(@.type=='Ready')].reason"])).toEqual({
+        status: { conditions: [null, { reason: "Succeeded" }] },
+      });
+      expect(select(['.status.conditions[?(@.type == "Ready")]'])).toEqual({
+        status: { conditions: [null, kustomization.status.conditions[1]] },
+      });
+    });
+
+    it("finds the closing bracket outside quoted text", () => {
+      expect(select([".status.conditions[?(@.message=='a]b')].type"])).toEqual({
+        status: { conditions: [null, { type: "Ready" }] },
+      });
+    });
+
+    it("supports inequality, comparison and presence filters", () => {
+      expect(select([".status.conditions[?(@.type!='Ready')].type"])).toEqual({
+        status: { conditions: [{ type: "Reconciling" }] },
+      });
+      expect(select([".status.conditions[?(@.observedGeneration>=4)].type"])).toEqual({
+        status: { conditions: [null, { type: "Ready" }] },
+      });
+      expect(select([".status.conditions[?(@.message)].type"])).toEqual({
+        status: { conditions: [null, { type: "Ready" }] },
+      });
+    });
+
+    it("merges a filter with other selectors on the same array", () => {
+      expect(select([".status.conditions[?(@.type=='Ready')]", ".status.conditions[*].type"])).toEqual({
+        status: { conditions: [{ type: "Reconciling" }, kustomization.status.conditions[1]] },
+      });
+    });
+
+    it("matches nothing when no element passes the filter", () => {
+      expect(select([".status.conditions[?(@.type=='Stalled')]"])).toEqual({});
+    });
+  });
 });
 
 describe("parseFieldPath", () => {
@@ -110,6 +161,11 @@ describe("parseFieldPath", () => {
 
   it("throws on empty brackets", () => {
     expect(() => parseFieldPath(".spec.containers[]")).toThrow(/empty/);
+  });
+
+  it("throws on an unsupported filter", () => {
+    expect(() => parseFieldPath(".status.conditions[?(@.type=~'R')]")).toThrow(/unsupported filter/);
+    expect(() => parseFieldPath(".status.conditions[?(@.type==Ready)]")).toThrow(/invalid filter value/);
   });
 
   it("validates eagerly through buildFieldSelector", () => {
