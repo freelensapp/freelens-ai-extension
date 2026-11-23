@@ -9,11 +9,25 @@
 //   .spec.containers[0].name               explicit array index
 //   .metadata.labels['app.kubernetes.io/name']  bracketed quoted key (dots in key)
 //   .status.*                              wildcard over object keys
+//   .status.conditions[?(@.type=='Ready')] array elements matching a filter
+//                                          (==, !=, <, <=, >, >=, or [?(@.key)] for presence)
 // Optional kubectl-style wrapping braces ({ ... }) and a leading `$` are
 // tolerated. The matched values are copied into a fresh object that preserves
 // the nested structure of the source, so the model can tell which field is which.
 
-type Segment = { type: "key"; key: string } | { type: "index"; index: number } | { type: "wildcard" };
+/** A literal on the right side of a filter comparison. */
+type FilterLiteral = string | number | boolean | null;
+
+type FilterOperator = "==" | "!=" | "<" | "<=" | ">" | ">=";
+
+interface FilterSegment {
+  type: "filter";
+  path: string[];
+  operator?: FilterOperator;
+  value?: FilterLiteral;
+}
+
+type Segment = { type: "key"; key: string } | { type: "index"; index: number } | { type: "wildcard" } | FilterSegment;
 
 interface Match {
   path: (string | number)[];
@@ -77,19 +91,124 @@ function readDotSegment(source: string, i: number, segments: Segment[]): number 
   return i;
 }
 
+/** Index of the "]" that closes the "[" at `open`, skipping quoted text and nested brackets. */
+function findClosingBracket(source: string, open: number): number {
+  let depth = 0;
+  let quote: string | undefined;
+  for (let k = open; k < source.length; k++) {
+    const char = source[k];
+    if (quote) {
+      if (char === "\\") {
+        k++;
+      } else if (char === quote) {
+        quote = undefined;
+      }
+    } else if (char === "'" || char === '"') {
+      quote = char;
+    } else if (char === "[") {
+      depth++;
+    } else if (char === "]" && --depth === 0) {
+      return k;
+    }
+  }
+  return -1;
+}
+
+function parseFilterLiteral(text: string, raw: string): FilterLiteral {
+  if (text.length >= 2 && (text[0] === "'" || text[0] === '"') && text.at(-1) === text[0]) {
+    return text.slice(1, -1);
+  }
+  if (text === "true") return true;
+  if (text === "false") return false;
+  if (text === "null") return null;
+  const number = Number(text);
+  if (text !== "" && Number.isFinite(number)) return number;
+  throw new Error(`Invalid field selector "${raw}": invalid filter value "${text}".`);
+}
+
+/** Parse `?(@.path OP literal)` or `?(@.path)`, the filter expressions of kubectl's JSONPath. */
+function parseFilter(inner: string, raw: string): FilterSegment {
+  let expression = inner.slice(1).trim();
+  if (expression.startsWith("(") && expression.endsWith(")")) {
+    expression = expression.slice(1, -1).trim();
+  }
+  const match = /^@((?:\.[^.\s=!<>[\]*]+|\[(?:'[^']*'|"[^"]*")\])*)\s*(?:(==|!=|<=|>=|<|>)\s*(.+))?$/s.exec(expression);
+  if (!match) {
+    throw new Error(`Invalid field selector "${raw}": unsupported filter "${inner}".`);
+  }
+  const [, pathText, operator, valueText] = match;
+  const path: string[] = [];
+  if (pathText) {
+    for (const segment of parseFieldPath(pathText)) {
+      if (segment.type !== "key") {
+        throw new Error(`Invalid field selector "${raw}": unsupported filter path "${pathText}".`);
+      }
+      path.push(segment.key);
+    }
+  }
+  if (!operator) {
+    return { type: "filter", path };
+  }
+  return {
+    type: "filter",
+    path,
+    operator: operator as FilterOperator,
+    value: parseFilterLiteral(valueText.trim(), raw),
+  };
+}
+
+function filterMatches(element: unknown, segment: FilterSegment): boolean {
+  let value: unknown = element;
+  for (const key of segment.path) {
+    if (!isPlainObject(value) || !Object.hasOwn(value, key)) {
+      value = undefined;
+      break;
+    }
+    value = value[key];
+  }
+  const expected = segment.value;
+  switch (segment.operator) {
+    case undefined:
+      return value !== undefined && value !== null;
+    case "==":
+      return value === expected;
+    case "!=":
+      return value !== expected;
+  }
+  const comparable =
+    (typeof value === "number" && typeof expected === "number") ||
+    (typeof value === "string" && typeof expected === "string");
+  if (!comparable) {
+    return false;
+  }
+  const [left, right] = [value, expected] as [number | string, number | string];
+  switch (segment.operator) {
+    case "<":
+      return left < right;
+    case "<=":
+      return left <= right;
+    case ">":
+      return left > right;
+    case ">=":
+      return left >= right;
+  }
+}
+
 /**
- * Read a bracket-style segment (`[*]`, `[0]`, `['key']`, `["key"]` or `[key]`)
- * starting at the opening `[`, pushing the resulting segment, and return the new
- * cursor position.
+ * Read a bracket-style segment (`[*]`, `[0]`, `['key']`, `["key"]`, `[key]` or
+ * a `[?(...)]` filter) starting at the opening `[`, pushing the resulting
+ * segment, and return the new cursor position.
  */
 function readBracketSegment(source: string, i: number, segments: Segment[], raw: string): number {
-  const end = source.indexOf("]", i);
+  const end = findClosingBracket(source, i);
   if (end === -1) {
     throw new Error(`Invalid field selector "${raw}": unterminated "[".`);
   }
   const inner = source.slice(i + 1, end).trim();
   if (inner === "*") {
     segments.push({ type: "wildcard" });
+  } else if (inner.startsWith("?")) {
+    segments.push(parseFilter(inner, raw));
   } else if ((inner.startsWith("'") && inner.endsWith("'")) || (inner.startsWith('"') && inner.endsWith('"'))) {
     segments.push({ type: "key", key: inner.slice(1, -1) });
   } else if (/^-?\d+$/.test(inner)) {
@@ -129,6 +248,14 @@ function resolveMatches(source: unknown, segments: Segment[]): Match[] {
           if (index >= 0 && index < value.length) {
             next.push({ path: [...node.path, index], value: value[index] });
           }
+        }
+      } else if (segment.type === "filter") {
+        if (Array.isArray(value)) {
+          value.forEach((element, index) => {
+            if (filterMatches(element, segment)) {
+              next.push({ path: [...node.path, index], value: element });
+            }
+          });
         }
       } else {
         if (Array.isArray(value)) {
