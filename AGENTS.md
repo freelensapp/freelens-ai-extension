@@ -16,9 +16,9 @@ Freelens extension docs.
 
 - **Language**: TypeScript 7.0.2
 - **Runtime**: Freelens >= 2.0.0 (extension API v2)
-- **Toolchain**: Node.js 24.x, yq 4.x and cosign 3.x (`mise.toml` with
-  `mise.lock`; Node also in `.nvmrc`)
-- **Package manager**: pnpm 12.x (`packageManager`, run through corepack)
+- **Toolchain**: Node.js 24.x, pnpm 12.x, yq 4.x and cosign 3.x (`mise.toml`
+  with `mise.lock`; Node also in `.nvmrc`)
+- **Package manager**: pnpm 12.x (`packageManager`)
 - **License**: MIT
 
 Library and tool versions follow the Freelens stack: the libraries the
@@ -32,7 +32,17 @@ run with `pnpm dlx` (Biome, knip, the Trunk launcher) to the root
 `.renovaterc.json` read the versions from the same Freelens files on `main`,
 so an update arrives only once Freelens has adopted it, at that version, in
 one "Freelens dependencies" group together with a release of
-`@freelensapp/extensions`. A bundled library
+`@freelensapp/extensions`.
+pnpm follows the pnpm of Freelens's `mise.toml`, both in `mise.toml` and in
+`packageManager`, which must stay equal. The workflows install pnpm with mise,
+not with Corepack, which Node no longer bundles from version 26. Whichever pnpm
+runs reads `packageManager` and switches itself to that version, whose
+integrity `pnpm-lock.yaml` pins under `packageManagerDependencies`, so a pnpm
+from mise of another version makes every CI job download pnpm a second time.
+`packageManager` carries no Corepack hash (`+sha512.…`): Renovate updates the
+hash only from the digest of the new version, which a custom datasource does
+not have, and the update would fail with "no valid digest available".
+A bundled library
 that Freelens does not have is excluded from the catalog rule and updated as
 usual (see "Modules provided by the host"). After changing `mise.toml`, run `mise lock`, which re-locks every
 platform, not only `mise install`.

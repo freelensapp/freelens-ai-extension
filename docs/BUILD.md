@@ -23,7 +23,8 @@ runs it in Freelens.
 - [**_Node.js_**](https://nodejs.org/en), the version in `.nvmrc` (installed
   with `nvm install` or `mise install` from the root of this repository)
 - [**_pnpm_**](https://pnpm.io/installation), the version of `packageManager`
-  in `package.json` (installed with `corepack install`)
+  in `package.json` (`mise install` installs it, and any other pnpm switches
+  itself to that version)
 
 ---
 
