@@ -32,7 +32,9 @@ run with `pnpm dlx` (Biome, knip, the Trunk launcher) to the root
 `.renovaterc.json` read the versions from the same Freelens files on `main`,
 so an update arrives only once Freelens has adopted it, at that version, in
 one "Freelens dependencies" group together with a release of
-`@freelensapp/extensions`.
+`@freelensapp/extensions`. Every rule of the
+group sets `separateMajorMinor: false`; otherwise Renovate splits a major
+update off into a PR of its own, and the host's stack arrives in two halves.
 pnpm follows the pnpm of Freelens's `mise.toml`, both in `mise.toml` and in
 `packageManager`, which must stay equal. The workflows install pnpm with mise,
 not with Corepack, which Node no longer bundles from version 26. Whichever pnpm
